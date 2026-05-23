@@ -7,6 +7,16 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
 ---
+## [0.24.4-vs2pk0.3] - 2026-05-23
+
+### 变更
+- **已同步 fork 到作者仓库 `jlcodes99/cockpit-tools` 的 `039c89a2`**：本构建包含上游 `v0.24.4` 的 Codex API 服务独立页面、命名 API Key、图片生成网关兼容、请求日志和 Antigravity IDE 路径修复。
+- **上游合并后继续保留本地 fork 的 Codex 增强**：Codex 套餐徽章可配置样式、Codex API 服务自定义凭据模式、账号排序偏好持久化，以及 Codex 本地接入网格布局修复仍可使用。
+
+### 备份
+- **已为本次 fork 构建刷新改动文件备份集**：相对上游有差异的文件会按仓库相对路径镜像到 `/Users/dalong/Documents/cockpit-tools.backup`。
+
+---
 ## [0.24.4] - 2026-05-23
 
 ### 新增

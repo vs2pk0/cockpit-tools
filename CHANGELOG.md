@@ -7,6 +7,16 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [0.24.4-vs2pk0.3] - 2026-05-23
+
+### Changed
+- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `039c89a2`**: this build includes the upstream `v0.24.4` Codex API Service page, named API keys, image-generation gateway support, request logs, and Antigravity IDE path fixes.
+- **Preserved local fork Codex enhancements during the upstream merge**: configurable Codex plan badge styles, Codex API Service custom credential mode, account sort preference persistence, and the Codex local access grid layout fix remain available after the sync.
+
+### Backup
+- **Refreshed the modified-file backup set for this fork build**: files that differ from upstream are intended to be mirrored under `/Users/dalong/Documents/cockpit-tools.backup` with their repository-relative paths.
+
+---
 ## [0.24.4] - 2026-05-23
 
 ### Added
