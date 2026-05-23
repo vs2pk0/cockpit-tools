@@ -15,14 +15,14 @@
 .codex-accounts-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  align-items: start;
+  align-items: stretch;
   gap: 20px;
 }
 
 .codex-group-entry-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  align-items: start;
+  align-items: stretch;
   gap: 20px;
 }
 
@@ -189,6 +189,24 @@
 
 .codex-local-access-toggle-icon.is-open {
   transform: rotate(90deg);
+}
+
+.codex-local-access-card--grid .folder-inline-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.codex-local-access-card--grid .codex-local-access-title-row {
+  width: 100%;
+}
+
+.codex-local-access-card--grid .folder-inline-name {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.codex-local-access-card--grid .codex-local-access-header-actions {
+  margin-left: auto;
 }
 
 .codex-local-access-card--list,

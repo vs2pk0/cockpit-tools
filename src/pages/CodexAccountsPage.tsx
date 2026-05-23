@@ -6992,6 +6992,52 @@ export function CodexAccountsPage() {
       "codex.localAccess.emptyMembers",
       "当前集合暂无账号",
     );
+    const renderLocalAccessHeaderActions = (showToggleButton: boolean) => (
+      <div className="codex-local-access-header-actions">
+        {isLocalAccessCurrent && (
+          <span className="current-tag">{t("codex.current", "当前")}</span>
+        )}
+        <span className={`codex-local-access-status ${localAccessStatusTone}`}>
+          {localAccessStatusText}
+        </span>
+        {showToggleButton && (
+          <button
+            type="button"
+            className="folder-icon-btn codex-local-access-toggle-btn"
+            onClick={() => setLocalAccessDetailsExpanded((current) => !current)}
+            title={
+              showLocalAccessDetails
+                ? t("codex.localAccess.collapseDetails", "收起详情")
+                : t("codex.localAccess.expandDetails", "展开详情")
+            }
+            aria-label={
+              showLocalAccessDetails
+                ? t("codex.localAccess.collapseDetails", "收起详情")
+                : t("codex.localAccess.expandDetails", "展开详情")
+            }
+          >
+            <ChevronRight
+              size={16}
+              className={`codex-local-access-toggle-icon ${
+                showLocalAccessDetails ? "is-open" : ""
+              }`}
+            />
+          </button>
+        )}
+        <button
+          type="button"
+          className="folder-icon-btn codex-local-access-close-btn"
+          onClick={() => void handleHideLocalAccessEntry()}
+          title={t("codex.localAccess.hideEntryAction", "关闭 API 服务入口")}
+          aria-label={t(
+            "codex.localAccess.hideEntryAction",
+            "关闭 API 服务入口",
+          )}
+        >
+          <X size={14} />
+        </button>
+      </div>
+    );
 
     return (
       <div
@@ -7011,6 +7057,7 @@ export function CodexAccountsPage() {
                   <span className="folder-inline-name">
                     {t("codex.localAccess.title", "API 服务")}
                   </span>
+                  {renderLocalAccessHeaderActions(false)}
                 </div>
                 <span className="folder-inline-count">
                   {localAccessEndpointLabel}
@@ -7048,57 +7095,7 @@ export function CodexAccountsPage() {
               </div>
             </button>
           )}
-          <div className="codex-local-access-header-actions">
-            {isLocalAccessCurrent && (
-              <span className="current-tag">{t("codex.current", "当前")}</span>
-            )}
-            <span
-              className={`codex-local-access-status ${localAccessStatusTone}`}
-            >
-              {localAccessStatusText}
-            </span>
-            {!isGridLocalAccessCard && (
-              <button
-                type="button"
-                className="folder-icon-btn codex-local-access-toggle-btn"
-                onClick={() =>
-                  setLocalAccessDetailsExpanded((current) => !current)
-                }
-                title={
-                  showLocalAccessDetails
-                    ? t("codex.localAccess.collapseDetails", "收起详情")
-                    : t("codex.localAccess.expandDetails", "展开详情")
-                }
-                aria-label={
-                  showLocalAccessDetails
-                    ? t("codex.localAccess.collapseDetails", "收起详情")
-                    : t("codex.localAccess.expandDetails", "展开详情")
-                }
-              >
-                <ChevronRight
-                  size={16}
-                  className={`codex-local-access-toggle-icon ${
-                    showLocalAccessDetails ? "is-open" : ""
-                  }`}
-                />
-              </button>
-            )}
-            <button
-              type="button"
-              className="folder-icon-btn codex-local-access-close-btn"
-              onClick={() => void handleHideLocalAccessEntry()}
-              title={t(
-                "codex.localAccess.hideEntryAction",
-                "关闭 API 服务入口",
-              )}
-              aria-label={t(
-                "codex.localAccess.hideEntryAction",
-                "关闭 API 服务入口",
-              )}
-            >
-              <X size={14} />
-            </button>
-          </div>
+          {!isGridLocalAccessCard && renderLocalAccessHeaderActions(true)}
         </div>
 
         {showLocalAccessDetails && (
