@@ -140,6 +140,7 @@ import {
   removeAccountsOverviewFilterField,
   writeAccountsOverviewFilterField,
 } from '../utils/accountsOverviewFilterPersistence'
+import { useAntigravityRuntimeTarget } from '../hooks/useAntigravityRuntimeTarget'
 
 interface AccountsPageProps {
   onNavigate?: (page: Page) => void
@@ -219,6 +220,7 @@ const ANTIGRAVITY_FILTER_FIELD_ACTIVE_GROUP_ID = 'active_group_id'
 
 export function AccountsPage({ onNavigate }: AccountsPageProps) {
   const { t, i18n } = useTranslation()
+  const antigravityRuntimeTarget = useAntigravityRuntimeTarget()
   const locale = i18n.language || 'zh-CN'
   const untaggedKey = '__untagged__'
   const {
@@ -235,6 +237,17 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     switchAccount,
     updateAccountTags
   } = useAccountStore()
+
+  const formatSwitchError = useCallback((error: unknown) => {
+    const raw = String(error)
+    if (raw.startsWith('ANTIGRAVITY_LEGACY_UNSUPPORTED:')) {
+      return t(
+        'messages.antigravityLegacyUnsupported',
+        '暂不支持 Antigravity 2.0.0 及以上版本，请选择小于Antigravity 2.0.0版本或者使用Antigravity IDE'
+      )
+    }
+    return raw
+  }, [t])
 
   // ─── 验证状态标记 ────────────────────────────────────────────────────
   // 优先读 disabled_reason（新版后端写入），没有则回退到验证历史（向后兼容）
@@ -1451,11 +1464,11 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     setMessage(null)
     setSwitching(accountId)
     try {
-      const account = await switchAccount(accountId)
+      const account = await switchAccount(accountId, antigravityRuntimeTarget)
       await fetchCurrentAccount()
       setMessage({ text: t('messages.switched', { email: maskAccountText(account.email) }) })
     } catch (e) {
-      const raw = String(e)
+      const raw = formatSwitchError(e)
       if (!raw.startsWith('APP_PATH_NOT_FOUND:')) {
         setMessage({
           text: t('messages.switchFailed', { error: raw }),

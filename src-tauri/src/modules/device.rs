@@ -7,16 +7,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-const DATA_DIR: &str = ".antigravity_cockpit";
 const GLOBAL_BASELINE: &str = "device_original.json";
 
 fn get_data_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
-    let data_dir = home.join(DATA_DIR);
-    if !data_dir.exists() {
-        fs::create_dir_all(&data_dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
-    }
-    Ok(data_dir)
+    crate::modules::account::get_data_dir()
 }
 
 /// 寻找 storage.json 路径
@@ -33,10 +27,7 @@ pub fn get_storage_path() -> Result<PathBuf, String> {
 
     #[cfg(target_os = "windows")]
     {
-        let appdata =
-            std::env::var("APPDATA").map_err(|_| "无法获取 APPDATA 环境变量".to_string())?;
-        let path =
-            PathBuf::from(appdata).join("Antigravity IDE\\User\\globalStorage\\storage.json");
+        let path = crate::modules::antigravity_paths::storage_json_path()?;
         if path.exists() {
             return Ok(path);
         }
@@ -78,9 +69,7 @@ fn get_machine_id_path() -> Result<PathBuf, String> {
 
     #[cfg(target_os = "windows")]
     {
-        let appdata =
-            std::env::var("APPDATA").map_err(|_| "无法获取 APPDATA 环境变量".to_string())?;
-        return Ok(PathBuf::from(appdata).join("Antigravity IDE\\machineid"));
+        return crate::modules::antigravity_paths::machine_id_path();
     }
 
     #[cfg(target_os = "linux")]

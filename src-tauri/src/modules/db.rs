@@ -18,9 +18,7 @@ pub fn get_db_path() -> Result<PathBuf, String> {
 
     #[cfg(target_os = "windows")]
     {
-        let appdata =
-            std::env::var("APPDATA").map_err(|_| "无法获取 APPDATA 环境变量".to_string())?;
-        let path = PathBuf::from(appdata).join("Antigravity IDE\\User\\globalStorage\\state.vscdb");
+        let path = crate::modules::antigravity_paths::state_db_path()?;
         if path.exists() {
             return Ok(path);
         }

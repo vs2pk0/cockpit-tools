@@ -1,6 +1,6 @@
 # Cockpit Tools
 
-English · [简体中文](README.md)
+English · [Portuguese (BR)](README.pt-br.md) · [简体中文](README.md)
 
 [![GitHub stars](https://img.shields.io/github/stars/jlcodes99/cockpit-tools?style=flat&color=gold)](https://github.com/jlcodes99/cockpit-tools)
 [![GitHub downloads](https://img.shields.io/github/downloads/jlcodes99/cockpit-tools/total?style=flat&color=blue)](https://github.com/jlcodes99/cockpit-tools/releases)
@@ -393,6 +393,7 @@ Every bit of support helps sustain open-source development. Thank you!
 ## Acknowledgments
 
 - Antigravity IDE account switching logic based on: [Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager)
+- Codex API service implementation references: [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
 
 Thanks to the project author for their open-source contributions! If these projects have helped you, please give them a ⭐ Star to show your support!
 

@@ -123,8 +123,9 @@ fn normalize_extension_credentials(
 fn resolve_antigravity_user_data_dir() -> Option<String> {
     #[cfg(target_os = "windows")]
     {
-        let appdata = std::env::var("APPDATA").ok()?;
-        return Some(format!("{}\\Antigravity IDE", appdata));
+        return crate::modules::antigravity_paths::default_user_data_dir()
+            .ok()
+            .map(|path| path.to_string_lossy().to_string());
     }
     #[cfg(target_os = "macos")]
     {

@@ -1,6 +1,6 @@
 # Cockpit Tools
 
-[English](README.en.md) · 简体中文
+[English](README.en.md) · [Portuguese (BR)](README.pt-br.md) · 简体中文
 
 [![GitHub stars](https://img.shields.io/github/stars/jlcodes99/cockpit-tools?style=flat&color=gold)](https://github.com/jlcodes99/cockpit-tools)
 [![GitHub downloads](https://img.shields.io/github/downloads/jlcodes99/cockpit-tools/total?style=flat&color=blue)](https://github.com/jlcodes99/cockpit-tools/releases)
@@ -396,6 +396,7 @@ QQ 交流群、微信群或新建的 Telegram 畅聊群都可以加入。
 ## 致谢
 
 - Antigravity IDE 账号切号逻辑参考：[Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager)
+- Codex API 服务实现参考：[router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
 
 感谢项目作者的开源贡献！如果这些项目对你有帮助，也请给他们点个 ⭐ Star 支持一下！
 

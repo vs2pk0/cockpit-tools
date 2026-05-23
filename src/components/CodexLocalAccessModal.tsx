@@ -6,6 +6,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  ExternalLink,
   FolderPlus,
   Gauge,
   KeyRound,
@@ -33,12 +34,9 @@ import type {
   CodexLocalAccessState,
   CodexLocalAccessStatsWindow,
   CodexLocalAccessTestResult,
-  CodexLocalAccessUpstreamProxyMode,
 } from '../types/codexLocalAccess';
 import {
   getCodexPlanFilterKey,
-  isCodexApiKeyAccount,
-  isCodexExplicitFreePlanType,
 } from '../types/codex';
 import {
   buildCodexAccountPresentation,
@@ -50,6 +48,7 @@ import {
   summarizeCodexQuotaPool,
   type CodexQuotaPoolItem,
 } from '../utils/codexQuotaPool';
+import { isCodexLocalAccessEligibleAccount } from '../utils/codexLocalAccessAccounts';
 import { AccountTagFilterDropdown } from './AccountTagFilterDropdown';
 import {
   CodexPlanBadge,
@@ -76,6 +75,7 @@ interface CodexLocalAccessModalProps {
   initialSelectedIds: string[];
   maskAccountText: (value?: string | null) => string;
   onClose: () => void;
+  onOpenFullPage?: () => void;
   onSaveAccounts: (payload: {
     accountIds: string[];
     restrictFreeAccounts: boolean;
@@ -99,8 +99,8 @@ interface CodexLocalAccessModalProps {
     customBaseUrl?: string | null;
     customApiKey?: string | null;
   }) => Promise<unknown> | unknown;
-  onUpdateUpstreamProxyMode: (
-    upstreamProxyMode: CodexLocalAccessUpstreamProxyMode,
+  onUpdateUpstreamProxyConfig: (
+    upstreamProxyUrl: string | null,
   ) => Promise<unknown> | unknown;
   onRotateApiKey: () => Promise<unknown> | unknown;
   onKillPort: () => Promise<unknown> | unknown;
@@ -261,6 +261,7 @@ export function CodexLocalAccessModal({
   initialSelectedIds,
   maskAccountText,
   onClose,
+  onOpenFullPage,
   onSaveAccounts,
   onClearStats,
   onRefreshStats,
@@ -269,7 +270,7 @@ export function CodexLocalAccessModal({
   onUpdateCustomRouting,
   onUpdateAccessScope,
   onUpdateCredentials,
-  onUpdateUpstreamProxyMode,
+  onUpdateUpstreamProxyConfig,
   onRotateApiKey,
   onKillPort,
   onToggleEnabled,
@@ -303,6 +304,7 @@ export function CodexLocalAccessModal({
   >([]);
   const [activeCustomCredentialIdInput, setActiveCustomCredentialIdInput] =
     useState('');
+  const [upstreamProxyDraftUrl, setUpstreamProxyDraftUrl] = useState('');
   const [keyVisible, setKeyVisible] = useState(false);
   const [customApiKeyVisible, setCustomApiKeyVisible] = useState(false);
   const [copiedField, setCopiedField] = useState<CopyableField | null>(null);
@@ -394,7 +396,7 @@ export function CodexLocalAccessModal({
   const selectedTotals = selectedStatsWindow?.totals;
   const routingStrategy = collection?.routingStrategy ?? 'auto';
   const accessScope = collection?.accessScope ?? 'localhost';
-  const upstreamProxyMode = collection?.upstreamProxyMode ?? 'follow_global_proxy';
+  const upstreamProxyUrl = collection?.upstreamProxyUrl ?? '';
   const accessScopeAddress =
     accessScope === 'lan' ? '0.0.0.0' : '127.0.0.1';
   const accessScopeBadge =
@@ -462,25 +464,25 @@ export function CodexLocalAccessModal({
     [avgLatencyMs, selectedTotals, successRate, t],
   );
 
-  const oauthAccounts = useMemo(
-    () => accounts.filter((account) => !isCodexApiKeyAccount(account)),
+  const localAccessAccounts = useMemo(
+    () => accounts,
     [accounts],
   );
   const quotaPoolSummary = useMemo(
-    () => summarizeCodexQuotaPool(oauthAccounts),
-    [oauthAccounts],
+    () => summarizeCodexQuotaPool(localAccessAccounts),
+    [localAccessAccounts],
   );
   const currentQuotaPoolSummary = useMemo(() => {
     const accountIds = new Set(collection?.accountIds ?? []);
-    return summarizeCodexQuotaPool(oauthAccounts.filter((account) => accountIds.has(account.id)));
-  }, [collection?.accountIds, oauthAccounts]);
-  const oauthAccountIdSet = useMemo(
-    () => new Set(oauthAccounts.map((account) => account.id)),
-    [oauthAccounts],
+    return summarizeCodexQuotaPool(localAccessAccounts.filter((account) => accountIds.has(account.id)));
+  }, [collection?.accountIds, localAccessAccounts]);
+  const localAccessAccountIdSet = useMemo(
+    () => new Set(localAccessAccounts.map((account) => account.id)),
+    [localAccessAccounts],
   );
   const normalizedInitialSelectedIds = useMemo(
-    () => initialSelectedIds.filter((accountId) => oauthAccountIdSet.has(accountId)),
-    [initialSelectedIds, oauthAccountIdSet],
+    () => initialSelectedIds.filter((accountId) => localAccessAccountIdSet.has(accountId)),
+    [initialSelectedIds, localAccessAccountIdSet],
   );
 
   useEffect(() => {
@@ -508,6 +510,7 @@ export function CodexLocalAccessModal({
         collectionCustomCredentials[0]?.id ||
         '',
     );
+    setUpstreamProxyDraftUrl(collection?.upstreamProxyUrl ?? '');
     setCustomRoutingOpen(false);
     setCustomRoutingQuery('');
     setCustomRoutingFilterTypes([]);
@@ -546,10 +549,12 @@ export function CodexLocalAccessModal({
     collection?.customBaseUrl,
     collection?.activeCustomCredentialId,
     collection?.accountIds,
+    collection?.apiKeys,
     collection?.customRoutingRules,
     collection?.port,
     collection?.restrictFreeAccounts,
     collectionCustomCredentials,
+    collection?.upstreamProxyUrl,
     isOpen,
     mode,
     normalizedInitialSelectedIds,
@@ -571,14 +576,14 @@ export function CodexLocalAccessModal({
 
   const availableTags = useMemo(() => {
     const next = new Set<string>();
-    oauthAccounts.forEach((account) => {
+    localAccessAccounts.forEach((account) => {
       (account.tags || []).forEach((tag) => {
         const trimmed = tag.trim();
         if (trimmed) next.add(trimmed);
       });
     });
     return Array.from(next).sort((left, right) => left.localeCompare(right));
-  }, [oauthAccounts]);
+  }, [localAccessAccounts]);
 
   const groupIdsByAccountId = useMemo(() => {
     const next = new Map<string, Set<string>>();
@@ -616,8 +621,8 @@ export function CodexLocalAccessModal({
   );
 
   const tierCounts = useMemo(() => {
-    const counts = { all: oauthAccounts.length, VALID: 0, FREE: 0, PLUS: 0, PRO: 0, TEAM: 0, ENTERPRISE: 0, ERROR: 0 };
-    oauthAccounts.forEach((account) => {
+    const counts = { all: localAccessAccounts.length, VALID: 0, FREE: 0, API_KEY: 0, PLUS: 0, PRO: 0, TEAM: 0, ENTERPRISE: 0, ERROR: 0 };
+    localAccessAccounts.forEach((account) => {
       if (!account.quota_error) {
         counts.VALID += 1;
       }
@@ -630,7 +635,7 @@ export function CodexLocalAccessModal({
       }
     });
     return counts;
-  }, [oauthAccounts]);
+  }, [localAccessAccounts]);
 
   const allTierFilterLabel = useMemo(
     () =>
@@ -650,6 +655,15 @@ export function CodexLocalAccessModal({
         label: formatQuotaPoolLabel(
           `FREE (${tierCounts.FREE})`,
           quotaPoolSummary.byPlan.FREE,
+          quotaPoolLabels.hourly,
+          quotaPoolLabels.weekly,
+        ),
+      },
+      {
+        value: 'API_KEY',
+        label: formatQuotaPoolLabel(
+          `API Key (${tierCounts.API_KEY})`,
+          quotaPoolSummary.byPlan.API_KEY,
           quotaPoolLabels.hourly,
           quotaPoolLabels.weekly,
         ),
@@ -698,7 +712,7 @@ export function CodexLocalAccessModal({
 
   const visibleAccounts = useMemo(() => {
     const queryText = query.trim().toLowerCase();
-    const sorted = [...oauthAccounts].sort((a, b) => {
+    const sorted = [...localAccessAccounts].sort((a, b) => {
       const aName = buildCodexAccountPresentation(a, t).displayName.toLowerCase();
       const bName = buildCodexAccountPresentation(b, t).displayName.toLowerCase();
       return aName.localeCompare(bName);
@@ -746,13 +760,14 @@ export function CodexLocalAccessModal({
 
       return true;
     });
-  }, [filterTypes, groupFilter, groupIdsByAccountId, groupNameByAccountId, oauthAccounts, query, t, tagFilter]);
+  }, [filterTypes, groupFilter, groupIdsByAccountId, groupNameByAccountId, localAccessAccounts, query, t, tagFilter]);
 
   const visibleSelectableAccounts = useMemo(
     () =>
       visibleAccounts.filter((account) => {
-        if (!restrictFreeAccounts) return true;
-        if (!isCodexExplicitFreePlanType(account.plan_type)) return true;
+        if (isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts)) {
+          return true;
+        }
         return selected.has(account.id);
       }),
     [restrictFreeAccounts, selected, visibleAccounts],
@@ -800,7 +815,7 @@ export function CodexLocalAccessModal({
     const currentIds = collection?.accountIds ?? [];
     return currentIds
       .map((accountId) => {
-        const account = oauthAccounts.find((item) => item.id === accountId);
+        const account = localAccessAccounts.find((item) => item.id === accountId);
         if (!account) return null;
         const presentation = buildCodexAccountPresentation(account, t);
         const accountStats = windowStatsByAccountId.get(account.id);
@@ -816,7 +831,7 @@ export function CodexLocalAccessModal({
         const leftCount = left.stats?.requestCount ?? 0;
         return rightCount - leftCount;
       });
-  }, [collection?.accountIds, oauthAccounts, t, windowStatsByAccountId]);
+  }, [collection?.accountIds, localAccessAccounts, t, windowStatsByAccountId]);
 
   const routingStrategyOptions = useMemo(
     () => [
@@ -945,20 +960,6 @@ export function CodexLocalAccessModal({
     );
   };
 
-  const upstreamProxyModeOptions = useMemo(
-    () => [
-      {
-        value: 'follow_global_proxy',
-        label: t('codex.localAccess.upstreamProxyMode.followGlobalProxy', '跟随全局代理'),
-      },
-      {
-        value: 'direct',
-        label: t('codex.localAccess.upstreamProxyMode.direct', '直连上游'),
-      },
-    ] satisfies Array<{ value: CodexLocalAccessUpstreamProxyMode; label: string }>,
-    [t],
-  );
-
   const renderQuotaPreview = (
     presentation: ReturnType<typeof buildCodexAccountPresentation>,
     limit = 2,
@@ -984,9 +985,9 @@ export function CodexLocalAccessModal({
     );
   };
 
-  const oauthAccountById = useMemo(
-    () => new Map(oauthAccounts.map((account) => [account.id, account])),
-    [oauthAccounts],
+  const localAccessAccountById = useMemo(
+    () => new Map(localAccessAccounts.map((account) => [account.id, account])),
+    [localAccessAccounts],
   );
 
   const customRoutingRuleByAccountId = useMemo(() => {
@@ -1003,9 +1004,9 @@ export function CodexLocalAccessModal({
   const customRoutingAccounts = useMemo(() => {
     const currentIds = collection?.accountIds ?? [];
     return currentIds
-      .map((accountId) => oauthAccountById.get(accountId))
+      .map((accountId) => localAccessAccountById.get(accountId))
       .filter((account): account is CodexAccount => Boolean(account));
-  }, [collection?.accountIds, oauthAccountById]);
+  }, [collection?.accountIds, localAccessAccountById]);
 
   const customRoutingAvailableTags = useMemo(() => {
     const next = new Set<string>();
@@ -1229,11 +1230,13 @@ export function CodexLocalAccessModal({
 
   const toggleSelect = (accountId: string) => {
     if (actionBusy) return;
-    const account = oauthAccountById.get(accountId);
+    const account = localAccessAccountById.get(accountId);
     if (!account) return;
     setSelected((prev) => {
-      const isFreeAccount = isCodexExplicitFreePlanType(account.plan_type);
-      if (isFreeAccount && restrictFreeAccounts && !prev.has(accountId)) {
+      const isSelectionBlocked =
+        !isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts) &&
+        !prev.has(accountId);
+      if (isSelectionBlocked) {
         return prev;
       }
       const next = new Set(prev);
@@ -1251,12 +1254,9 @@ export function CodexLocalAccessModal({
     setNotice('');
     try {
       const filtered = Array.from(selected).filter((accountId) => {
-        const account = oauthAccountById.get(accountId);
+        const account = localAccessAccountById.get(accountId);
         if (!account) return false;
-        if (restrictFreeAccounts && isCodexExplicitFreePlanType(account.plan_type)) {
-          return false;
-        }
-        return true;
+        return isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts);
       });
       await onSaveAccounts({
         accountIds: filtered,
@@ -1494,19 +1494,21 @@ export function CodexLocalAccessModal({
     );
   };
 
-  const handleChangeUpstreamProxyMode = async (nextValue: string) => {
+  const handleSaveUpstreamProxyConfig = async () => {
     if (!collection) return;
-    const nextMode =
-      nextValue === 'direct' ? 'direct' : 'follow_global_proxy';
-    if (nextMode === upstreamProxyMode) return;
+    const upstreamProxyUrlDraft = upstreamProxyDraftUrl.trim();
+    if (upstreamProxyUrlDraft === upstreamProxyUrl.trim()) {
+      setUpstreamProxyDraftUrl(upstreamProxyUrlDraft);
+      return;
+    }
 
     await runAction(
       async () => {
-        await onUpdateUpstreamProxyMode(nextMode);
+        await onUpdateUpstreamProxyConfig(upstreamProxyUrlDraft || null);
       },
       t(
         'codex.localAccess.upstreamProxySaveSuccess',
-        'API 服务上游连接方式已更新',
+        'API 代理地址已更新',
       ),
     );
   };
@@ -1668,19 +1670,63 @@ export function CodexLocalAccessModal({
                     <span>{t('codex.localAccess.testAction', '测试')}</span>
                   </button>
                   {collection && (
-                    <div className="codex-local-access-header-upstream-proxy">
-                      <SingleSelectDropdown
-                        value={upstreamProxyMode}
-                        options={upstreamProxyModeOptions}
-                        onChange={(value) => void handleChangeUpstreamProxyMode(value)}
-                        disabled={saving || testing || starting}
-                        ariaLabel={t('codex.localAccess.upstreamProxyLabel', '上游连接')}
-                        menuWidth={150}
-                      />
+                    <div className="codex-local-access-header-upstream">
+                      <div className="codex-local-access-header-upstream-url">
+                        <input
+                          type="text"
+                          value={upstreamProxyDraftUrl}
+                          onChange={(event) =>
+                            setUpstreamProxyDraftUrl(event.target.value)
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              void handleSaveUpstreamProxyConfig();
+                            }
+                          }}
+                          disabled={saving || testing || starting}
+                          placeholder={t(
+                            'codex.localAccess.upstreamProxyUrlPlaceholder',
+                            '留空用全局代理',
+                          )}
+                          aria-label={t(
+                            'codex.localAccess.upstreamProxyLabel',
+                            'API 代理地址',
+                          )}
+                        />
+                        <button
+                          type="button"
+                          className="codex-local-access-upstream-save-btn"
+                          onClick={() => void handleSaveUpstreamProxyConfig()}
+                          disabled={saving || testing || starting}
+                          title={t(
+                            'codex.localAccess.upstreamProxySaveAction',
+                            '保存代理',
+                          )}
+                          aria-label={t(
+                            'codex.localAccess.upstreamProxySaveAction',
+                            '保存代理',
+                          )}
+                        >
+                          <Check size={13} />
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
                 <div className="codex-local-access-header-tools">
+                  {onOpenFullPage && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm codex-local-access-full-page-btn"
+                      onClick={onOpenFullPage}
+                      title={t('codex.apiService.openFullPage', '查看全部功能')}
+                      aria-label={t('codex.apiService.openFullPage', '查看全部功能')}
+                    >
+                      <ExternalLink size={14} />
+                      <span>{t('codex.apiService.openFullPage', '查看全部功能')}</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="folder-icon-btn codex-local-access-toolbar-btn"
@@ -2140,6 +2186,7 @@ export function CodexLocalAccessModal({
                         {accessScopeAddress}
                       </code>
                     </div>
+
                   </div>
                 ) : (
                   <div className="group-account-empty">
@@ -2271,6 +2318,7 @@ export function CodexLocalAccessModal({
                   )}
                 </div>
               </section>
+
             </div>
           )}
 
@@ -2370,9 +2418,9 @@ export function CodexLocalAccessModal({
               </div>
 
               <div className="group-account-list codex-local-access-member-list">
-                {oauthAccounts.length === 0 ? (
+                {localAccessAccounts.length === 0 ? (
                   <div className="group-account-empty">
-                    {t('codex.localAccess.modal.empty', '暂无可加入的 OAuth 账号')}
+                    {t('codex.localAccess.modal.empty', '暂无可加入的 Codex 账号')}
                   </div>
                 ) : visibleAccounts.length === 0 ? (
                   <div className="group-account-empty">
@@ -2382,22 +2430,22 @@ export function CodexLocalAccessModal({
                   visibleAccounts.map((account) => {
                     const presentation = buildCodexAccountPresentation(account, t);
                     const isChecked = selected.has(account.id);
-                    const isFreeAccount = isCodexExplicitFreePlanType(account.plan_type);
-                    const isFreeSelectionBlocked =
-                      isFreeAccount && restrictFreeAccounts && !isChecked;
+                    const isSelectionBlocked =
+                      !isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts) &&
+                      !isChecked;
                     const accountStats = allStatsByAccountId.get(account.id)?.usage;
 
                     return (
                       <label
                         key={account.id}
                         className={`group-account-item${isChecked ? ' is-current' : ''}${
-                          isFreeSelectionBlocked ? ' is-disabled' : ''
+                          isSelectionBlocked ? ' is-disabled' : ''
                         }`}
                       >
                         <input
                           type="checkbox"
                           checked={isChecked}
-                          disabled={actionBusy || isFreeSelectionBlocked}
+                          disabled={actionBusy || isSelectionBlocked}
                           onChange={() => toggleSelect(account.id)}
                         />
                         <div className="group-account-main">

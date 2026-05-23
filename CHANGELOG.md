@@ -7,6 +7,61 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [0.24.4] - 2026-05-23
+
+### Added
+- **Codex API Service now has a dedicated management page**: service status, access URLs, client keys, account pool, model rules, routing options, health state, and request logs can now be managed from one Codex API Service entry.
+- **Codex API Service now supports named client API keys and per-key model policies**: keys can be created, renamed, disabled, rotated, deleted, and constrained with model prefixes plus allowed/excluded model lists.
+- **Codex API Service now bridges official Codex backend and WebSocket request paths**: `/backend-api/codex/responses`, `/backend-api/codex/responses/compact`, and Responses WebSocket upgrades can run through the local managed-account gateway.
+- **Codex API Service now exposes image-generation compatibility through `gpt-image-2`**: `/v1/images/generations` and `/v1/images/edits` are mapped to Codex Responses image tooling with service-level image modes and account capability checks.
+- **Codex API Service now records usage statistics and searchable request logs**: daily, weekly, monthly, and all-time usage is tracked by account, model, and client key, with filters for model, account, key, request type, status, and error category.
+- **Development runs now have an isolated Cockpit Tools Dev profile**: `npm run tauri:dev` starts the dev app with its own Tauri identifier, data directory, API port, and window branding.
+
+### Changed
+- **Codex API Service modal now stays focused on quick setup with a View All Features shortcut**: advanced stats, request logs, image-generation controls, and named key management now live on the dedicated page.
+- **Codex API Service routing now includes session affinity, configurable retry behavior, and account health tracking**: repeated turns can stay on one account while cooled-down, exhausted, or image-ineligible accounts are skipped before the next selection.
+- **Codex official app speed selection now writes the current official `config.toml` desktop service-tier key**: Standard removes the managed tier and Fast writes `priority`, matching the current Codex client storage.
+- **Shared Cockpit data files now resolve through one data-directory path**: account groups, device state, config state, and Codex API Service state follow the same configured or profile-specific data directory.
+- **Documentation now includes Portuguese README/donation pages and WSL2 Ubuntu 24 build guidance**: localized project documentation and Linux build notes are available alongside the existing English and Chinese docs.
+
+### Fixed
+- **Codex access-token-only and session-token imports no longer get forced into reauthorization because `refresh_token` is missing**: imports accept `session_token`/`sessionToken`, managed projections keep the expected `refresh_token` field, and proactive refresh skips accounts that cannot refresh.
+- **Dashboard and platform switching now keep grouped Antigravity/Codex entries consistent**: grouped cards are deduplicated, Codex API Service navigation stays inside the Codex group, and the switcher no longer treats the current extra page as a platform mismatch.
+
+---
+## [0.24.3] - 2026-05-21
+
+### Changed
+- **Emergency fix for Codex Local API Service routing when no explicit proxy is configured**: API proxy URL, Cockpit global proxy, and environment proxy variables are still preferred in order, while the service now falls through to reqwest's system proxy discovery instead of stopping before the system auto-proxy path can be used.
+- **Antigravity installed-version lookup now separates quick badge reads from full scans**: the overview badge starts after a short delay, uses cached metadata when possible, and completes a longer scan in the background so version display does not block the page.
+- **Codex plan badges now reuse the raw account plan value with shared styling**: account cards, summaries, and routing views keep backend/local plan labels unchanged while using one presentation path for badge classes.
+
+### Fixed
+- **Legacy Antigravity account switching no longer fails when installed-version metadata is unavailable or unparseable**: cached known versions still block Antigravity `2.0.0` and later, while missing cache data allows the legacy path to proceed.
+- **Codex custom routing account lists now keep their header and rows within a bounded scroll area**: the modal body scrolls correctly and plan badges keep stable sizing in narrow layouts.
+
+---
+## [0.24.2] - 2026-05-21
+
+### Fixed
+- **Emergency fix for Codex Local API Service proxy routing after v0.24.1**: empty API proxy URLs now fall back to the Cockpit global proxy and then explicit environment proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, or `ALL_PROXY`), and the gateway refuses official upstream requests when no proxy URL is available instead of falling back to unintended direct upstream access.
+- **Codex Local API Service upstream failures now identify the active proxy source**: 502 diagnostics and logs report whether the API service proxy, Cockpit global proxy, environment proxy, or missing proxy configuration was used so users can correct network routing quickly.
+
+---
+## [0.24.1] - 2026-05-21
+
+### Added
+- **Antigravity overview now shows the installed version for the selected target**: the version badge follows the active Antigravity or Antigravity IDE target so users can confirm which local client is being managed.
+
+### Changed
+- **Antigravity is now managed as one group with separate Antigravity and Antigravity IDE targets**: Platform Management keeps the Antigravity group first, and the group switcher controls which target is used for overview actions, version lookup, and account switching.
+- **Legacy Antigravity switching is now gated by the installed version**: Antigravity versions below `2.0.0` continue to use the legacy disk and launch paths, while Antigravity `2.0.0` and later are blocked with guidance to use Antigravity IDE.
+- **Codex Local API Service proxy configuration now uses a dedicated API proxy URL**: the service validates the configured proxy address, applies it only to API upstream traffic, and uses direct upstream access when the address is empty.
+
+### Fixed
+- **Antigravity IDE path and version detection now follows the renamed official install layout**: macOS, Windows, and Linux detection distinguish legacy Antigravity from Antigravity IDE and resolve the correct app metadata and executable candidates.
+
+---
 ## [0.24.0] - 2026-05-20
 
 ### Changed

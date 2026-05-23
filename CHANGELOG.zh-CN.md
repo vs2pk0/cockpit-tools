@@ -7,6 +7,61 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
 ---
+## [0.24.4] - 2026-05-23
+
+### 新增
+- **Codex API 服务新增独立管理页**：服务状态、访问地址、客户端 Key、账号池、模型规则、调度选项、健康状态与请求日志现在都可在同一个 Codex API 服务入口中管理。
+- **Codex API 服务现支持命名客户端 API Key 与按 Key 设置模型策略**：Key 可创建、改名、停用、重置、删除，并可设置模型前缀、允许模型列表和排除模型列表。
+- **Codex API 服务现可桥接官方 Codex 后端与 WebSocket 请求路径**：`/backend-api/codex/responses`、`/backend-api/codex/responses/compact` 与 Responses WebSocket 升级请求都可通过本地受管账号网关转发。
+- **Codex API 服务现通过 `gpt-image-2` 暴露图片生成兼容能力**：`/v1/images/generations` 与 `/v1/images/edits` 会映射到 Codex Responses 图片工具，并结合服务级图片模式与账号能力检查。
+- **Codex API 服务现记录用量统计与可检索请求日志**：支持按账号、模型和客户端 Key 统计日/周/月/全量用量，并可按模型、账号、Key、请求类型、状态和错误分类筛选日志。
+- **开发运行现使用独立 Cockpit Tools Dev 配置**：`npm run tauri:dev` 会以独立 Tauri 标识、数据目录、API 端口和窗口品牌启动开发版应用。
+
+### 变更
+- **Codex API 服务弹框现保持快速配置定位，并提供“查看全部功能”入口**：高级统计、请求日志、image_generation 控制与命名 Key 管理统一放到独立页面。
+- **Codex API 服务调度现加入会话亲和、可配置重试行为与账号健康跟踪**：连续轮次可保持在同一账号上，冷却中、额度耗尽或图片能力不可用的账号会在下次选号前被跳过。
+- **Codex 官方 App 速度选择现写入当前官方 `config.toml` 桌面服务档位键**：“标准”会移除受管档位，“快速”会写入 `priority`，与当前 Codex 客户端落盘位置保持一致。
+- **Cockpit 共享数据文件现统一通过同一数据目录解析**：账号分组、设备状态、配置状态与 Codex API 服务状态都会跟随同一配置目录或 profile 专属目录。
+- **文档现补充葡萄牙语 README/赞助页面与 WSL2 Ubuntu 24 构建说明**：项目本地化文档与 Linux 构建指引已与现有中英文文档并列提供。
+
+### 修复
+- **Codex 仅 access token 与 session token 导入不再因为缺少 `refresh_token` 被强制要求重新授权**：导入会识别 `session_token`/`sessionToken`，受管投影会保留预期的 `refresh_token` 字段，且无法刷新的账号会跳过主动续期。
+- **仪表盘与平台切换现保持 Antigravity/Codex 分组条目一致**：分组卡片会去重，Codex API 服务导航保留在 Codex 分组内，切换器也不再把当前额外页面误判为平台不匹配。
+
+---
+## [0.24.3] - 2026-05-21
+
+### 变更
+- **紧急修复 Codex 本地 API 服务在未配置显式代理时的路由问题**：API 代理地址、Cockpit 全局代理与环境代理变量仍会按顺序优先使用；服务现在会继续进入 reqwest 的系统代理自动发现，而不是在系统自动代理路径生效前停止请求。
+- **Antigravity 已安装版本读取现区分快速徽标读取与完整扫描**：总览徽标会短暂延迟后启动，优先使用可用缓存，并在后台完成更长的扫描，避免版本显示阻塞页面。
+- **Codex 套餐徽标现复用账号原始套餐值与共享样式**：账号卡片、摘要与路由视图都会保留后端或本地套餐标签原值，同时通过统一展示路径生成徽标样式。
+
+### 修复
+- **Antigravity 旧版切号不再因安装版本元数据缺失或无法解析而失败**：已缓存的明确版本仍会阻断 Antigravity `2.0.0` 及以上版本；缺少缓存信息时允许旧版路径继续执行。
+- **Codex 自定义路由账号列表现将表头与行内容限制在固定滚动区域内**：弹框主体可正确滚动，套餐徽标在窄布局下也保持稳定尺寸。
+
+---
+## [0.24.2] - 2026-05-21
+
+### 修复
+- **紧急修复 v0.24.1 后 Codex 本地 API 服务代理路由异常**：API 代理地址为空时会依次回退到 Cockpit 全局代理和显式环境代理变量（`HTTPS_PROXY`、`HTTP_PROXY` 或 `ALL_PROXY`）；没有可用代理地址时，网关会拒绝官方上游请求，避免意外直连官方上游。
+- **Codex 本地 API 服务上游失败诊断现标明实际代理来源**：502 诊断与日志会标明使用的是 API 服务代理、Cockpit 全局代理、环境代理或缺少代理配置，便于快速修正网络出口。
+
+---
+## [0.24.1] - 2026-05-21
+
+### 新增
+- **Antigravity 主页面现显示所选目标的已安装版本**：版本徽标会跟随当前 Antigravity 或 Antigravity IDE 目标，便于确认正在管理的本地客户端版本。
+
+### 变更
+- **Antigravity 现作为一个分组管理 Antigravity 与 Antigravity IDE 两个目标**：平台管理会保持 Antigravity 分组在首位，分组切换器会决定总览操作、版本读取与切号使用的目标。
+- **Antigravity 旧版切号现按安装版本门禁执行**：低于 `2.0.0` 的 Antigravity 继续使用旧版落盘与启动路径；Antigravity `2.0.0` 及以上版本会阻断切号，并引导使用 Antigravity IDE。
+- **Codex 本地 API 服务代理配置改为专用 API 代理地址**：服务会校验填写的代理地址，仅将其用于 API 上游请求；地址为空时直连上游。
+
+### 修复
+- **Antigravity IDE 路径与版本检测现适配官方重命名后的安装结构**：macOS、Windows 与 Linux 检测会区分旧版 Antigravity 和 Antigravity IDE，并解析正确的应用元数据与可执行文件候选路径。
+
+---
 ## [0.24.0] - 2026-05-20
 
 ### 变更

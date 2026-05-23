@@ -3979,7 +3979,7 @@ mod imp {
 
         tauri::async_runtime::spawn(async move {
             let _ = match platform {
-                PlatformId::Antigravity => commands::account::switch_account(app, account_id)
+                PlatformId::Antigravity => commands::account::switch_account(app, account_id, None)
                     .await
                     .map(|_| ()),
                 PlatformId::Codex => commands::codex::switch_codex_account(app, account_id)
