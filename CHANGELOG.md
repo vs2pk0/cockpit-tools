@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `2b3043d4`**: this build includes upstream `v0.24.7` with the bundled CLIProxyAPI sidecar, model pricing statistics, request diagnostics, Codex profile takeover backups, manual subscription refreshes, and Antigravity 2.0 credential handling.
 - **Preserved local fork CPA and custom-service enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime download/import, account JSON sync, CPA account filters, model-list fetching, config editing, version update/import, and stop confirmation remain available.
 
+### Fixed
+- **CPA service stop now cleans up every CPA process owned by this app**: stop, save config, and restore default config scan the default CPA port, the current configured port, and `cli-proxy-api` processes tied to Cockpit Tools' CPA runtime/config paths; state detection now only counts Cockpit-owned CPA processes so an external CLIProxyAPI listener on `8317` no longer makes the UI reappear as running.
+
 ### Backup
 - **Refreshed the modified-file backup set for this upstream sync**: files that differ from upstream are intended to be mirrored under `/Users/dalong/Documents/cockpit-tools.backup` with their repository-relative paths.
 

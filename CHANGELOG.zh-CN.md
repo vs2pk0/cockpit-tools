@@ -13,6 +13,9 @@
 - **已同步 fork 到作者仓库 `jlcodes99/cockpit-tools` 的 `2b3043d4`**：本构建包含上游 `v0.24.7` 的内置 CLIProxyAPI sidecar、模型价格统计、请求诊断、Codex profile 接管备份、订阅期限手动刷新与 Antigravity 2.0 鉴权改进。
 - **上游合并后继续保留本地 fork 的 CPA/自定义服务增强**：Codex API 服务仍支持内置服务、自定义配置和 CPA 服务模式；CPA 运行时按需下载或导入，账号 JSON 同步、CPA 账号筛选、模型列表获取、配置编辑、版本更新/导入和带二次确认的停止操作仍可使用。
 
+### 修复
+- **CPA 服务停止现在会兜底清理所有本应用 CPA 进程**：停止、保存配置和恢复默认配置会同时扫描 CPA 默认端口、当前配置端口以及应用 CPA 运行时/配置路径关联的 `cli-proxy-api` 进程；状态判断也只认 Cockpit 自己的 CPA 进程，避免外部 CLIProxyAPI 占用 `8317` 后重新进入又显示已启动。
+
 ### 备份
 - **已为本次上游同步刷新改动文件备份集**：相对上游有差异的文件会按仓库相对路径镜像到 `/Users/dalong/Documents/cockpit-tools.backup`。
 

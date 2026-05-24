@@ -1,6 +1,7 @@
 use crate::modules::{codex_account, logger};
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
@@ -476,20 +477,50 @@ fn read_config_port(app: &AppHandle) -> u16 {
         .unwrap_or(CPA_SERVICE_PORT)
 }
 
+fn known_cpa_ports(app: &AppHandle, extra_ports: &[u16]) -> Vec<u16> {
+    let mut ports = BTreeSet::new();
+    ports.insert(CPA_SERVICE_PORT);
+    ports.insert(read_config_port(app));
+    for port in extra_ports {
+        ports.insert(*port);
+    }
+    ports.into_iter().collect()
+}
+
 fn is_port_open(port: u16) -> bool {
     let address = SocketAddr::from(([127, 0, 0, 1], port));
     TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok()
 }
 
-fn wait_until_port_closed(port: u16, timeout: Duration) -> bool {
+fn wait_until_cpa_stopped(app: &AppHandle, timeout: Duration) -> Result<bool, String> {
     let started_at = Instant::now();
     while started_at.elapsed() < timeout {
-        if !is_port_open(port) {
-            return true;
+        if current_cpa_pid(app)?.is_none() {
+            return Ok(true);
         }
         std::thread::sleep(Duration::from_millis(150));
     }
-    !is_port_open(port)
+    Ok(current_cpa_pid(app)?.is_none())
+}
+
+fn open_ports(ports: &[u16]) -> Vec<u16> {
+    ports
+        .iter()
+        .copied()
+        .filter(|port| is_port_open(*port))
+        .collect()
+}
+
+fn format_ports(ports: &[u16]) -> String {
+    if ports.is_empty() {
+        "-".to_string()
+    } else {
+        ports
+            .iter()
+            .map(u16::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 fn current_managed_pid() -> Result<Option<u32>, String> {
@@ -545,37 +576,103 @@ fn process_command_text(pid: u32) -> String {
 }
 
 #[cfg(unix)]
-fn process_looks_like_cpa(app: &AppHandle, pid: u32) -> bool {
-    let command_text = process_command_text(pid);
-    if command_text.contains(CPA_BINARY_NAME) {
-        return true;
+fn process_state_text(pid: u32) -> String {
+    let mut command = Command::new("ps");
+    command.arg("-p").arg(pid.to_string()).arg("-o").arg("stat=");
+    command_output_text(&mut command).unwrap_or_default()
+}
+
+#[cfg(unix)]
+fn process_is_zombie(pid: u32) -> bool {
+    process_state_text(pid).starts_with('Z')
+}
+
+#[cfg(unix)]
+fn command_looks_like_cpa(app: &AppHandle, command_text: &str) -> bool {
+    if command_text.trim().is_empty() {
+        return false;
+    }
+
+    if let Ok(root) = cpa_root_dir(app) {
+        let root_text = root.to_string_lossy();
+        if command_text.contains(root_text.as_ref()) {
+            return true;
+        }
     }
 
     if let Ok(root) = runtimes_root_dir(app) {
-        if command_text.contains(&root.to_string_lossy().to_string()) {
+        let root_text = root.to_string_lossy();
+        if command_text.contains(root_text.as_ref()) {
             return true;
         }
     }
 
     if let Ok(config) = config_path(app) {
-        if command_text.contains(&config.to_string_lossy().to_string()) {
+        let config_text = config.to_string_lossy();
+        if command_text.contains(config_text.as_ref()) {
             return true;
         }
     }
 
-    false
+    command_text.contains(CPA_BINARY_NAME)
+        && command_text.contains("--config")
+        && command_text.contains("cpa-service")
 }
 
 #[cfg(unix)]
-fn external_cpa_pids(app: &AppHandle, port: u16) -> Vec<u32> {
-    listening_pids_for_port(port)
-        .into_iter()
-        .filter(|pid| process_looks_like_cpa(app, *pid))
+fn process_looks_like_cpa(app: &AppHandle, pid: u32) -> bool {
+    command_looks_like_cpa(app, &process_command_text(pid))
+}
+
+#[cfg(unix)]
+fn all_cpa_pids(app: &AppHandle) -> Vec<u32> {
+    let mut command = Command::new("ps");
+    command
+        .arg("ax")
+        .arg("-o")
+        .arg("pid=")
+        .arg("-o")
+        .arg("stat=")
+        .arg("-o")
+        .arg("command=");
+    let Some(output) = command_output_text(&mut command) else {
+        return Vec::new();
+    };
+
+    output
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            let mut parts = trimmed.splitn(3, char::is_whitespace);
+            let pid = parts.next()?.parse::<u32>().ok()?;
+            let state = parts.next().unwrap_or_default();
+            if state.starts_with('Z') {
+                return None;
+            }
+            let command_text = parts.next().unwrap_or_default();
+            command_looks_like_cpa(app, command_text).then_some(pid)
+        })
         .collect()
 }
 
+#[cfg(unix)]
+fn external_cpa_pids_for_ports(app: &AppHandle, ports: &[u16]) -> Vec<u32> {
+    let mut pids = BTreeSet::new();
+    for port in ports {
+        for pid in listening_pids_for_port(*port) {
+            if process_looks_like_cpa(app, pid) {
+                pids.insert(pid);
+            }
+        }
+    }
+    for pid in all_cpa_pids(app) {
+        pids.insert(pid);
+    }
+    pids.into_iter().collect()
+}
+
 #[cfg(not(unix))]
-fn external_cpa_pids(_app: &AppHandle, _port: u16) -> Vec<u32> {
+fn external_cpa_pids_for_ports(_app: &AppHandle, _ports: &[u16]) -> Vec<u32> {
     Vec::new()
 }
 
@@ -583,8 +680,8 @@ fn current_cpa_pid(app: &AppHandle) -> Result<Option<u32>, String> {
     if let Some(pid) = current_managed_pid()? {
         return Ok(Some(pid));
     }
-    let port = read_config_port(app);
-    Ok(external_cpa_pids(app, port).into_iter().next())
+    let ports = known_cpa_ports(app, &[]);
+    Ok(external_cpa_pids_for_ports(app, &ports).into_iter().next())
 }
 
 fn build_state(app: &AppHandle) -> Result<CodexCpaServiceState, String> {
@@ -592,7 +689,7 @@ fn build_state(app: &AppHandle) -> Result<CodexCpaServiceState, String> {
     let port = read_config_port(app);
     let installed_runtimes = list_installed_runtimes(app)?;
     let runtime = installed_runtimes.iter().find(|item| item.current);
-    let running = pid.is_some() || is_port_open(port);
+    let running = pid.is_some();
     let auth_dir = codex_account::get_cpa_dir()?;
     let config_path = config_path(app)?;
     let config_content = fs::read_to_string(&config_path).ok();
@@ -632,8 +729,15 @@ pub fn ensure_running(app: &AppHandle) -> Result<CodexCpaServiceState, String> {
     codex_account::get_cpa_dir_path()?;
 
     let port = read_config_port(app);
-    if current_managed_pid()?.is_some() || is_port_open(port) {
+    let ports = known_cpa_ports(app, &[port]);
+    if current_managed_pid()?.is_some() || !external_cpa_pids_for_ports(app, &ports).is_empty() {
         return build_state(app);
+    }
+    if is_port_open(port) {
+        return Err(format!(
+            "端口 {} 已被其他程序占用，无法启动 Cockpit CPA 服务。请先停止占用该端口的外部服务，或修改 CPA 配置端口。",
+            port
+        ));
     }
 
     let binary_path = ensure_runtime(app)?;
@@ -696,12 +800,26 @@ pub fn stop_managed_process() -> bool {
 
 #[cfg(unix)]
 fn is_pid_alive(pid: u32) -> bool {
+    if process_is_zombie(pid) {
+        return false;
+    }
     Command::new("kill")
         .arg("-0")
         .arg(pid.to_string())
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn reap_child_pid(pid: u32) {
+    let mut status: libc::c_int = 0;
+    loop {
+        let result = unsafe { libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG) };
+        if result <= 0 {
+            break;
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -715,18 +833,26 @@ fn signal_pid(pid: u32, signal: &str) -> bool {
 }
 
 #[cfg(unix)]
-fn stop_external_cpa_processes(app: &AppHandle, port: u16) -> bool {
-    let pids = external_cpa_pids(app, port);
+fn stop_external_cpa_processes(app: &AppHandle, ports: &[u16]) -> bool {
+    let pids = external_cpa_pids_for_ports(app, ports);
     if pids.is_empty() {
         return false;
     }
 
+    logger::log_info(&format!(
+        "[CodexCPA] 正在停止外部 CPA 服务进程: pids={:?}, ports={}",
+        pids,
+        format_ports(ports)
+    ));
     for pid in &pids {
         let _ = signal_pid(*pid, "-TERM");
     }
 
     let started_at = Instant::now();
     while started_at.elapsed() < Duration::from_secs(3) {
+        for pid in &pids {
+            reap_child_pid(*pid);
+        }
         if pids.iter().all(|pid| !is_pid_alive(*pid)) {
             return true;
         }
@@ -737,40 +863,49 @@ fn stop_external_cpa_processes(app: &AppHandle, port: u16) -> bool {
         if is_pid_alive(*pid) {
             let _ = signal_pid(*pid, "-KILL");
         }
+        reap_child_pid(*pid);
     }
     true
 }
 
 #[cfg(not(unix))]
-fn stop_external_cpa_processes(_app: &AppHandle, _port: u16) -> bool {
+fn stop_external_cpa_processes(_app: &AppHandle, _ports: &[u16]) -> bool {
     false
 }
 
-fn request_stop_for_port(app: &AppHandle, port: u16) -> (bool, bool) {
+fn request_stop_for_ports(app: &AppHandle, ports: &[u16]) -> (bool, bool) {
     let stopped_managed = stop_managed_process();
-    let stopped_external = stop_external_cpa_processes(app, port);
+    let stopped_external = stop_external_cpa_processes(app, ports);
     (stopped_managed, stopped_external)
 }
 
 pub fn stop(app: &AppHandle) -> Result<CodexCpaServiceState, String> {
     let port = read_config_port(app);
-    let (stopped_managed, stopped_external) = request_stop_for_port(app, port);
+    let ports = known_cpa_ports(app, &[port]);
+    let (stopped_managed, stopped_external) = request_stop_for_ports(app, &ports);
 
-    if wait_until_port_closed(port, Duration::from_secs(4)) {
+    if wait_until_cpa_stopped(app, Duration::from_secs(4))? {
         return build_state(app);
     }
 
     let state = build_state(app)?;
     if state.running {
+        let running_ports = open_ports(&ports);
+        let pid_text = state
+            .pid
+            .map(|pid| pid.to_string())
+            .unwrap_or_else(|| "-".to_string());
         if stopped_managed || stopped_external {
             return Err(format!(
-                "已向 CPA 服务发送停止信号，但端口 {} 仍在监听，请稍后刷新状态。",
-                port
+                "已向 CPA 服务发送停止信号，但进程或端口仍在运行。PID: {}，监听端口: {}。",
+                pid_text,
+                format_ports(&running_ports)
             ));
         }
         return Err(format!(
-            "未找到可停止的 CPA 服务进程，端口 {} 仍在监听。请确认是否由外部程序启动。",
-            port
+            "未找到可停止的 CPA 服务进程，但仍检测到运行状态。PID: {}，监听端口: {}。请确认是否由外部程序启动。",
+            pid_text,
+            format_ports(&running_ports)
         ));
     }
     Ok(state)
@@ -793,21 +928,23 @@ pub fn save_config(
     management_password: String,
 ) -> Result<CodexCpaServiceState, String> {
     let previous_port = read_config_port(app);
-    let previous_managed_running = current_managed_pid()?.is_some();
-    let previous_port_open = is_port_open(previous_port);
     let next_port = parse_config_port(&config_content);
+    let stop_ports = known_cpa_ports(app, &[previous_port, next_port]);
+    let previous_managed_running = current_managed_pid()?.is_some();
+    let previous_external_running = !external_cpa_pids_for_ports(app, &stop_ports).is_empty();
+    let previous_port_open = stop_ports.iter().any(|port| is_port_open(*port));
     let path = config_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("创建 CPA 工作目录失败: {}", error))?;
     }
     fs::write(&path, config_content).map_err(|error| format!("保存 CPA 配置失败: {}", error))?;
     write_management_password(app, &management_password)?;
-    if previous_managed_running {
-        let _ = request_stop_for_port(app, previous_port);
-        if !wait_until_port_closed(previous_port, Duration::from_secs(4)) {
+    if previous_managed_running || previous_external_running {
+        let _ = request_stop_for_ports(app, &stop_ports);
+        if !wait_until_cpa_stopped(app, Duration::from_secs(4))? {
             logger::log_warn(&format!(
-                "[CodexCPA] 保存 CPA 配置后停止旧服务，旧端口 {} 仍在监听",
-                previous_port
+                "[CodexCPA] 保存 CPA 配置后停止旧服务失败，仍在运行的端口: {}",
+                format_ports(&open_ports(&stop_ports))
             ));
         }
         return build_state(app);
@@ -823,7 +960,9 @@ pub fn save_config(
 
 pub fn restore_default_config(app: &AppHandle) -> Result<CodexCpaServiceState, String> {
     let previous_port = read_config_port(app);
+    let stop_ports = known_cpa_ports(app, &[previous_port, CPA_SERVICE_PORT]);
     let previous_managed_running = current_managed_pid()?.is_some();
+    let previous_external_running = !external_cpa_pids_for_ports(app, &stop_ports).is_empty();
     let runtime_path = current_runtime(app)?.map(|item| PathBuf::from(item.path));
     let content = default_config_content(runtime_path.as_deref());
     let path = config_path(app)?;
@@ -832,12 +971,12 @@ pub fn restore_default_config(app: &AppHandle) -> Result<CodexCpaServiceState, S
     }
     fs::write(&path, content).map_err(|error| format!("恢复 CPA 默认配置失败: {}", error))?;
     write_management_password(app, CPA_SERVICE_MANAGEMENT_PASSWORD)?;
-    if previous_managed_running {
-        let _ = request_stop_for_port(app, previous_port);
-        if !wait_until_port_closed(previous_port, Duration::from_secs(4)) {
+    if previous_managed_running || previous_external_running {
+        let _ = request_stop_for_ports(app, &stop_ports);
+        if !wait_until_cpa_stopped(app, Duration::from_secs(4))? {
             logger::log_warn(&format!(
-                "[CodexCPA] 恢复 CPA 默认配置后停止旧服务，旧端口 {} 仍在监听",
-                previous_port
+                "[CodexCPA] 恢复 CPA 默认配置后停止旧服务失败，仍在运行的端口: {}",
+                format_ports(&open_ports(&stop_ports))
             ));
         }
         return build_state(app);
