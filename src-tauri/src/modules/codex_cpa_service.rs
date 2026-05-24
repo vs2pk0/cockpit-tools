@@ -481,6 +481,17 @@ fn is_port_open(port: u16) -> bool {
     TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok()
 }
 
+fn wait_until_port_closed(port: u16, timeout: Duration) -> bool {
+    let started_at = Instant::now();
+    while started_at.elapsed() < timeout {
+        if !is_port_open(port) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+    !is_port_open(port)
+}
+
 fn current_managed_pid() -> Result<Option<u32>, String> {
     let mut guard = process_slot()
         .lock()
@@ -735,17 +746,18 @@ fn stop_external_cpa_processes(_app: &AppHandle, _port: u16) -> bool {
     false
 }
 
-pub fn stop(app: &AppHandle) -> Result<CodexCpaServiceState, String> {
-    let port = read_config_port(app);
+fn request_stop_for_port(app: &AppHandle, port: u16) -> (bool, bool) {
     let stopped_managed = stop_managed_process();
     let stopped_external = stop_external_cpa_processes(app, port);
+    (stopped_managed, stopped_external)
+}
 
-    let started_at = Instant::now();
-    while started_at.elapsed() < Duration::from_secs(4) {
-        if !is_port_open(port) {
-            return build_state(app);
-        }
-        std::thread::sleep(Duration::from_millis(150));
+pub fn stop(app: &AppHandle) -> Result<CodexCpaServiceState, String> {
+    let port = read_config_port(app);
+    let (stopped_managed, stopped_external) = request_stop_for_port(app, port);
+
+    if wait_until_port_closed(port, Duration::from_secs(4)) {
+        return build_state(app);
     }
 
     let state = build_state(app)?;
@@ -780,16 +792,38 @@ pub fn save_config(
     config_content: String,
     management_password: String,
 ) -> Result<CodexCpaServiceState, String> {
+    let previous_port = read_config_port(app);
+    let previous_managed_running = current_managed_pid()?.is_some();
+    let previous_port_open = is_port_open(previous_port);
+    let next_port = parse_config_port(&config_content);
     let path = config_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("创建 CPA 工作目录失败: {}", error))?;
     }
     fs::write(&path, config_content).map_err(|error| format!("保存 CPA 配置失败: {}", error))?;
     write_management_password(app, &management_password)?;
+    if previous_managed_running {
+        let _ = request_stop_for_port(app, previous_port);
+        if !wait_until_port_closed(previous_port, Duration::from_secs(4)) {
+            logger::log_warn(&format!(
+                "[CodexCPA] 保存 CPA 配置后重启服务，旧端口 {} 仍在监听",
+                previous_port
+            ));
+        }
+        return ensure_running(app);
+    }
+    if previous_port_open && previous_port != next_port {
+        logger::log_warn(&format!(
+            "[CodexCPA] CPA 配置端口从 {} 改为 {}，旧端口仍由外部进程监听",
+            previous_port, next_port
+        ));
+    }
     build_state(app)
 }
 
 pub fn restore_default_config(app: &AppHandle) -> Result<CodexCpaServiceState, String> {
+    let previous_port = read_config_port(app);
+    let previous_managed_running = current_managed_pid()?.is_some();
     let runtime_path = current_runtime(app)?.map(|item| PathBuf::from(item.path));
     let content = default_config_content(runtime_path.as_deref());
     let path = config_path(app)?;
@@ -798,6 +832,16 @@ pub fn restore_default_config(app: &AppHandle) -> Result<CodexCpaServiceState, S
     }
     fs::write(&path, content).map_err(|error| format!("恢复 CPA 默认配置失败: {}", error))?;
     write_management_password(app, CPA_SERVICE_MANAGEMENT_PASSWORD)?;
+    if previous_managed_running {
+        let _ = request_stop_for_port(app, previous_port);
+        if !wait_until_port_closed(previous_port, Duration::from_secs(4)) {
+            logger::log_warn(&format!(
+                "[CodexCPA] 恢复 CPA 默认配置后重启服务，旧端口 {} 仍在监听",
+                previous_port
+            ));
+        }
+        return ensure_running(app);
+    }
     build_state(app)
 }
 

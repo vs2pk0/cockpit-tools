@@ -334,6 +334,12 @@ async function syncSelectedAccountsToCpaDir(
   const selectedEmailSet = new Set(
     selectedAccounts.map((account) => normalizeCpaAccountEmail(account.email)).filter(Boolean),
   );
+  const managedEmailSet = new Set(
+    accountList
+      .filter((account) => !isCodexApiKeyAccount(account))
+      .map((account) => normalizeCpaAccountEmail(account.email))
+      .filter(Boolean),
+  );
   const currentFiles = await codexService.listCodexCpaAccounts();
   const existingEmailSet = new Set(
     currentFiles
@@ -344,7 +350,7 @@ async function syncSelectedAccountsToCpaDir(
   const filesToDelete = currentFiles
     .filter((file) => {
       const email = normalizeCpaAccountEmail(file.email);
-      return file.valid && email && !selectedEmailSet.has(email);
+      return file.valid && email && managedEmailSet.has(email) && !selectedEmailSet.has(email);
     })
     .map((file) => file.file_name);
   const idsToExport = selectedAccounts

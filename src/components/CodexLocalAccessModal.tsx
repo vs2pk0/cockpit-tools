@@ -28,6 +28,7 @@ import { useTranslation } from 'react-i18next';
 import type { CodexAccount } from '../types/codex';
 import type { CodexAccountGroup } from '../services/codexAccountGroupService';
 import * as codexService from '../services/codexService';
+import type { CodexCpaServiceState } from '../services/codexService';
 import * as codexLocalAccessService from '../services/codexLocalAccessService';
 import {
   CODEX_CPA_SERVICE_API_KEY,
@@ -716,6 +717,20 @@ export function CodexLocalAccessModal({
     window.dispatchEvent(new Event('codex-cpa-service-state-updated'));
   };
 
+  const syncCpaCredentialsFromServiceState = useCallback(
+    async (nextState: CodexCpaServiceState) => {
+      if (!isCpaCredentialMode) return;
+      await onUpdateCredentials({
+        credentialMode: 'cpa',
+        activeCustomCredentialId: 'cpa-service',
+        customCredentials: null,
+        customBaseUrl: nextState.baseUrl,
+        customApiKey: nextState.apiKey,
+      });
+    },
+    [isCpaCredentialMode, onUpdateCredentials],
+  );
+
   const handleOpenCpaServiceManager = async () => {
     await refreshCpaServiceState();
     setShowCpaServiceManager(true);
@@ -740,6 +755,7 @@ export function CodexLocalAccessModal({
       setCpaConfigDraft(nextState.configContent ?? '');
       setCpaManagementPasswordDraft(nextState.managementPassword || 'ab2026ab');
       dispatchCpaServiceStateUpdated();
+      await syncCpaCredentialsFromServiceState(nextState);
     } catch (err) {
       setCpaServiceError(String(err).replace(/^Error:\s*/, ''));
     } finally {
@@ -773,6 +789,7 @@ export function CodexLocalAccessModal({
       setCpaConfigDraft(nextState.configContent ?? '');
       setCpaManagementPasswordDraft(nextState.managementPassword || 'ab2026ab');
       dispatchCpaServiceStateUpdated();
+      await syncCpaCredentialsFromServiceState(nextState);
     } catch (err) {
       setCpaServiceError(String(err).replace(/^Error:\s*/, ''));
     } finally {

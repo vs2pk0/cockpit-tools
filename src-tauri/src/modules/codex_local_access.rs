@@ -4695,20 +4695,28 @@ fn is_external_credential_mode(mode: CodexLocalAccessCredentialMode) -> bool {
     mode != CodexLocalAccessCredentialMode::Local
 }
 
-fn apply_cpa_credentials(collection: &mut CodexLocalAccessCollection) {
+fn apply_cpa_credentials(
+    collection: &mut CodexLocalAccessCollection,
+    base_url: Option<&str>,
+    api_key: Option<&str>,
+) {
     let now = now_ms();
+    let base_url = normalize_custom_base_url(base_url)
+        .unwrap_or_else(|| codex_cpa_service::CPA_SERVICE_BASE_URL.to_string());
+    let api_key = normalize_custom_api_key(api_key)
+        .unwrap_or_else(|| codex_cpa_service::CPA_SERVICE_API_KEY.to_string());
     let credential = CodexLocalAccessCustomCredential {
         id: "cpa-service".to_string(),
         name: "CPA 服务".to_string(),
-        base_url: codex_cpa_service::CPA_SERVICE_BASE_URL.to_string(),
-        api_key: codex_cpa_service::CPA_SERVICE_API_KEY.to_string(),
+        base_url: base_url.clone(),
+        api_key: api_key.clone(),
         created_at: now,
         updated_at: now,
     };
     collection.custom_credentials = vec![credential];
     collection.active_custom_credential_id = Some("cpa-service".to_string());
-    collection.custom_base_url = Some(codex_cpa_service::CPA_SERVICE_BASE_URL.to_string());
-    collection.custom_api_key = Some(codex_cpa_service::CPA_SERVICE_API_KEY.to_string());
+    collection.custom_base_url = Some(base_url);
+    collection.custom_api_key = Some(api_key);
 }
 
 fn sanitize_custom_credentials(collection: &mut CodexLocalAccessCollection) -> bool {
@@ -8451,27 +8459,35 @@ pub async fn activate_local_access_for_dir(
 ) -> Result<CodexLocalAccessState, String> {
     ensure_runtime_loaded_without_start().await?;
     save_profile_takeover_backup(profile_dir)?;
-    let (initial_state, initial_collection) = {
+    let initial_collection = {
         let runtime = gateway_runtime().lock().await;
         let state = build_state_snapshot(&runtime);
-        let collection = state
+        state
             .collection
             .clone()
-            .ok_or_else(|| "API 服务集合尚未创建".to_string())?;
-        (state, collection)
+            .ok_or_else(|| "API 服务集合尚未创建".to_string())?
     };
 
     if is_external_credential_mode(initial_collection.credential_mode) {
-        let (base_url, api_key) = validate_custom_credentials(&initial_collection)?;
+        let mut collection = initial_collection.clone();
+        collection.enabled = true;
+        collection.updated_at = now_ms();
+        let (base_url, api_key) = validate_custom_credentials(&collection)?;
         let bound_oauth_account_id =
-            normalize_optional_account_ref(initial_collection.bound_oauth_account_id.as_deref());
+            normalize_optional_account_ref(collection.bound_oauth_account_id.as_deref());
         if let Some(bound_id) = bound_oauth_account_id.as_deref() {
             let _ = validate_local_access_bound_oauth_account(bound_id)?;
             let _ = codex_account::ensure_managed_account_fresh(bound_id).await?;
         }
         let runtime_account = build_runtime_account(base_url, api_key, bound_oauth_account_id);
         codex_account::write_account_bundle_to_dir(profile_dir, &runtime_account)?;
-        return Ok(initial_state);
+        save_collection_to_disk(&collection)?;
+        {
+            let mut runtime = gateway_runtime().lock().await;
+            sync_runtime_collection(&mut runtime, collection);
+        }
+        ensure_gateway_matches_runtime().await?;
+        return snapshot_state().await;
     }
 
     let state = set_local_access_enabled(true).await?;
@@ -9380,7 +9396,11 @@ pub async fn update_local_access_credentials(
     };
 
     if credential_mode == CodexLocalAccessCredentialMode::Cpa {
-        apply_cpa_credentials(&mut collection);
+        apply_cpa_credentials(
+            &mut collection,
+            custom_base_url.as_deref(),
+            custom_api_key.as_deref(),
+        );
     } else if let Some(credentials) = custom_credentials {
         collection.custom_credentials = credentials;
         collection.active_custom_credential_id =
@@ -9411,7 +9431,11 @@ pub async fn update_local_access_credentials(
         collection.custom_base_url = Some(custom_base_url);
         collection.custom_api_key = Some(custom_api_key);
     } else if credential_mode == CodexLocalAccessCredentialMode::Cpa {
-        apply_cpa_credentials(&mut collection);
+        apply_cpa_credentials(
+            &mut collection,
+            custom_base_url.as_deref(),
+            custom_api_key.as_deref(),
+        );
         let (custom_base_url, custom_api_key) = validate_custom_credentials(&collection)?;
         collection.custom_base_url = Some(custom_base_url);
         collection.custom_api_key = Some(custom_api_key);
@@ -9430,13 +9454,8 @@ pub async fn update_local_access_credentials(
         sync_runtime_collection(&mut runtime, collection.clone());
     }
 
-    if collection.credential_mode == CodexLocalAccessCredentialMode::Local {
-        ensure_gateway_matches_runtime().await?;
-        return snapshot_state().await;
-    }
-
-    let runtime = gateway_runtime().lock().await;
-    Ok(build_state_snapshot(&runtime))
+    ensure_gateway_matches_runtime().await?;
+    snapshot_state().await
 }
 
 pub async fn update_local_access_image_generation_mode(

@@ -41,7 +41,7 @@ import {
 import { getPlatformLabel } from '../utils/platformMeta';
 import { useCodexAccountStore } from '../stores/useCodexAccountStore';
 import * as codexService from '../services/codexService';
-import type { CodexCpaAccountFile } from '../services/codexService';
+import type { CodexCpaAccountFile, CodexCpaServiceState } from '../services/codexService';
 import * as codexLocalAccessService from '../services/codexLocalAccessService';
 import {
   getCodexAccountGroups,
@@ -313,6 +313,12 @@ async function syncSelectedAccountsToCpaDir(
   const selectedEmailSet = new Set(
     selectedAccounts.map((account) => normalizeCpaAccountEmail(account.email)).filter(Boolean),
   );
+  const managedEmailSet = new Set(
+    accountList
+      .filter((account) => !isCodexApiKeyAccount(account))
+      .map((account) => normalizeCpaAccountEmail(account.email))
+      .filter(Boolean),
+  );
   const currentFiles = await codexService.listCodexCpaAccounts();
   const existingEmailSet = new Set(
     currentFiles
@@ -323,7 +329,7 @@ async function syncSelectedAccountsToCpaDir(
   const filesToDelete = currentFiles
     .filter((file) => {
       const email = normalizeCpaAccountEmail(file.email);
-      return file.valid && email && !selectedEmailSet.has(email);
+      return file.valid && email && managedEmailSet.has(email) && !selectedEmailSet.has(email);
     })
     .map((file) => file.file_name);
   const idsToExport = selectedAccounts
@@ -665,6 +671,21 @@ export function CodexApiServicePage() {
     return nextState;
   }, [cpaServiceState, refreshCpaServiceState, t]);
 
+  const syncCpaCredentialsFromServiceState = useCallback(
+    async (nextState: CodexCpaServiceState) => {
+      if (!isCpaCredentialMode) return;
+      const next = await codexLocalAccessService.updateCodexLocalAccessCredentials(
+        'cpa',
+        'cpa-service',
+        null,
+        nextState.baseUrl,
+        nextState.apiKey,
+      );
+      setState(next);
+    },
+    [isCpaCredentialMode],
+  );
+
   useEffect(() => {
     mountedRef.current = true;
     void reloadState().catch((err) => setError(String(err).replace(/^Error:\s*/, '')));
@@ -949,6 +970,7 @@ export function CodexApiServicePage() {
       setCpaConfigDraft(nextState.configContent ?? '');
       setCpaManagementPasswordDraft(nextState.managementPassword || 'ab2026ab');
       window.dispatchEvent(new Event('codex-cpa-service-state-updated'));
+      await syncCpaCredentialsFromServiceState(nextState);
       setNotice(t('codex.localAccess.cpaConfigSaved', 'CPA 配置已保存'));
     } catch (err) {
       const message = String(err).replace(/^Error:\s*/, '');
@@ -979,6 +1001,7 @@ export function CodexApiServicePage() {
       setCpaConfigDraft(nextState.configContent ?? '');
       setCpaManagementPasswordDraft(nextState.managementPassword || 'ab2026ab');
       window.dispatchEvent(new Event('codex-cpa-service-state-updated'));
+      await syncCpaCredentialsFromServiceState(nextState);
       setNotice(t('codex.localAccess.cpaConfigRestored', 'CPA 默认配置已恢复'));
     } catch (err) {
       const message = String(err).replace(/^Error:\s*/, '');
