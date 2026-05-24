@@ -138,6 +138,12 @@
   color: #b45309;
 }
 
+.codex-api-service-status.checking {
+  border-color: color-mix(in srgb, var(--primary) 26%, transparent);
+  background: color-mix(in srgb, var(--primary) 11%, transparent);
+  color: #2563eb;
+}
+
 .codex-api-service-status.disabled,
 .codex-api-service-pill.muted {
   border-color: var(--codex-api-border);
@@ -178,6 +184,10 @@
 .codex-api-service-hero-actions .btn svg {
   width: 13px;
   height: 13px;
+}
+
+.codex-api-service-cpa-stop-btn {
+  color: #b91c1c;
 }
 
 .codex-api-service-message-stack {
@@ -1044,6 +1054,10 @@
 [data-theme="dark"] .codex-api-service-status.stopped,
 [data-theme="dark"] .codex-api-service-message.warning {
   color: #fbbf24;
+}
+
+[data-theme="dark"] .codex-api-service-status.checking {
+  color: #bfdbfe;
 }
 
 [data-theme="dark"] .codex-api-service-message.error,

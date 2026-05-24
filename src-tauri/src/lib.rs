@@ -315,6 +315,11 @@ pub fn run() {
                     }
                 }
             }
+            WindowEvent::Destroyed => {
+                if window.label() == "main" {
+                    modules::codex_cpa_service::stop_managed_process();
+                }
+            }
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
@@ -486,6 +491,15 @@ pub fn run() {
             commands::codex::import_codex_from_json,
             commands::codex::export_codex_accounts,
             commands::codex::codex_get_cpa_dir,
+            commands::codex::codex_cpa_service_get_state,
+            commands::codex::codex_cpa_service_start,
+            commands::codex::codex_cpa_service_stop,
+            commands::codex::codex_cpa_service_save_config,
+            commands::codex::codex_cpa_service_restore_default_config,
+            commands::codex::codex_cpa_runtime_list,
+            commands::codex::codex_cpa_runtime_import,
+            commands::codex::codex_cpa_runtime_check_update,
+            commands::codex::codex_cpa_runtime_download_latest,
             commands::codex::codex_list_cpa_accounts,
             commands::codex::codex_import_from_cpa_dir,
             commands::codex::codex_export_accounts_to_cpa_dir,
@@ -537,6 +551,7 @@ pub fn run() {
             commands::codex::codex_local_access_update_routing_strategy,
             commands::codex::codex_local_access_update_custom_routing,
             commands::codex::codex_local_access_update_model_rules,
+            commands::codex::codex_local_access_fetch_external_models,
             commands::codex::codex_local_access_update_routing_options,
             commands::codex::codex_local_access_update_upstream_proxy_config,
             commands::codex::codex_local_access_update_access_scope,

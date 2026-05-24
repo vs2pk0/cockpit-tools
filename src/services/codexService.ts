@@ -138,9 +138,89 @@ export interface CodexCpaDeleteResult {
   deleted_files: string[];
 }
 
+export interface CodexCpaRuntimeInfo {
+  version: string;
+  platform: string;
+  path: string;
+  packageName?: string | null;
+  importedAt?: string | null;
+  current: boolean;
+}
+
+export interface CodexCpaUpdateInfo {
+  sourceUrl: string;
+  releasesUrl: string;
+  latestVersion?: string | null;
+  currentVersion?: string | null;
+  updateAvailable: boolean;
+  assetName?: string | null;
+  downloadUrl?: string | null;
+}
+
+export interface CodexCpaServiceState {
+  running: boolean;
+  pid?: number | null;
+  runtimeInstalled: boolean;
+  runtimeVersion?: string | null;
+  installedRuntimes: CodexCpaRuntimeInfo[];
+  sourceUrl: string;
+  releasesUrl: string;
+  port: number;
+  baseUrl: string;
+  apiKey: string;
+  managementUrl: string;
+  managementPassword: string;
+  authDir: string;
+  configPath: string;
+  configContent?: string | null;
+  runtimePath: string;
+}
+
 /** 获取 CPA 默认目录 */
 export async function getCodexCpaDir(): Promise<string> {
   return await invoke('codex_get_cpa_dir');
+}
+
+export async function getCodexCpaServiceState(): Promise<CodexCpaServiceState> {
+  return await invoke('codex_cpa_service_get_state');
+}
+
+export async function startCodexCpaService(): Promise<CodexCpaServiceState> {
+  return await invoke('codex_cpa_service_start');
+}
+
+export async function stopCodexCpaService(): Promise<CodexCpaServiceState> {
+  return await invoke('codex_cpa_service_stop');
+}
+
+export async function saveCodexCpaServiceConfig(
+  configContent: string,
+  managementPassword: string,
+): Promise<CodexCpaServiceState> {
+  return await invoke('codex_cpa_service_save_config', {
+    configContent,
+    managementPassword,
+  });
+}
+
+export async function restoreCodexCpaServiceDefaultConfig(): Promise<CodexCpaServiceState> {
+  return await invoke('codex_cpa_service_restore_default_config');
+}
+
+export async function listCodexCpaRuntimes(): Promise<CodexCpaRuntimeInfo[]> {
+  return await invoke('codex_cpa_runtime_list');
+}
+
+export async function importCodexCpaRuntime(packagePath: string): Promise<CodexCpaServiceState> {
+  return await invoke('codex_cpa_runtime_import', { packagePath });
+}
+
+export async function checkCodexCpaRuntimeUpdate(): Promise<CodexCpaUpdateInfo> {
+  return await invoke('codex_cpa_runtime_check_update');
+}
+
+export async function downloadLatestCodexCpaRuntime(): Promise<CodexCpaServiceState> {
+  return await invoke('codex_cpa_runtime_download_latest');
 }
 
 /** 打开 CPA 默认目录 */

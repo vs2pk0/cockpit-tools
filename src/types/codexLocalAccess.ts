@@ -1,8 +1,11 @@
 export type CodexLocalAccessAddressKind = 'local' | 'lan';
-export type CodexLocalAccessCredentialMode = 'local' | 'custom';
+export type CodexLocalAccessCredentialMode = 'local' | 'custom' | 'cpa';
 export type CodexLocalAccessEndpointKind =
   | CodexLocalAccessAddressKind
   | 'custom';
+
+export const CODEX_CPA_SERVICE_BASE_URL = 'http://127.0.0.1:8317/v1';
+export const CODEX_CPA_SERVICE_API_KEY = 'your-api-key-1';
 export type CodexLocalAccessScope = 'localhost' | 'lan';
 export type CodexLocalAccessImageGenerationMode =
   | 'enabled'

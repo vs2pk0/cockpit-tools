@@ -30,6 +30,7 @@ pub enum CodexLocalAccessScope {
 pub enum CodexLocalAccessCredentialMode {
     Local,
     Custom,
+    Cpa,
 }
 
 impl Default for CodexLocalAccessCredentialMode {

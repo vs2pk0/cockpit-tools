@@ -57,6 +57,7 @@ import {
 import { useCodexAccountStore } from "../stores/useCodexAccountStore";
 import { useCodexInstanceStore } from "../stores/useCodexInstanceStore";
 import * as codexService from "../services/codexService";
+import type { CodexCpaAccountFile } from "../services/codexService";
 import * as codexInstanceService from "../services/codexInstanceService";
 import * as codexLocalAccessService from "../services/codexLocalAccessService";
 import { TagEditModal } from "../components/TagEditModal";
@@ -142,6 +143,10 @@ import {
 } from "../components/SingleSelectFilterDropdown";
 import { SingleSelectDropdown } from "../components/SingleSelectDropdown";
 import type { CodexAccount, CodexAppSpeed } from "../types/codex";
+import {
+  CODEX_CPA_SERVICE_API_KEY,
+  CODEX_CPA_SERVICE_BASE_URL,
+} from "../types/codexLocalAccess";
 import type {
   CodexLocalAccessAddressKind,
   CodexLocalAccessCredentialMode,
@@ -296,6 +301,67 @@ const OAUTH_BINDING_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 type CodexOverviewLayoutMode = "compact" | "list" | "grid";
 type OAuthBindingSortBy = "account" | "created_at" | "last_used" | "plan";
 type OAuthBindingTargetKind = "api_key_account" | "local_access";
+
+function normalizeCpaAccountEmail(value?: string | null): string {
+  return value?.trim().toLowerCase() || "";
+}
+
+function resolveCpaSelectedAccountIds(
+  cpaFiles: CodexCpaAccountFile[],
+  accountList: CodexAccount[],
+): string[] {
+  const cpaEmailSet = new Set(
+    cpaFiles
+      .filter((file) => file.valid)
+      .map((file) => normalizeCpaAccountEmail(file.email))
+      .filter(Boolean),
+  );
+  if (cpaEmailSet.size === 0) return [];
+  return accountList
+    .filter((account) => cpaEmailSet.has(normalizeCpaAccountEmail(account.email)))
+    .map((account) => account.id);
+}
+
+async function syncSelectedAccountsToCpaDir(
+  accountIds: string[],
+  accountList: CodexAccount[],
+): Promise<void> {
+  const accountById = new Map(accountList.map((account) => [account.id, account]));
+  const selectedAccounts = accountIds
+    .map((accountId) => accountById.get(accountId))
+    .filter((account): account is CodexAccount => Boolean(account))
+    .filter((account) => !isCodexApiKeyAccount(account));
+  const selectedEmailSet = new Set(
+    selectedAccounts.map((account) => normalizeCpaAccountEmail(account.email)).filter(Boolean),
+  );
+  const currentFiles = await codexService.listCodexCpaAccounts();
+  const existingEmailSet = new Set(
+    currentFiles
+      .filter((file) => file.valid)
+      .map((file) => normalizeCpaAccountEmail(file.email))
+      .filter(Boolean),
+  );
+  const filesToDelete = currentFiles
+    .filter((file) => {
+      const email = normalizeCpaAccountEmail(file.email);
+      return file.valid && email && !selectedEmailSet.has(email);
+    })
+    .map((file) => file.file_name);
+  const idsToExport = selectedAccounts
+    .filter((account) => {
+      const email = normalizeCpaAccountEmail(account.email);
+      return email && !existingEmailSet.has(email);
+    })
+    .map((account) => account.id);
+
+  if (filesToDelete.length > 0) {
+    await codexService.deleteCodexCpaAccountFiles(filesToDelete);
+  }
+  if (idsToExport.length > 0) {
+    await codexService.exportCodexAccountsToCpaDir(idsToExport);
+  }
+}
+
 const CODEX_SORT_BY_VALUES = [
   "created_at",
   "weekly",
@@ -689,6 +755,11 @@ export function CodexAccountsPage() {
   const [localAccessModalMode, setLocalAccessModalMode] = useState<
     "panel" | "members"
   >("panel");
+  const [localAccessCpaSelectedIds, setLocalAccessCpaSelectedIds] =
+    useState<string[] | null>(null);
+  const [cpaServiceState, setCpaServiceState] =
+    useState<codexService.CodexCpaServiceState | null>(null);
+  const [cpaServiceStateLoading, setCpaServiceStateLoading] = useState(false);
   const [localAccessSaving, setLocalAccessSaving] = useState(false);
   const [localAccessTesting, setLocalAccessTesting] = useState(false);
   const [localAccessStarting, setLocalAccessStarting] = useState(false);
@@ -1102,6 +1173,28 @@ export function CodexAccountsPage() {
     }
   }, [setMessage, t]);
 
+  const refreshCpaServiceState = useCallback(async () => {
+    setCpaServiceStateLoading(true);
+    try {
+      const nextState = await codexService.getCodexCpaServiceState();
+      setCpaServiceState(nextState);
+      return nextState;
+    } catch (error) {
+      console.warn("[CodexCPA] load service state failed:", error);
+      setCpaServiceState(null);
+      return null;
+    } finally {
+      setCpaServiceStateLoading(false);
+    }
+  }, []);
+
+  const ensureCpaServiceRunning = useCallback(async () => {
+    const nextState = await codexService.startCodexCpaService();
+    setCpaServiceState(nextState);
+    window.dispatchEvent(new Event("codex-cpa-service-state-updated"));
+    return nextState;
+  }, []);
+
   const reloadLocalAccessEntryVisibility = useCallback(async () => {
     try {
       const config =
@@ -1200,6 +1293,22 @@ export function CodexAccountsPage() {
       );
     };
   }, [reloadLocalAccessLaunchCurrent, reloadLocalAccessState]);
+
+  useEffect(() => {
+    const handleCpaServiceUpdated = () => {
+      void refreshCpaServiceState();
+    };
+    window.addEventListener(
+      "codex-cpa-service-state-updated",
+      handleCpaServiceUpdated,
+    );
+    return () => {
+      window.removeEventListener(
+        "codex-cpa-service-state-updated",
+        handleCpaServiceUpdated,
+      );
+    };
+  }, [refreshCpaServiceState]);
 
   useEffect(() => {
     if (!localAccessEntryVisible) {
@@ -1567,8 +1676,8 @@ export function CodexAccountsPage() {
         setMessage({ text: successText });
         if (showCpaManagerModal) {
           setCpaManagerNotice({ text: successText, tone: "success" });
-          void refreshCpaFiles();
         }
+        void refreshCpaFiles();
       } catch (error) {
         console.error("[CodexCPA] export failed:", error);
         const errorText = t("messages.exportFailed", {
@@ -2066,18 +2175,23 @@ export function CodexAccountsPage() {
     }
   }, [overviewLayoutMode, setViewMode, viewMode]);
 
-  const toggleFilterTypeValue = useCallback((value: string) => {
-    setFilterTypes((prev) => {
-      if (prev.includes(value)) {
-        return prev.filter((item) => item !== value);
-      }
-      return [...prev, value];
-    });
-  }, []);
+  const toggleFilterTypeValue = useCallback(
+    (value: string) => {
+      setSelected(new Set());
+      setFilterTypes((prev) => {
+        if (prev.includes(value)) {
+          return prev.filter((item) => item !== value);
+        }
+        return [...prev, value];
+      });
+    },
+    [setSelected],
+  );
 
   const clearFilterTypes = useCallback(() => {
+    setSelected(new Set());
     setFilterTypes([]);
-  }, []);
+  }, [setSelected]);
 
   const validateApiKeyCredentialInputs = useCallback(
     (
@@ -4823,7 +4937,35 @@ export function CodexAccountsPage() {
     localAccessCollection?.credentialMode ?? "local";
   const isLocalAccessCustomCredential =
     localAccessCredentialMode === "custom";
-  const localAccessEndpointLabel = isLocalAccessCustomCredential
+  const isLocalAccessCpaCredential = localAccessCredentialMode === "cpa";
+  const isLocalAccessExternalCredential =
+    isLocalAccessCustomCredential || isLocalAccessCpaCredential;
+  const cpaAccountEmailSet = useMemo(
+    () =>
+      new Set(
+        cpaFiles
+          .filter((file) => file.valid)
+          .map((file) => normalizeCpaAccountEmail(file.email))
+          .filter(Boolean),
+      ),
+    [cpaFiles],
+  );
+  const cpaServiceAccountIdSet = useMemo(
+    () =>
+      isLocalAccessCpaCredential
+        ? new Set(localAccessCollection?.accountIds ?? [])
+        : new Set<string>(),
+    [isLocalAccessCpaCredential, localAccessCollection?.accountIds],
+  );
+  const isCpaAccount = useCallback(
+    (account: CodexAccount) =>
+      cpaAccountEmailSet.has(normalizeCpaAccountEmail(account.email)) ||
+      cpaServiceAccountIdSet.has(account.id),
+    [cpaAccountEmailSet, cpaServiceAccountIdSet],
+  );
+  const localAccessEndpointLabel = isLocalAccessCpaCredential
+    ? t("codex.localAccess.credentialModeCpaShort", "CPA")
+    : isLocalAccessCustomCredential
     ? t("codex.localAccess.credentialModeCustomShort", "自定义")
     : localAccessScopeLabel;
   const localAccessBusy =
@@ -4832,8 +4974,16 @@ export function CodexAccountsPage() {
     localAccessStarting ||
     localAccessRefreshing ||
     localAccessPortKilling;
+
+  useEffect(() => {
+    if (!isLocalAccessCpaCredential) {
+      setCpaServiceState(null);
+      return;
+    }
+    void refreshCpaServiceState();
+  }, [isLocalAccessCpaCredential, refreshCpaServiceState]);
   const selectedLocalAccessAddressKind: CodexLocalAccessEndpointKind =
-    isLocalAccessCustomCredential
+    isLocalAccessExternalCredential
       ? "custom"
       : localAccessAddressKind === "lan" && localAccessState?.lanBaseUrl
       ? "lan"
@@ -4856,12 +5006,14 @@ export function CodexAccountsPage() {
         ? [
             {
               value: "custom",
-              label: t("codex.localAccess.addressCustom", "自定义"),
+              label: isLocalAccessCpaCredential
+                ? t("codex.localAccess.credentialModeCpaShort", "CPA")
+                : t("codex.localAccess.addressCustom", "自定义"),
             },
           ]
         : []),
     ],
-    [localAccessCollection, localAccessState?.lanBaseUrl, t],
+    [isLocalAccessCpaCredential, localAccessCollection, localAccessState?.lanBaseUrl, t],
   );
   const handleLocalAccessAddressKindChange = useCallback(
     async (value: string) => {
@@ -4899,7 +5051,7 @@ export function CodexAccountsPage() {
       }
 
       const next = normalizeLocalAccessAddressKind(value);
-      if (localAccessCollection?.credentialMode === "custom") {
+      if (localAccessCollection && localAccessCollection.credentialMode !== "local") {
         setLocalAccessSaving(true);
         try {
           const nextState =
@@ -4930,6 +5082,12 @@ export function CodexAccountsPage() {
   );
 
   const resolveLocalAccessBaseUrl = useCallback(() => {
+    if (isLocalAccessCpaCredential) {
+      return (
+        localAccessCollection?.customBaseUrl?.trim() ||
+        CODEX_CPA_SERVICE_BASE_URL
+      );
+    }
     if (isLocalAccessCustomCredential) {
       return localAccessCollection?.customBaseUrl?.trim() || "";
     }
@@ -4947,17 +5105,23 @@ export function CodexAccountsPage() {
     );
   }, [
     isLocalAccessCustomCredential,
+    isLocalAccessCpaCredential,
     localAccessCollection,
     localAccessState?.baseUrl,
     localAccessState?.lanBaseUrl,
     selectedLocalAccessAddressKind,
   ]);
   const resolveLocalAccessApiKey = useCallback(() => {
+    if (isLocalAccessCpaCredential) {
+      return (
+        localAccessCollection?.customApiKey?.trim() || CODEX_CPA_SERVICE_API_KEY
+      );
+    }
     if (isLocalAccessCustomCredential) {
       return localAccessCollection?.customApiKey?.trim() || "";
     }
     return localAccessCollection?.apiKey || "";
-  }, [isLocalAccessCustomCredential, localAccessCollection]);
+  }, [isLocalAccessCpaCredential, isLocalAccessCustomCredential, localAccessCollection]);
 
   const handleCopyLocalAccessValue = useCallback(
     async (field: "baseUrl" | "apiKey", value: string) => {
@@ -4981,6 +5145,7 @@ export function CodexAccountsPage() {
   );
 
   const openLocalAccessPanel = useCallback(() => {
+    setLocalAccessCpaSelectedIds(null);
     setLocalAccessModalMode("panel");
     setShowLocalAccessModal(true);
   }, []);
@@ -4994,10 +5159,22 @@ export function CodexAccountsPage() {
     );
   }, []);
 
-  const openLocalAccessMemberPicker = useCallback(() => {
+  const openLocalAccessMemberPicker = useCallback(async () => {
     setLocalAccessModalMode("members");
+    if (localAccessCredentialMode === "cpa") {
+      try {
+        const cpaFiles = await codexService.listCodexCpaAccounts();
+        const selectedIds = resolveCpaSelectedAccountIds(cpaFiles, accounts);
+        setLocalAccessCpaSelectedIds(selectedIds);
+      } catch (error) {
+        console.warn("[CodexCPA] 读取 CPA 目录账号失败", error);
+        setLocalAccessCpaSelectedIds(null);
+      }
+    } else {
+      setLocalAccessCpaSelectedIds(null);
+    }
     setShowLocalAccessModal(true);
-  }, []);
+  }, [accounts, localAccessCredentialMode]);
 
   const handleHideLocalAccessEntry = useCallback(() => {
     setShowLocalAccessHideConfirm(true);
@@ -5041,8 +5218,11 @@ export function CodexAccountsPage() {
   }, [accounts, reloadLocalAccessState]);
 
   const localAccessModalSelectedIds = useMemo(
-    () => [...(localAccessCollection?.accountIds ?? [])],
-    [localAccessCollection?.accountIds],
+    () =>
+      localAccessCpaSelectedIds
+        ? [...localAccessCpaSelectedIds]
+        : [...(localAccessCollection?.accountIds ?? [])],
+    [localAccessCollection?.accountIds, localAccessCpaSelectedIds],
   );
 
   const handleSaveLocalAccessAccounts = useCallback(
@@ -5053,15 +5233,25 @@ export function CodexAccountsPage() {
       setLocalAccessSaving(true);
       try {
         const restrictFreeAccounts = options?.restrictFreeAccounts ?? true;
+        const latestAccounts = await codexService.listCodexAccounts();
         const filteredAccountIds =
           accountIds.length === 0
             ? []
             : filterCodexLocalAccessAccountIds(
                 accountIds,
-                await codexService.listCodexAccounts(),
+                latestAccounts,
                 restrictFreeAccounts,
               );
-        if (accountIds.length > 0 && filteredAccountIds.length === 0) {
+        const effectiveAccountIds =
+          localAccessCredentialMode === "cpa"
+            ? filteredAccountIds.filter((accountId) => {
+                const account = latestAccounts.find(
+                  (item) => item.id === accountId,
+                );
+                return account ? !isCodexApiKeyAccount(account) : false;
+              })
+            : filteredAccountIds;
+        if (accountIds.length > 0 && effectiveAccountIds.length === 0) {
           throw new Error(
             t(
               "codex.localAccess.noEligibleAccountsSelected",
@@ -5069,9 +5259,14 @@ export function CodexAccountsPage() {
             ),
           );
         }
+        if (localAccessCredentialMode === "cpa") {
+          await syncSelectedAccountsToCpaDir(effectiveAccountIds, latestAccounts);
+          await refreshCpaFiles();
+          setLocalAccessCpaSelectedIds(effectiveAccountIds);
+        }
         const nextState =
           await codexLocalAccessService.saveCodexLocalAccessAccounts(
-            filteredAccountIds,
+            effectiveAccountIds,
             restrictFreeAccounts,
           );
         setLocalAccessState(nextState);
@@ -5086,7 +5281,7 @@ export function CodexAccountsPage() {
         setLocalAccessSaving(false);
       }
     },
-    [setMessage, t],
+    [localAccessCredentialMode, refreshCpaFiles, setMessage, t],
   );
 
   const handleRemoveLocalAccessAccount = useCallback(
@@ -5123,6 +5318,7 @@ export function CodexAccountsPage() {
       TEAM: 0,
       ENTERPRISE: 0,
       ERROR: 0,
+      CPA: 0,
     };
     overviewAccounts.forEach((a) => {
       if (!isAbnormalAccount(a)) {
@@ -5131,9 +5327,10 @@ export function CodexAccountsPage() {
       const tier = resolvePlanKey(a);
       if (tier in counts) counts[tier as keyof typeof counts] += 1;
       if (a.quota_error) counts.ERROR += 1;
+      if (isCpaAccount(a)) counts.CPA += 1;
     });
     return counts;
-  }, [isAbnormalAccount, overviewAccounts, resolvePlanKey]);
+  }, [isAbnormalAccount, isCpaAccount, overviewAccounts, resolvePlanKey]);
 
   const tierFilterOptions = useMemo<MultiSelectFilterOption[]>(
     () => [
@@ -5143,6 +5340,13 @@ export function CodexAccountsPage() {
       { value: "TEAM", label: `TEAM (${tierCounts.TEAM})` },
       { value: "ENTERPRISE", label: `ENTERPRISE (${tierCounts.ENTERPRISE})` },
       { value: "ERROR", label: `ERROR (${tierCounts.ERROR})` },
+      {
+        value: "CPA",
+        label: t("codex.cpa.accountFilter", {
+          count: tierCounts.CPA,
+          defaultValue: "CPA 账号 ({{count}})",
+        }),
+      },
       buildValidAccountsFilterOption(t, tierCounts.VALID),
     ],
     [t, tierCounts],
@@ -5696,6 +5900,9 @@ export function CodexAccountsPage() {
     }) => {
       setLocalAccessSaving(true);
       try {
+        if (payload.credentialMode === "cpa") {
+          await ensureCpaServiceRunning();
+        }
         const nextState =
           await codexLocalAccessService.updateCodexLocalAccessCredentials(
             payload.credentialMode,
@@ -5724,6 +5931,11 @@ export function CodexAccountsPage() {
                   "codex.localAccess.credentialsModeCustomSuccess",
                   "已切换到自定义配置",
                 )
+              : payload.credentialMode === "cpa"
+              ? t(
+                  "codex.localAccess.credentialsModeCpaSuccess",
+                  "已切换到 CPA 服务",
+                )
               : t(
                   "codex.localAccess.credentialsModeLocalSuccess",
                   "已切换到内置服务",
@@ -5737,7 +5949,13 @@ export function CodexAccountsPage() {
         setLocalAccessSaving(false);
       }
     },
-    [fetchCurrentAccount, localAccessLaunchCurrent, setMessage, t],
+    [
+      ensureCpaServiceRunning,
+      fetchCurrentAccount,
+      localAccessLaunchCurrent,
+      setMessage,
+      t,
+    ],
   );
 
   const handleToggleLocalAccessEnabled = useCallback(async () => {
@@ -5778,13 +5996,16 @@ export function CodexAccountsPage() {
 
     setLocalAccessTesting(true);
     try {
+      if (localAccessCollection.credentialMode === "cpa") {
+        await ensureCpaServiceRunning();
+      }
       return await codexLocalAccessService.testCodexLocalAccess();
     } catch (error) {
       throw new Error(String(error).replace(/^Error:\s*/, ""));
     } finally {
       setLocalAccessTesting(false);
     }
-  }, [localAccessCollection, t]);
+  }, [ensureCpaServiceRunning, localAccessCollection, t]);
 
   const handleActivateLocalAccess = useCallback(
     async (options?: { showSuccessMessage?: boolean }) => {
@@ -5793,9 +6014,9 @@ export function CodexAccountsPage() {
           t("codex.localAccess.testUnavailable", "当前 API 服务地址不可用"),
         );
       }
-      const useCustomCredentials =
-        localAccessCollection.credentialMode === "custom";
-      if (!useCustomCredentials && !localAccessCollection.enabled) {
+      const useExternalCredentials =
+        localAccessCollection.credentialMode !== "local";
+      if (!useExternalCredentials && !localAccessCollection.enabled) {
         const confirmedEnableAndSwitch = await confirmDialog(
           t(
             "codex.localAccess.enableBeforeActivateMessage",
@@ -5820,6 +6041,9 @@ export function CodexAccountsPage() {
       if (!confirmed) return;
       setLocalAccessStarting(true);
       try {
+        if (localAccessCollection.credentialMode === "cpa") {
+          await ensureCpaServiceRunning();
+        }
         const nextState =
           await codexLocalAccessService.activateCodexLocalAccess();
         setLocalAccessState(nextState);
@@ -5838,6 +6062,7 @@ export function CodexAccountsPage() {
       }
     },
     [
+      ensureCpaServiceRunning,
       fetchCurrentAccount,
       localAccessCollection,
       requestLocalAccessRiskNotice,
@@ -6077,6 +6302,9 @@ export function CodexAccountsPage() {
           if (selectedTypes.has("ERROR") && a.quota_error) {
             return true;
           }
+          if (selectedTypes.has("CPA") && isCpaAccount(a)) {
+            return true;
+          }
           return selectedTypes.has(resolvePlanKey(a));
         });
       }
@@ -6121,6 +6349,7 @@ export function CodexAccountsPage() {
     filterTypes,
     groupFilter,
     isAbnormalAccount,
+    isCpaAccount,
     normalizeTag,
     overviewAccounts,
     resolvePlanKey,
@@ -6964,9 +7193,20 @@ export function CodexAccountsPage() {
       localAccessAccounts.length - previewAccounts.length,
     );
     const showLocalAccessEmptyState = previewAccounts.length === 0;
+    const cpaServiceRunning = Boolean(cpaServiceState?.running);
+    const cpaServiceInlineTone = cpaServiceStateLoading
+      ? "checking"
+      : cpaServiceRunning
+        ? "running"
+        : "stopped";
+    const cpaServiceInlineText = cpaServiceStateLoading
+      ? t("codex.localAccess.cpaServiceChecking", "检测中")
+      : cpaServiceRunning
+        ? t("codex.localAccess.cpaServiceRunning", "已启动")
+        : t("codex.localAccess.cpaServiceStopped", "未启动");
     const localAccessStatusTone = !localAccessCollection
       ? "disabled"
-      : isLocalAccessCustomCredential
+      : isLocalAccessExternalCredential
         ? "running"
       : localAccessState?.running
         ? "running"
@@ -6975,6 +7215,8 @@ export function CodexAccountsPage() {
           : "disabled";
     const localAccessStatusText = !localAccessCollection
       ? t("codex.localAccess.statusDisabled", "已停用")
+      : isLocalAccessCpaCredential
+        ? t("codex.localAccess.statusCpa", "CPA")
       : isLocalAccessCustomCredential
         ? t("codex.localAccess.statusCustom", "自定义")
       : localAccessState?.running
@@ -7057,6 +7299,11 @@ export function CodexAccountsPage() {
                   <span className="folder-inline-name">
                     {t("codex.localAccess.title", "API 服务")}
                   </span>
+                  {isLocalAccessCpaCredential && (
+                    <span className={`codex-local-access-cpa-state ${cpaServiceInlineTone}`}>
+                      {cpaServiceInlineText}
+                    </span>
+                  )}
                   {renderLocalAccessHeaderActions(false)}
                 </div>
                 <span className="folder-inline-count">
@@ -7085,6 +7332,11 @@ export function CodexAccountsPage() {
                   <span className="folder-inline-name">
                     {t("codex.localAccess.title", "API 服务")}
                   </span>
+                  {isLocalAccessCpaCredential && (
+                    <span className={`codex-local-access-cpa-state ${cpaServiceInlineTone}`}>
+                      {cpaServiceInlineText}
+                    </span>
+                  )}
                   <span className="codex-local-access-summary-text">
                     {localAccessSummaryMeta}
                   </span>
@@ -7302,7 +7554,21 @@ export function CodexAccountsPage() {
                 aria-label={localAccessQuotaPoolLabels.title}
               >
                 {localAccessQuotaPreviewItems.map((item) => (
-                  <div key={item.key} className="codex-local-access-pool-pill">
+                  <button
+                    key={item.key}
+                    type="button"
+                    className="codex-local-access-pool-pill"
+                    onClick={openLocalAccessMemberPicker}
+                    disabled={localAccessBusy}
+                    title={t(
+                      "codex.localAccess.modal.manageMembers",
+                      "管理成员",
+                    )}
+                    aria-label={t(
+                      "codex.localAccess.modal.manageMembers",
+                      "管理成员",
+                    )}
+                  >
                     <strong>
                       {item.key} ({item.count})
                     </strong>
@@ -7314,7 +7580,7 @@ export function CodexAccountsPage() {
                       {localAccessQuotaPoolLabels.weekly}{" "}
                       {formatCodexQuotaPoolPercent(item.weekly)}
                     </span>
-                  </div>
+                  </button>
                 ))}
                 {localAccessQuotaHiddenCount > 0 && (
                   <button

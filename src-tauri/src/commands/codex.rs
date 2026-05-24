@@ -10,9 +10,9 @@ use crate::models::codex_local_access::{
     CodexLocalAccessTestResult, CodexLocalAccessUsageEventPage,
 };
 use crate::modules::{
-    account, codex_account, codex_local_access, codex_oauth, codex_quota, codex_session_visibility,
-    codex_speed, codex_wakeup, codex_wakeup_scheduler, config, logger, openclaw_auth,
-    opencode_auth, process,
+    account, codex_account, codex_cpa_service, codex_local_access, codex_oauth, codex_quota,
+    codex_session_visibility, codex_speed, codex_wakeup, codex_wakeup_scheduler, config, logger,
+    openclaw_auth, opencode_auth, process,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::AppHandle;
@@ -490,6 +490,72 @@ pub fn export_codex_accounts(account_ids: Vec<String>) -> Result<String, String>
 #[tauri::command]
 pub fn codex_get_cpa_dir() -> Result<String, String> {
     codex_account::get_cpa_dir_path()
+}
+
+#[tauri::command]
+pub fn codex_cpa_service_get_state(
+    app: AppHandle,
+) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
+    codex_cpa_service::get_state(&app)
+}
+
+#[tauri::command]
+pub fn codex_cpa_service_start(
+    app: AppHandle,
+) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
+    codex_cpa_service::ensure_running(&app)
+}
+
+#[tauri::command]
+pub fn codex_cpa_service_stop(
+    app: AppHandle,
+) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
+    codex_cpa_service::stop(&app)
+}
+
+#[tauri::command]
+pub fn codex_cpa_service_save_config(
+    app: AppHandle,
+    config_content: String,
+    management_password: String,
+) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
+    codex_cpa_service::save_config(&app, config_content, management_password)
+}
+
+#[tauri::command]
+pub fn codex_cpa_service_restore_default_config(
+    app: AppHandle,
+) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
+    codex_cpa_service::restore_default_config(&app)
+}
+
+#[tauri::command]
+pub fn codex_cpa_runtime_list(
+    app: AppHandle,
+) -> Result<Vec<codex_cpa_service::CodexCpaRuntimeInfo>, String> {
+    codex_cpa_service::list_runtimes(&app)
+}
+
+#[tauri::command]
+pub fn codex_cpa_runtime_import(
+    app: AppHandle,
+    package_path: String,
+) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
+    codex_cpa_service::import_runtime_package(&app, package_path)
+}
+
+#[tauri::command]
+pub async fn codex_cpa_runtime_check_update(
+    app: AppHandle,
+) -> Result<codex_cpa_service::CodexCpaUpdateInfo, String> {
+    codex_cpa_service::check_update(&app).await
+}
+
+#[tauri::command]
+pub async fn codex_cpa_runtime_download_latest(
+    app: AppHandle,
+) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
+    codex_cpa_service::download_latest(&app).await
 }
 
 #[tauri::command]
@@ -1038,6 +1104,14 @@ pub async fn codex_local_access_update_model_rules(
     excluded_models: Vec<String>,
 ) -> Result<CodexLocalAccessState, String> {
     codex_local_access::update_local_access_model_rules(model_aliases, excluded_models).await
+}
+
+#[tauri::command]
+pub async fn codex_local_access_fetch_external_models(
+    base_url: String,
+    api_key: String,
+) -> Result<Vec<String>, String> {
+    codex_local_access::fetch_external_model_ids(base_url, api_key).await
 }
 
 #[tauri::command]

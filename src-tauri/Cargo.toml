@@ -62,6 +62,8 @@ tiny_http = "0.12"
 urlencoding = "2.1"
 lazy_static = "1.5"
 trash = "5"
+flate2 = "1"
+tar = "0.4"
 
 # VS Code Copilot token injection (Windows only)
 aes-gcm = "0.10"

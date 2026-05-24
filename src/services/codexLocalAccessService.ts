@@ -102,6 +102,13 @@ export async function updateCodexLocalAccessModelRules(
   });
 }
 
+export async function fetchCodexLocalAccessExternalModels(
+  baseUrl: string,
+  apiKey: string,
+): Promise<string[]> {
+  return await invoke('codex_local_access_fetch_external_models', { baseUrl, apiKey });
+}
+
 export async function updateCodexLocalAccessRoutingOptions(payload: {
   sessionAffinity: boolean;
   sessionAffinityTtlMs: number;

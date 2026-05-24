@@ -63,6 +63,7 @@
 - **专属支持**：专为 Codex 优化的账号管理体验
 - **配额展示**：清晰展示 Hourly 和 Weekly 配额状态
 - **计划识别**：自动识别账号 Plan 类型 (Basic, Plus, Team 等)
+- **API 服务**：支持内置服务、自定义配置和 CPA 服务模式；CPA 运行时按需下载或导入，默认端口 `8317`，管理密码 `ab2026ab`，提供启动状态、配置编辑、版本更新/导入、模型列表获取和带二次确认的停止操作，并会与 `~/.cli-proxy-api` 账号 JSON 及当前 CPA 服务账号保持勾选/筛选同步。
 
 > ![Codex Accounts](docs/images/codex_list.png)
 

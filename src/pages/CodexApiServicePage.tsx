@@ -5,22 +5,28 @@ import {
   Check,
   CircleAlert,
   Copy,
+  Download,
   Eye,
   EyeOff,
+  ExternalLink,
   FolderPlus,
   Image,
   KeyRound,
+  Play,
   Plus,
   Power,
   RefreshCw,
   Route,
+  Server,
   ShieldCheck,
   SlidersHorizontal,
   Trash2,
   Users,
   Wrench,
+  X,
 } from 'lucide-react';
-import { confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
+import { confirm as confirmDialog, open as openFileDialog } from '@tauri-apps/plugin-dialog';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { useTranslation } from 'react-i18next';
 import { CodexIcon } from '../components/icons/CodexIcon';
 import { ManualHelpIconButton } from '../components/ManualHelpIconButton';
@@ -34,12 +40,13 @@ import {
 import { getPlatformLabel } from '../utils/platformMeta';
 import { useCodexAccountStore } from '../stores/useCodexAccountStore';
 import * as codexService from '../services/codexService';
+import type { CodexCpaAccountFile } from '../services/codexService';
 import * as codexLocalAccessService from '../services/codexLocalAccessService';
 import {
   getCodexAccountGroups,
   type CodexAccountGroup,
 } from '../services/codexAccountGroupService';
-import type { CodexAccount } from '../types/codex';
+import { isCodexApiKeyAccount, type CodexAccount } from '../types/codex';
 import type {
   CodexLocalAccessAddressKind,
   CodexLocalAccessCredentialMode,
@@ -54,6 +61,10 @@ import type {
   CodexLocalAccessStatsWindow,
   CodexLocalAccessTestResult,
   CodexLocalAccessUsageEventPage,
+} from '../types/codexLocalAccess';
+import {
+  CODEX_CPA_SERVICE_API_KEY,
+  CODEX_CPA_SERVICE_BASE_URL,
 } from '../types/codexLocalAccess';
 import { buildCodexAccountPresentation } from '../presentation/platformAccountPresentation';
 import {
@@ -179,6 +190,94 @@ function maskAccountText(value?: string | null): string {
   return value?.trim() || '-';
 }
 
+function normalizeCpaAccountEmail(value?: string | null): string {
+  return value?.trim().toLowerCase() || '';
+}
+
+function readYamlScalar(config: string, key: string, fallback: string): string {
+  const pattern = new RegExp(`^\\s*${key}\\s*:\\s*(.*)$`, 'm');
+  const match = config.match(pattern);
+  if (!match) return fallback;
+  return match[1].trim().replace(/^['"]|['"]$/g, '') || fallback;
+}
+
+function replaceYamlScalar(config: string, key: string, value: string): string {
+  const pattern = new RegExp(`^(\\s*${key}\\s*:\\s*).*$`, 'm');
+  if (pattern.test(config)) {
+    return config.replace(pattern, `$1${value}`);
+  }
+  const suffix = config.endsWith('\n') ? '' : '\n';
+  return `${config}${suffix}${key}: ${value}\n`;
+}
+
+function formatCpaDateTime(value?: string | null): string {
+  if (!value) return '-';
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(time));
+}
+
+function resolveCpaSelectedAccountIds(
+  cpaFiles: CodexCpaAccountFile[],
+  accountList: CodexAccount[],
+): string[] {
+  const cpaEmailSet = new Set(
+    cpaFiles
+      .filter((file) => file.valid)
+      .map((file) => normalizeCpaAccountEmail(file.email))
+      .filter(Boolean),
+  );
+  if (cpaEmailSet.size === 0) return [];
+  return accountList
+    .filter((account) => cpaEmailSet.has(normalizeCpaAccountEmail(account.email)))
+    .map((account) => account.id);
+}
+
+async function syncSelectedAccountsToCpaDir(
+  accountIds: string[],
+  accountList: CodexAccount[],
+): Promise<void> {
+  const accountById = new Map(accountList.map((account) => [account.id, account]));
+  const selectedAccounts = accountIds
+    .map((accountId) => accountById.get(accountId))
+    .filter((account): account is CodexAccount => Boolean(account))
+    .filter((account) => !isCodexApiKeyAccount(account));
+  const selectedEmailSet = new Set(
+    selectedAccounts.map((account) => normalizeCpaAccountEmail(account.email)).filter(Boolean),
+  );
+  const currentFiles = await codexService.listCodexCpaAccounts();
+  const existingEmailSet = new Set(
+    currentFiles
+      .filter((file) => file.valid)
+      .map((file) => normalizeCpaAccountEmail(file.email))
+      .filter(Boolean),
+  );
+  const filesToDelete = currentFiles
+    .filter((file) => {
+      const email = normalizeCpaAccountEmail(file.email);
+      return file.valid && email && !selectedEmailSet.has(email);
+    })
+    .map((file) => file.file_name);
+  const idsToExport = selectedAccounts
+    .filter((account) => {
+      const email = normalizeCpaAccountEmail(account.email);
+      return email && !existingEmailSet.has(email);
+    })
+    .map((account) => account.id);
+
+  if (filesToDelete.length > 0) {
+    await codexService.deleteCodexCpaAccountFiles(filesToDelete);
+  }
+  if (idsToExport.length > 0) {
+    await codexService.exportCodexAccountsToCpaDir(idsToExport);
+  }
+}
+
 function parseModelRuleText(value: string): string[] {
   const seen = new Set<string>();
   return value
@@ -277,6 +376,20 @@ export function CodexApiServicePage() {
   const [proxyInput, setProxyInput] = useState('');
   const [selectedModelId, setSelectedModelId] = useState('');
   const [memberModalOpen, setMemberModalOpen] = useState(false);
+  const [cpaMemberSelectedIds, setCpaMemberSelectedIds] = useState<string[] | null>(null);
+  const [cpaServiceState, setCpaServiceState] =
+    useState<codexService.CodexCpaServiceState | null>(null);
+  const [cpaServiceLoading, setCpaServiceLoading] = useState(false);
+  const [cpaServiceBusy, setCpaServiceBusy] = useState(false);
+  const [cpaServiceError, setCpaServiceError] = useState('');
+  const [showCpaServiceManager, setShowCpaServiceManager] = useState(false);
+  const [cpaConfigDraft, setCpaConfigDraft] = useState('');
+  const [cpaManagementPasswordDraft, setCpaManagementPasswordDraft] = useState('ab2026ab');
+  const [cpaRuntimeBusy, setCpaRuntimeBusy] = useState(false);
+  const [cpaUpdateInfo, setCpaUpdateInfo] =
+    useState<codexService.CodexCpaUpdateInfo | null>(null);
+  const [externalModelIds, setExternalModelIds] = useState<string[]>([]);
+  const [externalModelsLoading, setExternalModelsLoading] = useState(false);
   const [testResult, setTestResult] = useState<CodexLocalAccessTestResult | null>(null);
   const [apiKeyDrafts, setApiKeyDrafts] = useState<Record<string, string>>({});
   const [apiKeyPolicyDrafts, setApiKeyPolicyDrafts] = useState<Record<string, ApiKeyPolicyDraft>>({});
@@ -329,13 +442,43 @@ export function CodexApiServicePage() {
     () => summarizeCodexQuotaPool(memberAccounts),
     [memberAccounts],
   );
+  const credentialMode = collection?.credentialMode ?? 'local';
+  const isCustomCredentialMode = credentialMode === 'custom';
+  const isCpaCredentialMode = credentialMode === 'cpa';
+  const isExternalCredentialMode = isCustomCredentialMode || isCpaCredentialMode;
+  const showBuiltInNetworkConfig = !isExternalCredentialMode;
+  const cpaServiceRunning = Boolean(cpaServiceState?.running);
+  const cpaServiceStateTone = cpaServiceLoading
+    ? 'checking'
+    : cpaServiceRunning
+      ? 'running'
+      : 'stopped';
+  const cpaServiceStateText = cpaServiceLoading
+    ? t('codex.localAccess.cpaServiceChecking', '检测中')
+    : cpaServiceRunning
+      ? t('codex.localAccess.cpaServiceRunning', '已启动')
+      : t('codex.localAccess.cpaServiceStopped', '未启动');
   const baseUrl = state?.baseUrl || FALLBACK_BASE_URL;
-  const displayBaseUrl =
-    addressKind === 'lan' && state?.lanBaseUrl ? state.lanBaseUrl : baseUrl;
+  const displayBaseUrl = isCpaCredentialMode
+    ? cpaServiceState?.baseUrl || collection?.customBaseUrl?.trim() || CODEX_CPA_SERVICE_BASE_URL
+    : isCustomCredentialMode
+      ? collection?.customBaseUrl?.trim() || ''
+      : addressKind === 'lan' && state?.lanBaseUrl ? state.lanBaseUrl : baseUrl;
+  const displayApiKey = isCpaCredentialMode
+    ? cpaServiceState?.apiKey || collection?.customApiKey?.trim() || CODEX_CPA_SERVICE_API_KEY
+    : isCustomCredentialMode
+      ? collection?.customApiKey?.trim() || ''
+      : collection?.apiKey || '';
   const accessScope = collection?.accessScope ?? 'localhost';
   const imageGenerationMode = collection?.imageGenerationMode ?? 'enabled';
   const routingStrategy = collection?.routingStrategy ?? 'auto';
   const modelIds = state?.modelIds ?? [];
+  const displayModelIds = isExternalCredentialMode ? externalModelIds : modelIds;
+  const cpaConfigPortInput = readYamlScalar(
+    cpaConfigDraft,
+    'port',
+    String(cpaServiceState?.port ?? 8317),
+  );
   const avgLatency =
     totals && totals.requestCount > 0 ? totals.totalLatencyMs / totals.requestCount : 0;
   const successRate =
@@ -375,6 +518,51 @@ export function CodexApiServicePage() {
     return nextState;
   }, []);
 
+  const refreshCpaServiceState = useCallback(async () => {
+    setCpaServiceLoading(true);
+    try {
+      const nextState = await codexService.getCodexCpaServiceState();
+      if (mountedRef.current) {
+        setCpaServiceState(nextState);
+        setCpaConfigDraft(nextState.configContent ?? '');
+        setCpaManagementPasswordDraft(nextState.managementPassword || 'ab2026ab');
+        setCpaServiceError('');
+      }
+      return nextState;
+    } catch (err) {
+      const message = String(err).replace(/^Error:\s*/, '');
+      if (mountedRef.current) {
+        setCpaServiceState(null);
+        setCpaServiceError(message);
+      }
+      return null;
+    } finally {
+      if (mountedRef.current) {
+        setCpaServiceLoading(false);
+      }
+    }
+  }, []);
+
+  const ensureCpaServiceRunning = useCallback(async () => {
+    const knownState = cpaServiceState ?? await refreshCpaServiceState();
+    if (knownState && !knownState.runtimeInstalled) {
+      setShowCpaServiceManager(true);
+      throw new Error(
+        t(
+          'codex.localAccess.cpaRuntimeMissing',
+          '未安装 CPA 运行时，请先下载或导入安装包。',
+        ),
+      );
+    }
+    const nextState = await codexService.startCodexCpaService();
+    setCpaServiceState(nextState);
+    setCpaConfigDraft(nextState.configContent ?? '');
+    setCpaManagementPasswordDraft(nextState.managementPassword || 'ab2026ab');
+    setCpaServiceError('');
+    window.dispatchEvent(new Event('codex-cpa-service-state-updated'));
+    return nextState;
+  }, [cpaServiceState, refreshCpaServiceState, t]);
+
   useEffect(() => {
     mountedRef.current = true;
     void reloadState().catch((err) => setError(String(err).replace(/^Error:\s*/, '')));
@@ -389,6 +577,28 @@ export function CodexApiServicePage() {
       window.removeEventListener('codex-local-access-state-updated', onUpdated);
     };
   }, [fetchAccounts, reloadState]);
+
+  useEffect(() => {
+    if (!isCpaCredentialMode) {
+      setCpaServiceState(null);
+      setCpaServiceError('');
+      setShowCpaServiceManager(false);
+      setCpaConfigDraft('');
+      setCpaUpdateInfo(null);
+      return;
+    }
+    void refreshCpaServiceState();
+  }, [isCpaCredentialMode, refreshCpaServiceState]);
+
+  useEffect(() => {
+    const onUpdated = () => {
+      void refreshCpaServiceState();
+    };
+    window.addEventListener('codex-cpa-service-state-updated', onUpdated);
+    return () => {
+      window.removeEventListener('codex-cpa-service-state-updated', onUpdated);
+    };
+  }, [refreshCpaServiceState]);
 
   useEffect(() => {
     persistStatsRange(statsRange);
@@ -510,12 +720,18 @@ export function CodexApiServicePage() {
   ]);
 
   useEffect(() => {
-    if (modelIds.length === 0) {
+    if (displayModelIds.length === 0) {
       setSelectedModelId('');
       return;
     }
-    setSelectedModelId((current) => (modelIds.includes(current) ? current : modelIds[0]));
-  }, [modelIds]);
+    setSelectedModelId((current) =>
+      displayModelIds.includes(current) ? current : displayModelIds[0],
+    );
+  }, [displayModelIds]);
+
+  useEffect(() => {
+    setExternalModelIds([]);
+  }, [displayBaseUrl, displayApiKey, isExternalCredentialMode]);
 
   const runAction = async (task: () => Promise<unknown>, successText: string) => {
     setBusy(true);
@@ -545,6 +761,203 @@ export function CodexApiServicePage() {
     }
   };
 
+  const handleOpenCpaServiceManager = async () => {
+    await refreshCpaServiceState();
+    setShowCpaServiceManager(true);
+  };
+
+  const handleStartCpaService = async () => {
+    setCpaServiceBusy(true);
+    setError('');
+    setCpaServiceError('');
+    try {
+      await ensureCpaServiceRunning();
+      setNotice(t('codex.localAccess.cpaServiceRunning', '已启动'));
+    } catch (err) {
+      const message = String(err).replace(/^Error:\s*/, '');
+      setCpaServiceError(message);
+      setError(message);
+    } finally {
+      setCpaServiceBusy(false);
+    }
+  };
+
+  const confirmStopCpaService = async () =>
+    confirmDialog(
+      t(
+        'codex.localAccess.cpaStopConfirm',
+        '停止 CPA 服务后，当前通过 http://127.0.0.1:8317/v1 的请求会中断，确认停止吗？',
+      ),
+      {
+        title: t('codex.localAccess.cpaStopConfirmTitle', '停止 CPA 服务'),
+        kind: 'warning',
+        okLabel: t('codex.localAccess.cpaStop', '停止'),
+        cancelLabel: t('common.cancel', '取消'),
+      },
+    );
+
+  const handleStopCpaService = async () => {
+    const confirmed = await confirmStopCpaService();
+    if (!confirmed) return;
+
+    setCpaServiceBusy(true);
+    setError('');
+    setCpaServiceError('');
+    try {
+      const nextState = await codexService.stopCodexCpaService();
+      setCpaServiceState(nextState);
+      setCpaConfigDraft(nextState.configContent ?? '');
+      setCpaManagementPasswordDraft(nextState.managementPassword || 'ab2026ab');
+      window.dispatchEvent(new Event('codex-cpa-service-state-updated'));
+      setNotice(t('codex.localAccess.cpaServiceStopped', '未启动'));
+    } catch (err) {
+      const message = String(err).replace(/^Error:\s*/, '');
+      setCpaServiceError(message);
+      setError(message);
+    } finally {
+      setCpaServiceBusy(false);
+    }
+  };
+
+  const handleSaveCpaConfig = async () => {
+    setCpaRuntimeBusy(true);
+    setError('');
+    setCpaServiceError('');
+    try {
+      const nextState = await codexService.saveCodexCpaServiceConfig(
+        cpaConfigDraft,
+        cpaManagementPasswordDraft,
+      );
+      setCpaServiceState(nextState);
+      setCpaConfigDraft(nextState.configContent ?? '');
+      setCpaManagementPasswordDraft(nextState.managementPassword || 'ab2026ab');
+      window.dispatchEvent(new Event('codex-cpa-service-state-updated'));
+      setNotice(t('codex.localAccess.cpaConfigSaved', 'CPA 配置已保存'));
+    } catch (err) {
+      const message = String(err).replace(/^Error:\s*/, '');
+      setCpaServiceError(message);
+      setError(message);
+    } finally {
+      setCpaRuntimeBusy(false);
+    }
+  };
+
+  const handleRestoreCpaConfig = async () => {
+    const confirmed = await confirmDialog(
+      t('codex.localAccess.cpaRestoreDefaultConfirm', '恢复默认 CPA 配置会覆盖当前配置内容，确认继续吗？'),
+      {
+        title: t('codex.localAccess.cpaRestoreDefault', '恢复默认'),
+        kind: 'warning',
+        okLabel: t('common.confirm', '确认'),
+        cancelLabel: t('common.cancel', '取消'),
+      },
+    );
+    if (!confirmed) return;
+    setCpaRuntimeBusy(true);
+    setError('');
+    setCpaServiceError('');
+    try {
+      const nextState = await codexService.restoreCodexCpaServiceDefaultConfig();
+      setCpaServiceState(nextState);
+      setCpaConfigDraft(nextState.configContent ?? '');
+      setCpaManagementPasswordDraft(nextState.managementPassword || 'ab2026ab');
+      window.dispatchEvent(new Event('codex-cpa-service-state-updated'));
+      setNotice(t('codex.localAccess.cpaConfigRestored', 'CPA 默认配置已恢复'));
+    } catch (err) {
+      const message = String(err).replace(/^Error:\s*/, '');
+      setCpaServiceError(message);
+      setError(message);
+    } finally {
+      setCpaRuntimeBusy(false);
+    }
+  };
+
+  const handleImportCpaRuntime = async () => {
+    const selectedPath = await openFileDialog({
+      multiple: false,
+      directory: false,
+      filters: [{ name: 'CLIProxyAPI', extensions: ['gz', 'tar.gz'] }],
+    });
+    if (typeof selectedPath !== 'string') return;
+    setCpaRuntimeBusy(true);
+    setError('');
+    setCpaServiceError('');
+    try {
+      const nextState = await codexService.importCodexCpaRuntime(selectedPath);
+      setCpaServiceState(nextState);
+      setCpaConfigDraft(nextState.configContent ?? '');
+      setCpaManagementPasswordDraft(nextState.managementPassword || 'ab2026ab');
+      window.dispatchEvent(new Event('codex-cpa-service-state-updated'));
+      setNotice(t('codex.localAccess.cpaRuntimeImported', 'CPA 运行时已导入'));
+    } catch (err) {
+      const message = String(err).replace(/^Error:\s*/, '');
+      setCpaServiceError(message);
+      setError(message);
+    } finally {
+      setCpaRuntimeBusy(false);
+    }
+  };
+
+  const handleCheckCpaUpdate = async () => {
+    setCpaRuntimeBusy(true);
+    setError('');
+    setCpaServiceError('');
+    try {
+      const update = await codexService.checkCodexCpaRuntimeUpdate();
+      setCpaUpdateInfo(update);
+      setNotice(
+        update.updateAvailable
+          ? t('codex.localAccess.cpaUpdateAvailable', '有可用更新')
+          : t('codex.localAccess.cpaAlreadyLatest', '已是最新'),
+      );
+    } catch (err) {
+      const message = String(err).replace(/^Error:\s*/, '');
+      setCpaServiceError(message);
+      setError(message);
+    } finally {
+      setCpaRuntimeBusy(false);
+    }
+  };
+
+  const handleDownloadLatestCpaRuntime = async () => {
+    setCpaRuntimeBusy(true);
+    setError('');
+    setCpaServiceError('');
+    try {
+      const nextState = await codexService.downloadLatestCodexCpaRuntime();
+      setCpaServiceState(nextState);
+      setCpaConfigDraft(nextState.configContent ?? '');
+      setCpaManagementPasswordDraft(nextState.managementPassword || 'ab2026ab');
+      window.dispatchEvent(new Event('codex-cpa-service-state-updated'));
+      setNotice(t('codex.localAccess.cpaRuntimeImported', 'CPA 运行时已导入'));
+    } catch (err) {
+      const message = String(err).replace(/^Error:\s*/, '');
+      setCpaServiceError(message);
+      setError(message);
+    } finally {
+      setCpaRuntimeBusy(false);
+    }
+  };
+
+  const handleFetchExternalModels = async () => {
+    setExternalModelsLoading(true);
+    setError('');
+    setNotice('');
+    try {
+      const models = await codexLocalAccessService.fetchCodexLocalAccessExternalModels(
+        displayBaseUrl,
+        displayApiKey,
+      );
+      setExternalModelIds(models);
+      setSelectedModelId(models[0] ?? '');
+      setNotice(t('codex.localAccess.externalModelsLoaded', '模型列表已更新'));
+    } catch (err) {
+      setError(String(err).replace(/^Error:\s*/, ''));
+    } finally {
+      setExternalModelsLoading(false);
+    }
+  };
+
   const toggleApiKeyPolicyExpanded = useCallback((apiKeyId: string) => {
     setExpandedApiKeyPolicyIds((current) => {
       const next = new Set(current);
@@ -559,7 +972,11 @@ export function CodexApiServicePage() {
 
   const handleToggleEnabled = async () => {
     if (!collection) return;
-    if (!collection.enabled) {
+    if (isCpaCredentialMode && cpaServiceRunning) {
+      const confirmed = await confirmStopCpaService();
+      if (!confirmed) return;
+    }
+    if (!isCpaCredentialMode && !collection.enabled) {
       const confirmed = await confirmDialog(
         t(
           'codex.localAccess.riskNotice.desc',
@@ -575,11 +992,27 @@ export function CodexApiServicePage() {
       if (!confirmed) return;
     }
     await runAction(async () => {
+      if (isCpaCredentialMode) {
+        if (cpaServiceRunning) {
+          const nextState = await codexService.stopCodexCpaService();
+          setCpaServiceState(nextState);
+          setCpaConfigDraft(nextState.configContent ?? '');
+          setCpaManagementPasswordDraft(nextState.managementPassword || 'ab2026ab');
+          window.dispatchEvent(new Event('codex-cpa-service-state-updated'));
+        } else {
+          await ensureCpaServiceRunning();
+        }
+        return;
+      }
       const next = await codexLocalAccessService.setCodexLocalAccessEnabled(!collection.enabled);
       setState(next);
-    }, collection.enabled
-      ? t('codex.localAccess.disabledSuccess', 'API 服务已停用')
-      : t('codex.localAccess.enabledSuccess', 'API 服务已启用'));
+    }, isCpaCredentialMode
+      ? cpaServiceRunning
+        ? t('codex.localAccess.cpaServiceStopped', '未启动')
+        : t('codex.localAccess.cpaServiceRunning', '已启动')
+      : collection.enabled
+        ? t('codex.localAccess.disabledSuccess', 'API 服务已停用')
+        : t('codex.localAccess.enabledSuccess', 'API 服务已启用'));
   };
 
   const handleTest = async () => {
@@ -588,6 +1021,9 @@ export function CodexApiServicePage() {
     setNotice('');
     setTestResult(null);
     try {
+      if (isCpaCredentialMode) {
+        await ensureCpaServiceRunning();
+      }
       const result = await codexLocalAccessService.testCodexLocalAccess();
       setTestResult(result);
       setNotice(
@@ -666,16 +1102,23 @@ export function CodexApiServicePage() {
   };
 
   const saveMembers = async (accountIds: string[], restrictFreeAccounts: boolean) => {
+    const latestAccounts = await codexService.listCodexAccounts();
     const filteredAccountIds =
       accountIds.length === 0
         ? []
         : filterCodexLocalAccessAccountIds(
             accountIds,
-            await codexService.listCodexAccounts(),
+            latestAccounts,
             restrictFreeAccounts,
           );
+    const effectiveAccountIds = isCpaCredentialMode
+      ? filteredAccountIds.filter((accountId) => {
+          const account = latestAccounts.find((item) => item.id === accountId);
+          return account ? !isCodexApiKeyAccount(account) : false;
+        })
+      : filteredAccountIds;
 
-    if (accountIds.length > 0 && filteredAccountIds.length === 0) {
+    if (accountIds.length > 0 && effectiveAccountIds.length === 0) {
       throw new Error(
         t(
           'codex.localAccess.noEligibleAccountsSelected',
@@ -684,8 +1127,13 @@ export function CodexApiServicePage() {
       );
     }
 
+    if (isCpaCredentialMode) {
+      await syncSelectedAccountsToCpaDir(effectiveAccountIds, latestAccounts);
+      setCpaMemberSelectedIds(effectiveAccountIds);
+    }
+
     const next = await codexLocalAccessService.saveCodexLocalAccessAccounts(
-      filteredAccountIds,
+      effectiveAccountIds,
       restrictFreeAccounts,
     );
     setState(next);
@@ -716,6 +1164,21 @@ export function CodexApiServicePage() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const openMemberModal = async () => {
+    if (isCpaCredentialMode) {
+      try {
+        const cpaFiles = await codexService.listCodexCpaAccounts();
+        setCpaMemberSelectedIds(resolveCpaSelectedAccountIds(cpaFiles, accounts));
+      } catch (err) {
+        console.warn('[CodexCPA] 读取 CPA 目录账号失败', err);
+        setCpaMemberSelectedIds(null);
+      }
+    } else {
+      setCpaMemberSelectedIds(null);
+    }
+    setMemberModalOpen(true);
   };
 
   const handleRemoveMember = async (accountId: string) => {
@@ -1050,12 +1513,24 @@ export function CodexApiServicePage() {
               <div className="codex-api-service-title-copy">
                 <div className="codex-api-service-title-line">
                   <h1>{t('codex.apiService.title', 'Codex API 服务')}</h1>
-                  <span className={`codex-api-service-status ${state?.running ? 'running' : collection?.enabled ? 'stopped' : 'disabled'}`}>
-                    {collection?.enabled
-                      ? state?.running
-                        ? t('codex.localAccess.statusRunning', '运行中')
-                        : t('codex.localAccess.statusStopped', '未运行')
-                      : t('codex.localAccess.statusDisabled', '已停用')}
+                  <span
+                    className={`codex-api-service-status ${
+                      isCpaCredentialMode
+                        ? cpaServiceStateTone
+                        : state?.running
+                          ? 'running'
+                          : collection?.enabled
+                            ? 'stopped'
+                            : 'disabled'
+                    }`}
+                  >
+                    {isCpaCredentialMode
+                      ? cpaServiceStateText
+                      : collection?.enabled
+                        ? state?.running
+                          ? t('codex.localAccess.statusRunning', '运行中')
+                          : t('codex.localAccess.statusStopped', '未运行')
+                        : t('codex.localAccess.statusDisabled', '已停用')}
                   </span>
                 </div>
                 <p>
@@ -1088,14 +1563,26 @@ export function CodexApiServicePage() {
             </button>
             <button
               type="button"
-              className={`btn ${collection?.enabled ? 'btn-danger' : 'btn-primary'}`}
+              className={`btn ${
+                isCpaCredentialMode
+                  ? cpaServiceRunning
+                    ? 'btn-danger'
+                    : 'btn-primary'
+                  : collection?.enabled
+                    ? 'btn-danger'
+                    : 'btn-primary'
+              }`}
               onClick={() => void handleToggleEnabled()}
-              disabled={!collection || busy || testing}
+              disabled={!collection || busy || testing || cpaServiceBusy}
             >
               <Power size={14} />
-              {collection?.enabled
-                ? t('codex.localAccess.disableService', '停用服务')
-                : t('codex.localAccess.enableService', '启用服务')}
+              {isCpaCredentialMode
+                ? cpaServiceRunning
+                  ? t('codex.localAccess.cpaStop', '停止')
+                  : t('codex.localAccess.cpaStart', '启动')
+                : collection?.enabled
+                  ? t('codex.localAccess.disableService', '停用服务')
+                  : t('codex.localAccess.enableService', '启用服务')}
             </button>
           </div>
         </section>
@@ -1147,6 +1634,41 @@ export function CodexApiServicePage() {
             <section className="codex-api-service-panel">
               <div className="codex-api-service-panel-head">
                 <h2>{t('codex.localAccess.configTitle', '服务配置')}</h2>
+                {isCpaCredentialMode && (
+                  <div className="codex-api-service-head-actions">
+                    <span className={`codex-api-service-status ${cpaServiceStateTone}`}>
+                      {cpaServiceStateText}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => void handleOpenCpaServiceManager()}
+                      disabled={busy || testing || cpaServiceLoading}
+                    >
+                      <Server size={14} />
+                      {t('codex.localAccess.cpaManage', 'CPA管理')}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm codex-api-service-cpa-stop-btn"
+                      onClick={() => void handleStopCpaService()}
+                      disabled={
+                        busy ||
+                        testing ||
+                        cpaServiceBusy ||
+                        cpaServiceLoading ||
+                        !cpaServiceRunning
+                      }
+                    >
+                      {cpaServiceBusy ? (
+                        <RefreshCw size={14} className="loading-spinner" />
+                      ) : (
+                        <Power size={14} />
+                      )}
+                      {t('codex.localAccess.cpaStop', '停止')}
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="codex-api-service-config-list">
                 <label>
@@ -1166,11 +1688,11 @@ export function CodexApiServicePage() {
                 <label>
                   <span>{t('codex.localAccess.apiKey', '密钥')}</span>
                   <div className="codex-api-service-copy-row">
-                    <code title={collection?.apiKey || '-'}>
-                      {collection
+                    <code title={displayApiKey || '-'}>
+                      {displayApiKey
                         ? keyVisible
-                          ? collection.apiKey
-                          : `${collection.apiKey.slice(0, 10)}••••••••••••`
+                          ? displayApiKey
+                          : `${displayApiKey.slice(0, 10)}••••••••••••`
                         : '-'}
                     </code>
                     <button
@@ -1184,13 +1706,14 @@ export function CodexApiServicePage() {
                     <button
                       type="button"
                       className="folder-icon-btn"
-                      onClick={() => void handleCopy('apiKey', collection?.apiKey || '')}
-                      disabled={!collection}
+                      onClick={() => void handleCopy('apiKey', displayApiKey)}
+                      disabled={!displayApiKey}
                     >
                       {copiedField === 'apiKey' ? <Check size={14} /> : <Copy size={14} />}
                     </button>
                   </div>
                 </label>
+                {showBuiltInNetworkConfig && (
                 <label>
                   <span>{t('codex.localAccess.portLabel', '服务端口')}</span>
                   <div className="codex-api-service-input-row">
@@ -1207,6 +1730,8 @@ export function CodexApiServicePage() {
                     </button>
                   </div>
                 </label>
+                )}
+                {showBuiltInNetworkConfig && (
                 <label>
                   <span>{t('codex.localAccess.upstreamProxyLabel', 'API 代理地址')}</span>
                   <div className="codex-api-service-input-row">
@@ -1222,6 +1747,7 @@ export function CodexApiServicePage() {
                     </button>
                   </div>
                 </label>
+                )}
               </div>
             </section>
 
@@ -1404,7 +1930,7 @@ export function CodexApiServicePage() {
             <section className="codex-api-service-panel">
               <div className="codex-api-service-panel-head">
                 <h2>{t('codex.localAccess.accountStatsTitle', '按账号统计')}</h2>
-                <button type="button" className="btn btn-primary btn-sm" onClick={() => setMemberModalOpen(true)} disabled={busy || !collection}>
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => void openMemberModal()} disabled={busy || !collection}>
                   <FolderPlus size={14} />
                   {t('codex.localAccess.modal.manageMembers', '管理成员')}
                 </button>
@@ -1525,12 +2051,35 @@ export function CodexApiServicePage() {
             <section className="codex-api-service-panel">
               <div className="codex-api-service-panel-head">
                 <h2>{t('codex.apiService.models.availableTitle', '可用模型')}</h2>
-                <button type="button" className="folder-icon-btn" onClick={() => void handleCopy('modelId', selectedModelId)} disabled={!selectedModelId}>
-                  {copiedField === 'modelId' ? <Check size={14} /> : <Copy size={14} />}
-                </button>
+                <div className="codex-api-service-head-actions">
+                  {isExternalCredentialMode && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => void handleFetchExternalModels()}
+                      disabled={!displayBaseUrl || externalModelsLoading}
+                    >
+                      <RefreshCw
+                        size={14}
+                        className={externalModelsLoading ? 'loading-spinner' : undefined}
+                      />
+                      {t('codex.localAccess.fetchModels', '获取模型列表')}
+                    </button>
+                  )}
+                  <button type="button" className="folder-icon-btn" onClick={() => void handleCopy('modelId', selectedModelId)} disabled={!selectedModelId}>
+                    {copiedField === 'modelId' ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
+                </div>
               </div>
               <div className="codex-api-service-model-list">
-                {modelIds.map((modelId) => (
+                {displayModelIds.length === 0 && (
+                  <div className="codex-api-service-empty">
+                    {isExternalCredentialMode
+                      ? t('codex.localAccess.externalModelsEmpty', '点击获取模型列表读取当前服务的 /models。')
+                      : t('codex.localAccess.statsEmpty', '当前还没有统计数据')}
+                  </div>
+                )}
+                {displayModelIds.map((modelId) => (
                   <button
                     key={modelId}
                     type="button"
@@ -1559,16 +2108,18 @@ export function CodexApiServicePage() {
                       ariaLabel={t('codex.localAccess.imageGenerationLabel', 'image_generation')}
                     />
                   </label>
-                  <label>
-                    <span>{t('codex.localAccess.accessScopeLabel', '访问范围')}</span>
-                    <SingleSelectDropdown
-                      value={accessScope}
-                      options={accessScopeOptions}
-                      onChange={(value) => void handleUpdateAccessScope(value)}
-                      disabled={busy || !collection}
-                      ariaLabel={t('codex.localAccess.accessScopeLabel', '访问范围')}
-                    />
-                  </label>
+                  {showBuiltInNetworkConfig && (
+                    <label>
+                      <span>{t('codex.localAccess.accessScopeLabel', '访问范围')}</span>
+                      <SingleSelectDropdown
+                        value={accessScope}
+                        options={accessScopeOptions}
+                        onChange={(value) => void handleUpdateAccessScope(value)}
+                        disabled={busy || !collection}
+                        ariaLabel={t('codex.localAccess.accessScopeLabel', '访问范围')}
+                      />
+                    </label>
+                  )}
                   <p className="codex-api-service-muted">
                     {t(
                       'codex.apiService.models.capabilityDesc',
@@ -1878,6 +2429,275 @@ export function CodexApiServicePage() {
         )}
       </main>
 
+      {showCpaServiceManager && (
+        <div
+          className="modal-overlay codex-cpa-service-manager-overlay"
+          onClick={() => setShowCpaServiceManager(false)}
+        >
+          <div
+            className="modal codex-cpa-service-manager-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="codex-api-cpa-service-manager-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header codex-cpa-service-manager-header">
+              <div>
+                <h3 id="codex-api-cpa-service-manager-title">
+                  <Server size={18} />
+                  <span>{t('codex.localAccess.cpaServiceManagerTitle', 'CPA 服务管理')}</span>
+                </h3>
+                <p>{cpaServiceStateText}</p>
+              </div>
+              <button
+                className="modal-close"
+                onClick={() => setShowCpaServiceManager(false)}
+                aria-label={t('common.close')}
+              >
+                <X />
+              </button>
+            </div>
+
+            <div className="modal-body codex-cpa-service-manager-body">
+              {cpaServiceError && (
+                <div className="codex-api-service-message error" aria-live="assertive">
+                  <CircleAlert size={14} />
+                  <span>{cpaServiceError}</span>
+                </div>
+              )}
+              {cpaServiceState && !cpaServiceState.runtimeInstalled && (
+                <div className="codex-api-service-message warning">
+                  <Download size={14} />
+                  <span>
+                    {t(
+                      'codex.localAccess.cpaRuntimeMissing',
+                      '未安装 CPA 运行时，请先下载或导入安装包。',
+                    )}
+                  </span>
+                </div>
+              )}
+
+              <div className="codex-cpa-service-manager-grid">
+                <div className="codex-cpa-service-manager-field">
+                  <span>{t('codex.localAccess.cpaServiceStatus', '服务状态')}</span>
+                  <strong className={`codex-local-access-cpa-service-chip ${cpaServiceStateTone}`}>
+                    {cpaServiceStateText}
+                  </strong>
+                </div>
+                <div className="codex-cpa-service-manager-field">
+                  <span>{t('codex.localAccess.cpaRuntimeVersion', '运行时版本')}</span>
+                  <strong>{cpaServiceState?.runtimeVersion || '-'}</strong>
+                </div>
+                <div className="codex-cpa-service-manager-field">
+                  <span>{t('codex.localAccess.cpaServicePid', 'PID')}</span>
+                  <strong>{cpaServiceState?.pid ?? '-'}</strong>
+                </div>
+                <div className="codex-cpa-service-manager-field">
+                  <span>{t('codex.localAccess.cpaWebPort', 'Web 端口')}</span>
+                  <strong>{cpaServiceState?.port ?? 8317}</strong>
+                </div>
+                <div className="codex-cpa-service-manager-field is-wide">
+                  <span>{t('codex.localAccess.cpaManagementUrl', '管理地址')}</span>
+                  <code>{cpaServiceState?.managementUrl || 'http://127.0.0.1:8317/management.html'}</code>
+                </div>
+                <div className="codex-cpa-service-manager-field is-wide">
+                  <span>{t('codex.localAccess.cpaAuthDir', '认证目录')}</span>
+                  <code>{cpaServiceState?.authDir || '-'}</code>
+                </div>
+                <div className="codex-cpa-service-manager-field is-wide">
+                  <span>{t('codex.localAccess.cpaRuntimeDir', '运行时目录')}</span>
+                  <code>{cpaServiceState?.runtimePath || '-'}</code>
+                </div>
+                <div className="codex-cpa-service-manager-field is-wide">
+                  <span>{t('codex.localAccess.cpaConfigPath', '配置文件')}</span>
+                  <code>{cpaServiceState?.configPath || '-'}</code>
+                </div>
+              </div>
+
+              <div className="codex-cpa-service-manager-config">
+                <div className="codex-cpa-service-manager-section-head">
+                  <div className="codex-api-service-section-title">
+                    {t('codex.localAccess.cpaConfigContent', '配置内容')}
+                  </div>
+                  <div className="codex-cpa-service-manager-actions">
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => void refreshCpaServiceState()} disabled={cpaServiceLoading || cpaRuntimeBusy}>
+                      <RefreshCw size={14} className={cpaServiceLoading ? 'loading-spinner' : undefined} />
+                      {t('common.reload', '重载')}
+                    </button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => void handleRestoreCpaConfig()} disabled={cpaRuntimeBusy || cpaServiceBusy}>
+                      {t('codex.localAccess.cpaRestoreDefault', '恢复默认')}
+                    </button>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={() => void handleSaveCpaConfig()} disabled={cpaRuntimeBusy || cpaServiceBusy}>
+                      <Check size={14} />
+                      {t('common.save', '保存')}
+                    </button>
+                  </div>
+                </div>
+                <div className="codex-cpa-service-config-form">
+                  <label>
+                    <span>{t('codex.localAccess.cpaWebPort', 'Web 端口')}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={cpaConfigPortInput}
+                      onChange={(event) =>
+                        setCpaConfigDraft((current) =>
+                          replaceYamlScalar(current, 'port', event.target.value),
+                        )
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>{t('codex.localAccess.cpaManagementPassword', '本机管理密钥')}</span>
+                    <input
+                      type="text"
+                      value={cpaManagementPasswordDraft}
+                      onChange={(event) => setCpaManagementPasswordDraft(event.target.value)}
+                    />
+                  </label>
+                  <label className="codex-cpa-service-config-url">
+                    <span>{t('codex.localAccess.cpaManagementUrl', '管理地址')}</span>
+                    <button
+                      type="button"
+                      className="codex-cpa-service-manager-url-btn"
+                      onClick={() =>
+                        void openUrl(
+                          cpaServiceState?.managementUrl ||
+                            'http://127.0.0.1:8317/management.html',
+                        )
+                      }
+                    >
+                      <ExternalLink size={14} />
+                      <span>{cpaServiceState?.managementUrl || 'http://127.0.0.1:8317/management.html'}</span>
+                    </button>
+                  </label>
+                </div>
+                <textarea
+                  value={cpaConfigDraft}
+                  onChange={(event) => setCpaConfigDraft(event.target.value)}
+                  spellCheck={false}
+                  wrap="soft"
+                />
+              </div>
+
+              <div className="codex-cpa-service-manager-runtime">
+                <div className="codex-cpa-service-manager-section-head">
+                  <div className="codex-api-service-section-title">
+                    {t('codex.localAccess.cpaInstalledVersions', '已安装版本')}
+                    <span>{cpaServiceState?.installedRuntimes.length ?? 0}</span>
+                  </div>
+                  <div className="codex-cpa-service-manager-actions">
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => void openUrl(cpaServiceState?.sourceUrl || 'https://github.com/router-for-me/CLIProxyAPI')}>
+                      <ExternalLink size={14} />
+                      {t('codex.localAccess.cpaSourceUrl', '源码地址')}
+                    </button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => void openUrl(cpaUpdateInfo?.downloadUrl || cpaServiceState?.releasesUrl || 'https://github.com/router-for-me/CLIProxyAPI/releases')}>
+                      <ExternalLink size={14} />
+                      {t('codex.localAccess.cpaDownloadUrl', '下载地址')}
+                    </button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => void handleCheckCpaUpdate()} disabled={cpaRuntimeBusy}>
+                      <RefreshCw size={14} className={cpaRuntimeBusy ? 'loading-spinner' : undefined} />
+                      {t('codex.localAccess.cpaCheckUpdate', '检测更新')}
+                    </button>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={() => void handleDownloadLatestCpaRuntime()} disabled={cpaRuntimeBusy}>
+                      <Download size={14} />
+                      {t('codex.localAccess.cpaDownloadImport', '下载导入')}
+                    </button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => void handleImportCpaRuntime()} disabled={cpaRuntimeBusy}>
+                      <FolderPlus size={14} />
+                      {t('codex.localAccess.cpaImportPackage', '导入文件')}
+                    </button>
+                  </div>
+                </div>
+                {cpaUpdateInfo && (
+                  <div className="codex-cpa-service-update-line">
+                    <span>
+                      {t('codex.localAccess.cpaLatestVersion', '最新版本')}: {cpaUpdateInfo.latestVersion || '-'}
+                    </span>
+                    <span>
+                      {cpaUpdateInfo.updateAvailable
+                        ? t('codex.localAccess.cpaUpdateAvailable', '有可用更新')
+                        : t('codex.localAccess.cpaAlreadyLatest', '已是最新')}
+                    </span>
+                    <code>{cpaUpdateInfo.assetName || '-'}</code>
+                  </div>
+                )}
+                <div className="codex-cpa-service-runtime-table">
+                  <div className="codex-cpa-service-runtime-row is-head">
+                    <span>{t('codex.localAccess.cpaRuntimeVersion', '版本')}</span>
+                    <span>{t('codex.localAccess.cpaRuntimePlatform', '平台')}</span>
+                    <span>{t('codex.localAccess.cpaRuntimeImportedAt', '导入时间')}</span>
+                    <span>{t('codex.localAccess.cpaRuntimePackage', '包文件')}</span>
+                    <span>{t('codex.localAccess.cpaRuntimeStatus', '状态')}</span>
+                  </div>
+                  {(cpaServiceState?.installedRuntimes ?? []).length === 0 ? (
+                    <div className="codex-cpa-service-runtime-empty">
+                      {t('codex.localAccess.cpaRuntimeEmpty', '暂无已安装 CPA 运行时')}
+                    </div>
+                  ) : (
+                    cpaServiceState?.installedRuntimes.map((runtime) => (
+                      <div key={`${runtime.version}-${runtime.path}`} className="codex-cpa-service-runtime-row">
+                        <strong>{runtime.version}</strong>
+                        <span>{runtime.platform}</span>
+                        <span>{formatCpaDateTime(runtime.importedAt)}</span>
+                        <code>{runtime.packageName || '-'}</code>
+                        <span className={`codex-local-access-cpa-service-chip ${runtime.current ? 'running' : 'stopped'}`}>
+                          {runtime.current
+                            ? t('codex.localAccess.cpaRuntimeCurrent', '当前')
+                            : t('common.installed', '已安装')}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer codex-cpa-service-manager-footer">
+              <button
+                className="btn btn-secondary"
+                onClick={() => void refreshCpaServiceState()}
+                disabled={cpaServiceLoading || cpaServiceBusy}
+              >
+                <RefreshCw
+                  size={14}
+                  className={cpaServiceLoading ? 'loading-spinner' : undefined}
+                />
+                {t('common.refresh', '刷新')}
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => void handleStartCpaService()}
+                disabled={cpaServiceBusy || cpaServiceRunning}
+              >
+                {cpaServiceBusy ? (
+                  <RefreshCw size={14} className="loading-spinner" />
+                ) : (
+                  <Play size={14} />
+                )}
+                {t('codex.localAccess.cpaStart', '启动')}
+              </button>
+              <button
+                className="btn btn-secondary codex-api-service-cpa-stop-btn"
+                onClick={() => void handleStopCpaService()}
+                disabled={cpaServiceBusy || !cpaServiceRunning}
+              >
+                {cpaServiceBusy ? (
+                  <RefreshCw size={14} className="loading-spinner" />
+                ) : (
+                  <Power size={14} />
+                )}
+                {t('codex.localAccess.cpaStop', '停止')}
+              </button>
+              <button className="btn btn-primary" onClick={() => setShowCpaServiceManager(false)}>
+                {t('common.close')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <CodexLocalAccessModal
         isOpen={memberModalOpen}
         mode="members"
@@ -1892,7 +2712,7 @@ export function CodexApiServicePage() {
         onAddressKindChange={(value) => setAddressKind(normalizeAddressKind(value))}
         accounts={accounts}
         accountGroups={groups}
-        initialSelectedIds={memberIds}
+        initialSelectedIds={cpaMemberSelectedIds ?? memberIds}
         maskAccountText={maskAccountText}
         onClose={() => setMemberModalOpen(false)}
         onSaveAccounts={({ accountIds, restrictFreeAccounts }) =>
@@ -1917,15 +2737,19 @@ export function CodexApiServicePage() {
           customBaseUrl?: string | null;
           customApiKey?: string | null;
         }) =>
-          codexLocalAccessService
-            .updateCodexLocalAccessCredentials(
+          (async () => {
+            if (payload.credentialMode === 'cpa') {
+              await ensureCpaServiceRunning();
+            }
+            const next = await codexLocalAccessService.updateCodexLocalAccessCredentials(
               payload.credentialMode,
               payload.activeCustomCredentialId ?? null,
               payload.customCredentials ?? null,
               payload.customBaseUrl ?? null,
               payload.customApiKey ?? null,
-            )
-            .then(setState)
+            );
+            setState(next);
+          })()
         }
         onUpdateUpstreamProxyConfig={(url) =>
           codexLocalAccessService.updateCodexLocalAccessUpstreamProxyConfig(url).then(setState)
@@ -1933,7 +2757,12 @@ export function CodexApiServicePage() {
         onRotateApiKey={() => codexLocalAccessService.rotateCodexLocalAccessApiKey().then(setState)}
         onKillPort={handleKillPort}
         onToggleEnabled={handleToggleEnabled}
-        onTest={async () => codexLocalAccessService.testCodexLocalAccess()}
+        onTest={async () => {
+          if (isCpaCredentialMode) {
+            await ensureCpaServiceRunning();
+          }
+          return codexLocalAccessService.testCodexLocalAccess();
+        }}
         planBadgeStylePreferences={planBadgeStylePreferences}
         saving={busy}
         testing={testing}

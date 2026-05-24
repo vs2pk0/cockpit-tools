@@ -13,7 +13,8 @@ use crate::models::codex_local_access::{
 };
 use crate::modules::atomic_write::write_string_atomic;
 use crate::modules::{
-    account, codex_account, codex_oauth, codex_protocol, codex_wakeup, logger, process,
+    account, codex_account, codex_cpa_service, codex_oauth, codex_protocol, codex_wakeup, logger,
+    process,
 };
 use base64::{engine::general_purpose, Engine as _};
 use futures_util::{SinkExt, StreamExt};
@@ -506,6 +507,79 @@ fn upstream_http_client(upstream_proxy_url: Option<&str>) -> Result<Client, Stri
         client: client.clone(),
     });
     Ok(client)
+}
+
+fn collect_model_id(value: &Value, out: &mut Vec<String>) {
+    if let Some(model_id) = value.as_str().map(str::trim).filter(|item| !item.is_empty()) {
+        out.push(model_id.to_string());
+        return;
+    }
+
+    if let Some(model_id) = value
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        out.push(model_id.to_string());
+    }
+}
+
+pub async fn fetch_external_model_ids(
+    base_url: String,
+    api_key: String,
+) -> Result<Vec<String>, String> {
+    let base_url = base_url.trim().trim_end_matches('/');
+    if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
+        return Err("模型列表地址需以 http:// 或 https:// 开头".to_string());
+    }
+
+    let url = format!("{}/models", base_url);
+    let client = upstream_http_client(None)?;
+    let mut request = client.get(&url).header(ACCEPT, "application/json");
+    let api_key = api_key.trim();
+    if !api_key.is_empty() {
+        request = request.bearer_auth(api_key);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| format!("获取模型列表失败: {}", error))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("读取模型列表响应失败: {}", error))?;
+    if !status.is_success() {
+        let detail = body.chars().take(300).collect::<String>();
+        return Err(format!("获取模型列表失败: HTTP {} {}", status, detail));
+    }
+
+    let value: Value =
+        serde_json::from_str(&body).map_err(|error| format!("解析模型列表失败: {}", error))?;
+    let mut models = Vec::new();
+    if let Some(items) = value.get("data").and_then(Value::as_array) {
+        for item in items {
+            collect_model_id(item, &mut models);
+        }
+    } else if let Some(items) = value.get("models").and_then(Value::as_array) {
+        for item in items {
+            collect_model_id(item, &mut models);
+        }
+    } else if let Some(items) = value.as_array() {
+        for item in items {
+            collect_model_id(item, &mut models);
+        }
+    }
+
+    let mut seen = HashSet::new();
+    models.retain(|model| seen.insert(model.to_lowercase()));
+    models.sort_by(|left, right| left.to_lowercase().cmp(&right.to_lowercase()));
+    if models.is_empty() {
+        return Err("未从 /models 返回中读取到模型 ID".to_string());
+    }
+    Ok(models)
 }
 
 fn local_access_file_path() -> Result<PathBuf, String> {
@@ -4240,6 +4314,26 @@ fn validate_custom_credentials(
     Ok((base_url, api_key))
 }
 
+fn is_external_credential_mode(mode: CodexLocalAccessCredentialMode) -> bool {
+    mode != CodexLocalAccessCredentialMode::Local
+}
+
+fn apply_cpa_credentials(collection: &mut CodexLocalAccessCollection) {
+    let now = now_ms();
+    let credential = CodexLocalAccessCustomCredential {
+        id: "cpa-service".to_string(),
+        name: "CPA 服务".to_string(),
+        base_url: codex_cpa_service::CPA_SERVICE_BASE_URL.to_string(),
+        api_key: codex_cpa_service::CPA_SERVICE_API_KEY.to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+    collection.custom_credentials = vec![credential];
+    collection.active_custom_credential_id = Some("cpa-service".to_string());
+    collection.custom_base_url = Some(codex_cpa_service::CPA_SERVICE_BASE_URL.to_string());
+    collection.custom_api_key = Some(codex_cpa_service::CPA_SERVICE_API_KEY.to_string());
+}
+
 fn sanitize_custom_credentials(collection: &mut CodexLocalAccessCollection) -> bool {
     let original_credentials = collection.custom_credentials.clone();
     let original_active_id = collection.active_custom_credential_id.clone();
@@ -5540,7 +5634,10 @@ async fn ensure_runtime_loaded() -> Result<(), String> {
         runtime
             .collection
             .as_ref()
-            .map(|collection| collection.enabled)
+            .map(|collection| {
+                collection.enabled
+                    && collection.credential_mode == CodexLocalAccessCredentialMode::Local
+            })
             .unwrap_or(false)
     };
 
@@ -5577,7 +5674,7 @@ async fn ensure_gateway_matches_runtime() -> Result<(), String> {
         return Ok(());
     };
 
-    if !collection.enabled {
+    if !collection.enabled || collection.credential_mode != CodexLocalAccessCredentialMode::Local {
         stop_gateway().await;
         return Ok(());
     }
@@ -6149,7 +6246,7 @@ pub async fn activate_local_access_for_dir(
         (state, collection)
     };
 
-    if initial_collection.credential_mode == CodexLocalAccessCredentialMode::Custom {
+    if is_external_credential_mode(initial_collection.credential_mode) {
         let (base_url, api_key) = validate_custom_credentials(&initial_collection)?;
         let bound_oauth_account_id =
             normalize_optional_account_ref(initial_collection.bound_oauth_account_id.as_deref());
@@ -6549,7 +6646,8 @@ pub async fn test_local_access_with_cli() -> Result<CodexLocalAccessTestResult, 
             None,
         )));
     };
-    if !collection.enabled {
+    let external_credentials = is_external_credential_mode(collection.credential_mode);
+    if !external_credentials && !collection.enabled {
         return Ok(build_failure_result(local_access_test_failure(
             "API 服务未启用",
             "检测前置条件",
@@ -6558,7 +6656,7 @@ pub async fn test_local_access_with_cli() -> Result<CodexLocalAccessTestResult, 
             None,
         )));
     }
-    if !state.running {
+    if !external_credentials && !state.running {
         return Ok(build_failure_result(local_access_test_failure(
             "API 服务未运行",
             "本地网关进程",
@@ -6567,7 +6665,7 @@ pub async fn test_local_access_with_cli() -> Result<CodexLocalAccessTestResult, 
             None,
         )));
     }
-    if collection.account_ids.is_empty() {
+    if !external_credentials && collection.account_ids.is_empty() {
         return Ok(build_failure_result(local_access_test_failure(
             "账号集合为空",
             "账号池配置",
@@ -6577,10 +6675,6 @@ pub async fn test_local_access_with_cli() -> Result<CodexLocalAccessTestResult, 
         )));
     }
 
-    let base_url = state
-        .base_url
-        .clone()
-        .unwrap_or_else(|| build_base_url(collection.port));
     let Some(model_id) = state.model_ids.first().cloned() else {
         return Ok(build_failure_result(local_access_test_failure(
             "API 服务暂无可用模型",
@@ -6599,7 +6693,7 @@ pub async fn test_local_access_with_cli() -> Result<CodexLocalAccessTestResult, 
             None,
         )));
     }
-    if collection.credential_mode == CodexLocalAccessCredentialMode::Custom {
+    if external_credentials {
         let (custom_base_url, custom_api_key) = match validate_custom_credentials(&collection) {
             Ok(credentials) => credentials,
             Err(error) => {
@@ -7050,7 +7144,9 @@ pub async fn update_local_access_credentials(
         return Err("本地接入集合尚未创建".to_string());
     };
 
-    if let Some(credentials) = custom_credentials {
+    if credential_mode == CodexLocalAccessCredentialMode::Cpa {
+        apply_cpa_credentials(&mut collection);
+    } else if let Some(credentials) = custom_credentials {
         collection.custom_credentials = credentials;
         collection.active_custom_credential_id =
             normalize_custom_credential_id(active_custom_credential_id.as_deref());
@@ -7076,6 +7172,11 @@ pub async fn update_local_access_credentials(
     let changed_before_validation = sanitize_custom_credentials(&mut collection);
 
     if credential_mode == CodexLocalAccessCredentialMode::Custom {
+        let (custom_base_url, custom_api_key) = validate_custom_credentials(&collection)?;
+        collection.custom_base_url = Some(custom_base_url);
+        collection.custom_api_key = Some(custom_api_key);
+    } else if credential_mode == CodexLocalAccessCredentialMode::Cpa {
+        apply_cpa_credentials(&mut collection);
         let (custom_base_url, custom_api_key) = validate_custom_credentials(&collection)?;
         collection.custom_base_url = Some(custom_base_url);
         collection.custom_api_key = Some(custom_api_key);
