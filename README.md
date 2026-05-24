@@ -63,7 +63,7 @@
 - **专属支持**：专为 Codex 优化的账号管理体验
 - **配额展示**：清晰展示 Hourly 和 Weekly 配额状态
 - **计划识别**：自动识别账号 Plan 类型 (Basic, Plus, Team 等)
-- **API 服务**：支持内置服务、自定义配置和 CPA 服务模式；CPA 运行时按需下载或导入，默认端口 `8317`，管理密码 `ab2026ab`，提供启动状态、配置编辑、版本更新/导入、模型列表获取和带二次确认的停止操作，并会与 `~/.cli-proxy-api` 账号 JSON 及当前 CPA 服务账号保持勾选/筛选同步。
+- **API 服务**：本地 Codex API 服务由内置 CLIProxyAPI sidecar 驱动，Cockpit Tools 负责账号同步、配置投影、状态与用量统计；同时保留自定义配置和 CPA 服务模式。CPA 运行时按需下载或导入，默认端口 `8317`，管理密码 `ab2026ab`，提供启动状态、配置编辑、版本更新/导入、模型列表获取和带二次确认的停止操作，并会与 `~/.cli-proxy-api` 账号 JSON 及当前 CPA 服务账号保持勾选/筛选同步。
 
 > ![Codex Accounts](docs/images/codex_list.png)
 
@@ -397,7 +397,7 @@ QQ 交流群、微信群或新建的 Telegram 畅聊群都可以加入。
 ## 致谢
 
 - Antigravity IDE 账号切号逻辑参考：[Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager)
-- Codex API 服务实现参考：[router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
+- Codex API 服务由内置 sidecar 集成：[router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
 
 感谢项目作者的开源贡献！如果这些项目对你有帮助，也请给他们点个 ⭐ Star 支持一下！
 

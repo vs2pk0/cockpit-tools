@@ -5,6 +5,7 @@ use crate::models::codex::{
 use crate::models::codex_local_access::{
     CodexLocalAccessCredentialMode, CodexLocalAccessCustomCredential,
     CodexLocalAccessCustomRoutingRule, CodexLocalAccessModelAlias,
+    CodexLocalAccessModelPricing,
     CodexLocalAccessPortCleanupResult, CodexLocalAccessRequestKind,
     CodexLocalAccessRoutingStrategy, CodexLocalAccessScope, CodexLocalAccessState,
     CodexLocalAccessTestResult, CodexLocalAccessUsageEventPage,
@@ -620,6 +621,18 @@ pub async fn refresh_codex_quota(app: AppHandle, account_id: String) -> Result<C
 }
 
 #[tauri::command]
+pub async fn refresh_codex_subscription_info(
+    app: AppHandle,
+    account_id: String,
+) -> Result<CodexAccount, String> {
+    let result = codex_quota::refresh_account_subscription_info(&account_id, true).await;
+    if result.is_ok() {
+        let _ = crate::modules::tray::update_tray_menu(&app);
+    }
+    result
+}
+
+#[tauri::command]
 pub async fn refresh_current_codex_quota(app: AppHandle) -> Result<(), String> {
     let Some(account) = codex_account::get_current_account() else {
         return Err("未找到当前 Codex 账号".to_string());
@@ -1112,6 +1125,13 @@ pub async fn codex_local_access_fetch_external_models(
     api_key: String,
 ) -> Result<Vec<String>, String> {
     codex_local_access::fetch_external_model_ids(base_url, api_key).await
+}
+
+#[tauri::command]
+pub async fn codex_local_access_update_model_pricings(
+    model_pricings: Vec<CodexLocalAccessModelPricing>,
+) -> Result<CodexLocalAccessState, String> {
+    codex_local_access::update_local_access_model_pricings(model_pricings).await
 }
 
 #[tauri::command]

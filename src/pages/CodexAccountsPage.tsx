@@ -746,6 +746,8 @@ export function CodexAccountsPage() {
   const [refreshingGroupId, setRefreshingGroupId] = useState<string | null>(
     null,
   );
+  const [refreshingSubscriptionAccountId, setRefreshingSubscriptionAccountId] =
+    useState<string | null>(null);
   const [removingGroupAccountIds, setRemovingGroupAccountIds] = useState<
     Set<string>
   >(new Set());
@@ -1061,6 +1063,7 @@ export function CodexAccountsPage() {
     fetchCurrentAccount,
     switchAccount,
     refreshQuota,
+    refreshSubscriptionInfo,
     hydrateAccountProfilesIfNeeded,
     updateAccountName,
     updateApiKeyCredentials,
@@ -2250,6 +2253,20 @@ export function CodexAccountsPage() {
   );
 
   const localAccessCollection = localAccessState?.collection ?? null;
+
+  const handleRefreshSubscriptionInfo = useCallback(
+    async (accountId: string) => {
+      setRefreshingSubscriptionAccountId(accountId);
+      try {
+        await refreshSubscriptionInfo(accountId);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setRefreshingSubscriptionAccountId(null);
+      }
+    },
+    [refreshSubscriptionInfo],
+  );
 
   const editingAccountNoteAccount = useMemo(
     () =>
@@ -6647,6 +6664,13 @@ export function CodexAccountsPage() {
       const subscriptionInfo = resolveSubscriptionPresentation(account);
       const showCompactExpiry =
         !isApiKeyAccount && subscriptionInfo.bucket !== "active";
+      const showSubscriptionRefreshAction =
+        !isApiKeyAccount &&
+        (subscriptionInfo.bucket === "missing" ||
+          subscriptionInfo.bucket === "expired");
+      const isSubscriptionRefreshPending =
+        refreshingSubscriptionAccountId === account.id ||
+        refreshing === account.id;
       return (
         <div
           key={groupKey ? `${groupKey}-${account.id}` : account.id}
@@ -6681,11 +6705,27 @@ export function CodexAccountsPage() {
               </span>
             ))}
             {showCompactExpiry && (
-              <span
-                className={`codex-compact-expiry ${subscriptionInfo.tone}`}
-                title={subscriptionInfo.titleText}
-              >
-                {subscriptionInfo.valueText}
+              <span className="codex-compact-expiry-wrap">
+                <span
+                  className={`codex-compact-expiry ${subscriptionInfo.tone}`}
+                  title={subscriptionInfo.titleText}
+                >
+                  {subscriptionInfo.valueText}
+                </span>
+                {showSubscriptionRefreshAction && (
+                  <button
+                    type="button"
+                    className="codex-subscription-refresh-btn"
+                    onClick={() =>
+                      void handleRefreshSubscriptionInfo(account.id)
+                    }
+                    disabled={isSubscriptionRefreshPending}
+                    title={t("common.refresh", "刷新")}
+                    aria-label={t("common.refresh", "刷新")}
+                  >
+                    {t("common.refresh", "刷新")}
+                  </button>
+                )}
               </span>
             )}
           </div>
@@ -6783,6 +6823,13 @@ export function CodexAccountsPage() {
       const isInLocalAccess = localAccessAccountIdSet.has(account.id);
       const subscriptionInfo = resolveSubscriptionPresentation(account);
       const isSubscriptionInfoMissing = subscriptionInfo.bucket === "missing";
+      const showSubscriptionRefreshAction =
+        !isApiKeyAccount &&
+        (subscriptionInfo.bucket === "missing" ||
+          subscriptionInfo.bucket === "expired");
+      const isSubscriptionRefreshPending =
+        refreshingSubscriptionAccountId === account.id ||
+        refreshing === account.id;
       return (
         <div
           key={groupKey ? `${groupKey}-${account.id}` : account.id}
@@ -7002,10 +7049,29 @@ export function CodexAccountsPage() {
                   </>
                 )}
               </div>
-              {subscriptionInfo.timestampMs != null && (
-                <span className="codex-subscription-footer-date">
-                  {subscriptionInfo.detailText}
-                </span>
+              {(subscriptionInfo.timestampMs != null ||
+                showSubscriptionRefreshAction) && (
+                <div className="codex-subscription-footer-side">
+                  {subscriptionInfo.timestampMs != null && (
+                    <span className="codex-subscription-footer-date">
+                      {subscriptionInfo.detailText}
+                    </span>
+                  )}
+                  {showSubscriptionRefreshAction && (
+                    <button
+                      type="button"
+                      className="codex-subscription-refresh-btn"
+                      onClick={() =>
+                        void handleRefreshSubscriptionInfo(account.id)
+                      }
+                      disabled={isSubscriptionRefreshPending}
+                      title={t("common.refresh", "刷新")}
+                      aria-label={t("common.refresh", "刷新")}
+                    >
+                      {t("common.refresh", "刷新")}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -7938,6 +8004,13 @@ export function CodexAccountsPage() {
       const apiBaseUrlLine = `${t("codex.api.baseUrl", "Base URL")}：${apiBaseUrlText}`;
       const isInLocalAccess = localAccessAccountIdSet.has(account.id);
       const subscriptionInfo = resolveSubscriptionPresentation(account);
+      const showSubscriptionRefreshAction =
+        !isApiKeyAccount &&
+        (subscriptionInfo.bucket === "missing" ||
+          subscriptionInfo.bucket === "expired");
+      const isSubscriptionRefreshPending =
+        refreshingSubscriptionAccountId === account.id ||
+        refreshing === account.id;
       return (
         <tr
           key={groupKey ? `${groupKey}-${account.id}` : account.id}
@@ -8091,11 +8164,27 @@ export function CodexAccountsPage() {
                 className="codex-subscription-table-cell"
                 title={subscriptionInfo.titleText}
               >
-                <span
-                  className={`codex-subscription-badge ${subscriptionInfo.tone}`}
-                >
-                  {subscriptionInfo.valueText}
-                </span>
+                <div className="codex-subscription-table-head">
+                  <span
+                    className={`codex-subscription-badge ${subscriptionInfo.tone}`}
+                  >
+                    {subscriptionInfo.valueText}
+                  </span>
+                  {showSubscriptionRefreshAction && (
+                    <button
+                      type="button"
+                      className="codex-subscription-refresh-btn"
+                      onClick={() =>
+                        void handleRefreshSubscriptionInfo(account.id)
+                      }
+                      disabled={isSubscriptionRefreshPending}
+                      title={t("common.refresh", "刷新")}
+                      aria-label={t("common.refresh", "刷新")}
+                    >
+                      {t("common.refresh", "刷新")}
+                    </button>
+                  )}
+                </div>
                 {subscriptionInfo.timestampMs != null && (
                   <span className="codex-subscription-date">
                     {subscriptionInfo.detailText}

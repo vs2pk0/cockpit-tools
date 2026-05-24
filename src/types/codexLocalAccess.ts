@@ -52,6 +52,13 @@ export interface CodexLocalAccessModelAlias {
   fork: boolean;
 }
 
+export interface CodexLocalAccessModelPricing {
+  modelId: string;
+  inputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+  cachedInputUsdPerMillion?: number | null;
+}
+
 export interface CodexLocalAccessApiKey {
   id: string;
   label: string;
@@ -81,6 +88,7 @@ export interface CodexLocalAccessCollection {
   customApiKey?: string | null;
   customRoutingRules: CodexLocalAccessCustomRoutingRule[];
   modelAliases: CodexLocalAccessModelAlias[];
+  modelPricings: CodexLocalAccessModelPricing[];
   excludedModels: string[];
   sessionAffinity: boolean;
   sessionAffinityTtlMs: number;
@@ -109,6 +117,7 @@ export interface CodexLocalAccessUsageStats {
   totalTokens: number;
   cachedTokens: number;
   reasoningTokens: number;
+  estimatedCostUsd: number;
 }
 
 export interface CodexLocalAccessAccountStats {
@@ -142,6 +151,7 @@ export interface CodexLocalAccessStatsWindow {
 
 export interface CodexLocalAccessUsageEvent {
   timestamp: number;
+  requestId: string;
   accountId: string;
   email: string;
   apiKeyId: string;
@@ -149,13 +159,19 @@ export interface CodexLocalAccessUsageEvent {
   modelId: string;
   requestKind: CodexLocalAccessRequestKind;
   success: boolean;
+  httpStatus?: number | null;
   errorCategory: string;
+  errorMessage: string;
   latencyMs: number;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
   cachedTokens: number;
   reasoningTokens: number;
+  estimatedCostUsd: number;
+  inputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+  cachedInputUsdPerMillion?: number | null;
 }
 
 export interface CodexLocalAccessStats {
@@ -213,13 +229,26 @@ export interface CodexLocalAccessAccountHealth {
   cooldowns: CodexLocalAccessAccountCooldown[];
 }
 
+export interface CodexLocalAccessProfileAttachment {
+  profileDir: string;
+  attached: boolean;
+  configAttached: boolean;
+  authAttached: boolean;
+  modelProvider: string | null;
+  baseUrl: string | null;
+  expectedBaseUrl: string | null;
+  error: string | null;
+}
+
 export interface CodexLocalAccessState {
   collection: CodexLocalAccessCollection | null;
   running: boolean;
+  defaultProfile: CodexLocalAccessProfileAttachment | null;
   apiPortUrl: string | null;
   baseUrl: string | null;
   lanBaseUrl: string | null;
   modelIds: string[];
+  modelPricingPresets: CodexLocalAccessModelPricing[];
   lastError: string | null;
   memberCount: number;
   stats: CodexLocalAccessStats;
