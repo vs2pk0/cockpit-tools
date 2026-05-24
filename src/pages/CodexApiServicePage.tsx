@@ -3098,9 +3098,10 @@ export function CodexApiServicePage() {
           customCredentials?: CodexLocalAccessCustomCredential[] | null;
           customBaseUrl?: string | null;
           customApiKey?: string | null;
+          ensureCpaService?: boolean;
         }) =>
           (async () => {
-            if (payload.credentialMode === 'cpa') {
+            if (payload.credentialMode === 'cpa' && payload.ensureCpaService !== false) {
               await ensureCpaServiceRunning();
             }
             const next = await codexLocalAccessService.updateCodexLocalAccessCredentials(

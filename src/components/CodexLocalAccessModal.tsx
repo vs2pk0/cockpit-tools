@@ -108,6 +108,7 @@ interface CodexLocalAccessModalProps {
     customCredentials?: CodexLocalAccessCustomCredential[] | null;
     customBaseUrl?: string | null;
     customApiKey?: string | null;
+    ensureCpaService?: boolean;
   }) => Promise<unknown> | unknown;
   onUpdateUpstreamProxyConfig: (
     upstreamProxyUrl: string | null,
@@ -726,6 +727,7 @@ export function CodexLocalAccessModal({
         customCredentials: null,
         customBaseUrl: nextState.baseUrl,
         customApiKey: nextState.apiKey,
+        ensureCpaService: false,
       });
     },
     [isCpaCredentialMode, onUpdateCredentials],

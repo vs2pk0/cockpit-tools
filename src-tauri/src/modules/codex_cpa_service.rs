@@ -806,11 +806,11 @@ pub fn save_config(
         let _ = request_stop_for_port(app, previous_port);
         if !wait_until_port_closed(previous_port, Duration::from_secs(4)) {
             logger::log_warn(&format!(
-                "[CodexCPA] 保存 CPA 配置后重启服务，旧端口 {} 仍在监听",
+                "[CodexCPA] 保存 CPA 配置后停止旧服务，旧端口 {} 仍在监听",
                 previous_port
             ));
         }
-        return ensure_running(app);
+        return build_state(app);
     }
     if previous_port_open && previous_port != next_port {
         logger::log_warn(&format!(
@@ -836,11 +836,11 @@ pub fn restore_default_config(app: &AppHandle) -> Result<CodexCpaServiceState, S
         let _ = request_stop_for_port(app, previous_port);
         if !wait_until_port_closed(previous_port, Duration::from_secs(4)) {
             logger::log_warn(&format!(
-                "[CodexCPA] 恢复 CPA 默认配置后重启服务，旧端口 {} 仍在监听",
+                "[CodexCPA] 恢复 CPA 默认配置后停止旧服务，旧端口 {} 仍在监听",
                 previous_port
             ));
         }
-        return ensure_running(app);
+        return build_state(app);
     }
     build_state(app)
 }
