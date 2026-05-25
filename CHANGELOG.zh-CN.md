@@ -7,6 +7,16 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
 ---
+## [0.24.8-vs2pk0.1] - 2026-05-25
+
+### 变更
+- **已同步 fork 到作者仓库 `jlcodes99/cockpit-tools` 的 `a62cd334`**：本构建包含上游 `v0.24.8` 的 API 服务新旧网关切换、调试日志、回环代理绕过、sidecar 流式稳定性和请求日志网关模式字段。
+- **上游合并后继续保留本地 fork 的 CPA/自定义服务增强**：Codex API 服务仍支持内置服务、自定义配置和 CPA 服务模式；CPA 运行时按需下载或导入，账号 JSON 同步、CPA 账号筛选、模型列表获取、配置编辑、版本更新/导入、停止确认和只识别 Cockpit 自有 CPA 进程的状态判断仍可使用。
+
+### 备份
+- **已为本次上游同步刷新改动文件备份集**：相对上游有差异的文件会按仓库相对路径镜像到 `/Users/dalong/Documents/cockpit-tools.backup`。
+
+---
 ## [0.24.7-vs2pk0.1] - 2026-05-24
 
 ### 变更
@@ -20,7 +30,6 @@
 - **已为本次上游同步刷新改动文件备份集**：相对上游有差异的文件会按仓库相对路径镜像到 `/Users/dalong/Documents/cockpit-tools.backup`。
 
 ---
-
 ## [0.24.4-vs2pk0.3] - 2026-05-23
 
 ### 新增
@@ -40,7 +49,28 @@
 - **已为本次 fork 构建刷新改动文件备份集**：相对上游有差异的文件会按仓库相对路径镜像到 `/Users/dalong/Documents/cockpit-tools.backup`。
 
 ---
+## [0.24.8] - 2026-05-25
 
+### 新增
+- **Codex API 服务现支持 Sidecar 与 Legacy 网关模式切换**：可在账号卡片和完整 API 服务页切换网关模式，请求日志会记录并按模式筛选，日志也会以 `[sidecar]` 或 `[legacy]` 标记来源，便于定位问题。
+- **Codex API 服务新增调试日志开关**：开启后会记录 legacy 网关请求阶段、sidecar executor trace、上游耗时、已选账号、流式完成状态和超时诊断，同时保留常规请求日志。
+- **Codex API 服务两种网关模式均支持隐藏的 `codex-auto-review` 审查模型**：Sidecar 与 Legacy 网关都会在本地 `/v1/models` 暴露该内部审查模型，在 Codex 客户端模型目录中标记为隐藏，并原样转发 `/v1/responses` 审查请求，避免 Codex 自动审批审查在本地模型策略校验阶段失败。
+- **Codex API 服务现会在账号卡片引导用户切换网关**：首次显示不透明引导浮层，指向账号卡片的新旧网关选择器，同时不再把切换入口放回快速配置弹框。
+
+### 变更
+- **Codex API 服务现使用 `localhost` 写入本地客户端 Base URL**：生成的 Codex provider 配置改为 `http://localhost:<port>/v1`，不再使用 `127.0.0.1`，降低本机代理栈误拦截客户端到 sidecar 回环请求的概率。
+- **Cockpit 启动的 Codex 进程现注入受管本机代理绕过设置**：Codex CLI 与官方 app-server 启动时会合并继承的 `NO_PROXY` / `no_proxy` 与 Cockpit 管理的回环地址，包括 `127.0.0.1`、`127.0.0.0/8`、`localhost`、`::1` 和 `::1/128`。
+- **Sidecar 代理选择现与旧网关优先级对齐**：API 服务代理、Cockpit 全局代理、继承的环境代理与系统/默认代理发现会按旧网关同一套优先级解析。
+- **Codex API 服务快速配置弹框现保持配置定位**：新旧网关切换已从弹框移除，完整 API 服务页和账号卡片继续负责网关模式切换。
+
+### 修复
+- **Codex API 服务降低了回环请求被本机代理工具误转发的概率**：Cockpit 现在会注入回环地址绕过规则，健康诊断也能识别 Clash/FlyingBird 等本机代理是否拦截了 `localhost` 或 `127.0.0.1` 的 API 服务流量。
+- **Sidecar 流式请求在启动和空闲卡住时会更快失败**：首包超时、重试处理、空闲超时、完成状态校验与更清晰诊断可避免首字节前或半截流式响应后的长时间静默挂起。
+- **Sidecar 启动跨平台稳定性提升**：Cockpit 会等待 sidecar stdout `ready` 事件，开发构建优先解析本地 sidecar 二进制，Tauri 构建脚本会跟踪 Go sidecar 源码，Windows sidecar 也不再依赖不可靠的父进程 PID 检查退出。
+- **旧网关流式与 WebSocket 处理增强了超时和断开行为**：上游连接超时、流式空闲超时、总超时、心跳刷新、broken pipe 分类与首包/完成诊断让长请求更容易恢复和排查。
+- **Codex API 服务请求日志现稳定保留网关模式与诊断字段**：数据库迁移会补充网关模式字段和相关索引，完整功能页请求日志可区分 Sidecar 与 Legacy 流量。
+
+---
 ## [0.24.7] - 2026-05-24
 
 ### 新增
