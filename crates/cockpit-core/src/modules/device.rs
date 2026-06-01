@@ -33,10 +33,10 @@ pub fn get_storage_path() -> Result<PathBuf, String> {
 
     #[cfg(target_os = "windows")]
     {
-        let appdata =
-            std::env::var("APPDATA").map_err(|_| "无法获取 APPDATA 环境变量".to_string())?;
-        let path =
-            PathBuf::from(appdata).join("Antigravity IDE\\User\\globalStorage\\storage.json");
+        let path = crate::modules::instance::get_default_user_data_dir()?
+            .join("User")
+            .join("globalStorage")
+            .join("storage.json");
         if path.exists() {
             return Ok(path);
         }
@@ -78,9 +78,7 @@ fn get_machine_id_path() -> Result<PathBuf, String> {
 
     #[cfg(target_os = "windows")]
     {
-        let appdata =
-            std::env::var("APPDATA").map_err(|_| "无法获取 APPDATA 环境变量".to_string())?;
-        return Ok(PathBuf::from(appdata).join("Antigravity IDE\\machineid"));
+        return Ok(crate::modules::instance::get_default_user_data_dir()?.join("machineid"));
     }
 
     #[cfg(target_os = "linux")]

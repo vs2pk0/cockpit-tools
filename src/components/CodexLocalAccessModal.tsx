@@ -3907,14 +3907,6 @@ export function CodexLocalAccessModal({
                       <pre>{testFailure.gatewayOutput}</pre>
                     </div>
                   )}
-                  {testFailure.cliOutput && (
-                    <div className="codex-local-access-test-output">
-                      <div className="codex-local-access-test-section-title">
-                        {t('codex.localAccess.testFailureCliOutput', 'CLI 输出')}
-                      </div>
-                      <pre>{testFailure.cliOutput}</pre>
-                    </div>
-                  )}
                 </div>
               )}
 

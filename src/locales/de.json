@@ -447,7 +447,9 @@
         }
       },
       "appSpeed": "Tempo",
-      "appSpeedDesc": "Schreibt das gewählte Tempo vor dem Start von Codex"
+      "appSpeedDesc": "Schreibt das gewählte Tempo vor dem Start von Codex",
+      "autoSyncThreads": "Sitzungen auto-syncen",
+      "autoSyncThreadsDesc": "Aus lässt Sitzungen mehrerer Instanzen getrennt. Wenn aktiviert, werden lokale Sitzungsdaten beim Starten oder Schließen einer Instanz automatisch zusammengeführt, aber nur nachdem alle Codex-Instanzen gestoppt sind."
     },
     "quota": {
       "unbound": "Nicht gekoppelt",
@@ -1656,6 +1658,22 @@
         "hourly": "5 Std.",
         "weekly": "Wöchentlich"
       },
+      "syncAllRecords": {
+        "action": "Alle Instanzdatensätze synchronisieren",
+        "autoAction": "Alle Instanzdatensätze automatisch synchronisieren",
+        "autoDisabled": "Automatische Synchronisierung aller Instanzdatensätze ist aus",
+        "autoEnabled": "Automatische Synchronisierung aller Instanzdatensätze ist an",
+        "autoTooltip": "Alle Instanzdatensätze automatisch synchronisieren",
+        "autoDesc": "Aus lässt Datensätze mehrerer Instanzen getrennt. Wenn aktiviert, führt das Starten oder Schließen einer Instanz lokale Datensätze erst automatisch zusammen, nachdem alle Codex-Instanzen gestoppt sind.",
+        "closeFirst": "Schließe vor der Synchronisierung alle Codex-Instanzen, damit laufende Instanzen keine alten Datensätze zurückschreiben.",
+        "confirmMessage": "Lokale Sitzungsdatensätze werden vollständig über alle Codex-Instanzen synchronisiert. Sitzungen mit gleicher ID werden auf Ereignisebene zusammengeführt; wichtige Zieldateien und alte Sitzungsdateien werden vor dem Schreiben gesichert. Fortfahren?",
+        "needTwo": "Zum Synchronisieren der Datensätze werden mindestens zwei Instanzen benötigt",
+        "settingsSection": "Synchronisierung",
+        "settingsSubtitle": "Verhalten der Datensatzsynchronisierung für mehrere Codex-Instanzen verwalten",
+        "settingsTitle": "Instanzdatensatz-Einstellungen",
+        "title": "Alle Instanzdatensätze synchronisieren",
+        "tooltip": "Alle Instanzdatensätze synchronisieren"
+      },
       "restartStrategy": {
         "safe": {
           "principle": "Sendet ein SIGTERM-Signal an alle Codex-Prozesse, damit die App speichern und sich selbst beenden kann, und startet dann die Zielinstanz (erzwingt das Beenden, falls erforderlich).",
@@ -1786,19 +1804,18 @@
       "entryAction": "Zum API-Dienst hinzufügen",
       "testAction": "Prüfen",
       "testDialogTitle": "API-Dienst testen",
-      "testDialogDesc": "Sendet eine echte Anfrage über Codex CLI, um lokalen Dienst, Schlüssel und Upstream-Antwort zu prüfen.",
+      "testDialogDesc": "Startet wie im Playground einen echten Chat über den aktuellen API-Dienst, um Modell, Konto-Routing und Upstream-Antwort zu prüfen.",
       "testProgressTitle": "Dienst wird getestet",
       "testProgressDesc": "Es wird eine echte Anfrage an den lokalen API-Dienst gesendet. Bitte warten.",
       "testOutputTitle": "Zurückgegebene Antwort",
       "testResultTitle": "Ergebnis der Dienstprüfung",
-      "testSuccess": "Dienstprüfung erfolgreich: lokaler Dienst, Schlüssel und Upstream-Antwort sind in Ordnung ({{model}}, {{latency}}). Falls Codex weiter 502 meldet, prüfen Sie Base URL, API Key oder die Laufzeitumgebung von Codex.",
+      "testSuccess": "Dienstprüfung bestanden: Lokaler Dienst, Schlüssel und Upstream-Antwort sind fehlerfrei ({{model}}, {{latency}}). Wenn der Client weiterhin fehlschlägt, prüfen Sie Base URL, API Key oder Proxy-Einstellungen.",
       "testFailureStage": "Prüfschritt",
       "testFailureCause": "Fehlerursache",
       "testFailureSuggestion": "Empfohlene Behebung",
       "testFailureStatus": "HTTP-Status",
       "testFailureModel": "Testmodell",
       "testFailureDetail": "Diagnosedetails",
-      "testFailureCliOutput": "CLI-Ausgabe",
       "testFailureGatewayOutput": "Gateway-Antwort",
       "testTimeout": "Zeitüberschreitung bei der echten Anfrageprüfung. Prüfen Sie lokalen Dienst, Proxy oder Upstream-Netzwerk.",
       "testUnavailable": "Die aktuelle API-Dienst-URL ist nicht erreichbar",
@@ -1908,7 +1925,7 @@
         "empty": "Noch keine Kontingentstatistik"
       },
       "oauthBinding": {
-        "desc": "Optional. Es können nur OAuth-Konten mit Abo-Laufzeitangabe ausgewählt werden; abgelaufene Laufzeiten sind zulässig. Ohne Verknüpfung nutzt der API-Dienst weiter den bisherigen API-Key-Ablauf; nach der Verknüpfung verwendet die Anmeldung das OAuth-Konto und der Provider die API-Dienst-Konfiguration.",
+        "desc": "Optional. Es können nur OAuth-Konten mit refresh_token ausgewählt werden. Ohne Verknüpfung nutzt der API-Dienst weiter den bisherigen API-Key-Ablauf; nach der Verknüpfung verwendet die Anmeldung das OAuth-Konto und der Provider die API-Dienst-Konfiguration.",
         "currentService": "API-Dienst: {{name}}"
       },
       "customRoutingEdit": "Benutzerdefiniertes Routing bearbeiten",
@@ -1993,7 +2010,27 @@
       "debugLogsEnableConfirmAction": "Aktivieren",
       "debugLogsDisableConfirmTitle": "Debugprotokolle deaktivieren",
       "debugLogsDisableConfirmMessage": "Nach dem Deaktivieren schreibt der API-Dienst keine Debugprotokolle mehr. Das reduziert Log-Rauschen und Zusatzaufwand. Für die Diagnose von Gateway-, Proxy- oder Streaming-Problemen können Sie sie erneut aktivieren. Deaktivieren?",
-      "debugLogsDisableConfirmAction": "Deaktivieren"
+      "debugLogsDisableConfirmAction": "Deaktivieren",
+      "clientBaseUrlHostLabel": "Client-Adresse",
+      "clientBaseUrlHostDesc": "Beeinflusst nur die Base URL, die in den Codex Provider geschrieben und an Clients kopiert wird; die Dienst-Adresse bleibt unverändert.",
+      "clientBaseUrlHostSaveSuccess": "Client-Adresse wurde aktualisiert",
+      "accountPoolHealth": {
+        "title": "Kontenpool",
+        "allAvailable": "Alle OK {{count}}",
+        "availableRatio": "Bereit {{available}}/{{total}}",
+        "issueSummary": "Fehler {{abnormal}} · Pause {{cooldown}}",
+        "detail": "OK {{available}}/{{total}}, Fehler {{abnormal}}, Pause {{cooldown}}, fehlt {{missing}}, Auth {{authError}}, Kontingent {{quotaLimited}}"
+      },
+      "testChatModel": "Modell",
+      "testChatClear": "Chat leeren",
+      "testChatEmpty": "Senden Sie eine Nachricht, um einen echten Chat über den aktuellen API-Dienst zu starten.",
+      "testChatLatency": "{{latency}} Dauer",
+      "testChatSending": "API-Dienst wird angefragt",
+      "testChatInputPlaceholder": "Testnachricht eingeben, Enter sendet",
+      "testChatSend": "Senden",
+      "testChatInputRequired": "Testnachricht eingeben",
+      "testChatModelRequired": "Modell-ID wählen",
+      "testChatEmptyResponse": "Leere Antwort"
     },
     "local": {
       "desc": "Aktuell eingeloggtes Konto aus ~/.codex/auth.json importieren",
@@ -2404,13 +2441,13 @@
         "action": "OAuth binden",
         "actionShort": "Binden",
         "title": "OAuth-Konto binden",
-        "desc": "Optional. Es können nur OAuth-Konten mit Abo-Laufzeitangabe ausgewählt werden; abgelaufene Laufzeiten sind zulässig. Ohne Verknüpfung wechselt dieses Konto mit dem bisherigen API-Key-Ablauf; nach der Verknüpfung verwendet die Anmeldung das OAuth-Konto und der Provider die Konfiguration dieses API-Key-Kontos.",
+        "desc": "Optional. Es können nur OAuth-Konten mit refresh_token ausgewählt werden. Ohne Verknüpfung wechselt dieses Konto mit dem bisherigen API-Key-Ablauf; nach der Verknüpfung verwendet die Anmeldung das OAuth-Konto und der Provider die Konfiguration dieses API-Key-Kontos.",
         "currentAccount": "API-Key-Konto: {{name}}",
         "selectLabel": "OAuth-Konto wählen",
         "empty": "Noch kein OAuth-Konto vorhanden. Bitte zuerst ein OAuth-Konto hinzufügen.",
-        "emptyEligible": "Keine OAuth-Konten mit Abo-Laufzeitangabe. Bitte Kontingent aktualisieren oder zuerst ein geeignetes OAuth-Konto hinzufügen.",
+        "emptyEligible": "Keine OAuth-Konten mit refresh_token. Bitte per OAuth erneut autorisieren oder zuerst ein geeignetes OAuth-Konto hinzufügen.",
         "validationRequired": "Bitte ein OAuth-Konto wählen",
-        "validationSubscriptionRequired": "Es können nur OAuth-Konten mit Abo-Laufzeitangabe verknüpft werden",
+        "validationSubscriptionRequired": "Es können nur OAuth-Konten mit refresh_token verknüpft werden",
         "saveSuccess": "OAuth-Bindung aktualisiert",
         "saveFailed": "OAuth-Bindung fehlgeschlagen: {{error}}",
         "switchRequiresBinding": "Bitte zuerst ein OAuth-Konto binden",

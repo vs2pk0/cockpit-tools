@@ -17,6 +17,23 @@
   width: 100%;
 }
 
+.instances-page .instances-toolbar .toolbar-right {
+  gap: 8px;
+}
+
+.instances-page .instances-toolbar .toolbar-right .btn.icon-only {
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.instances-page .instances-toolbar .toolbar-right .btn.icon-only svg {
+  width: 14px;
+  height: 14px;
+}
+
 .instances-page .sort-select {
   position: relative;
   width: clamp(110px, 12vw, 150px);

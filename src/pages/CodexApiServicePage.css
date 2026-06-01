@@ -461,6 +461,17 @@
   max-width: 67%;
 }
 
+.codex-api-service-stacked-control {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.codex-api-service-field-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .codex-api-service-copy-row code,
 .codex-api-service-input-row input,
 .codex-api-service-table-row input,
@@ -562,6 +573,88 @@
 .codex-api-service-page .single-select-dropdown-trigger {
   min-height: 34px;
   border-radius: 10px;
+}
+
+.codex-api-service-page .codex-api-service-client-host-select .single-select-dropdown-trigger {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 9px 0 10px;
+  border-color: var(--codex-api-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  box-shadow: none;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.codex-api-service-page .codex-api-service-client-host-select .single-select-dropdown-trigger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--codex-api-border));
+  background: color-mix(in srgb, var(--primary) 5%, var(--bg-surface));
+  box-shadow: none;
+}
+
+.codex-api-service-page .codex-api-service-client-host-select .single-select-dropdown-trigger.open {
+  border-color: color-mix(in srgb, var(--primary) 48%, var(--border));
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.codex-api-service-page .codex-api-service-client-host-select .single-select-dropdown-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.codex-api-service-page .codex-api-service-client-host-select .single-select-dropdown-arrow {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.codex-api-service-page .codex-api-service-client-host-select .single-select-dropdown-trigger:hover:not(:disabled) .single-select-dropdown-arrow,
+.codex-api-service-page .codex-api-service-client-host-select .single-select-dropdown-trigger.open .single-select-dropdown-arrow {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  color: var(--primary);
+}
+
+.codex-api-service-client-host-menu.single-select-dropdown-menu {
+  padding: 4px;
+  border-color: var(--codex-api-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.codex-api-service-client-host-menu .single-select-dropdown-item {
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: 8px;
+}
+
+.codex-api-service-client-host-menu .single-select-dropdown-item:hover {
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+  color: var(--text-primary);
+}
+
+.codex-api-service-client-host-menu .single-select-dropdown-item.active {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+}
+
+.codex-api-service-client-host-menu .single-select-dropdown-item-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.codex-api-service-client-host-menu .single-select-dropdown-item-check {
+  width: 16px;
+  height: 16px;
+  color: var(--primary);
 }
 
 .codex-api-service-health-grid {
@@ -857,6 +950,14 @@
   font-size: 11px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.codex-api-service-account-meta .codex-api-service-account-meta-token {
+  border-color: color-mix(in srgb, var(--primary) 26%, var(--codex-api-border-soft));
+  background: color-mix(in srgb, var(--primary) 10%, var(--bg-card));
+  color: color-mix(in srgb, var(--primary) 76%, var(--text-primary));
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .codex-api-service-model-list {

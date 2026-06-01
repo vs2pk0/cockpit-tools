@@ -27,6 +27,7 @@ export interface InstanceProfile {
   initialized?: boolean;
   isDefault?: boolean;
   followLocalAccount?: boolean;
+  autoSyncThreads?: boolean;
   codexLaunchCredentialChange?: CodexLaunchCredentialChange | null;
 }
 

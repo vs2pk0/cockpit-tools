@@ -1097,7 +1097,7 @@ export function KiroAccountsPage() {
       />
 
       {showAddModal && (
-        <div className="modal-overlay" onClick={closeAddModal}>
+        <div className="modal-overlay">
           <div className="modal-content ghcp-add-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <button className="btn btn-secondary icon-only" onClick={closeAddModal} title={t('common.back', '返回')} aria-label={t('common.back', '返回')}><ChevronLeft size={14} /></button>

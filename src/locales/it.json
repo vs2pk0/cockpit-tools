@@ -447,7 +447,9 @@
         }
       },
       "appSpeed": "Velocità",
-      "appSpeedDesc": "Scrive la velocità scelta prima di avviare Codex ufficiale"
+      "appSpeedDesc": "Scrive la velocità scelta prima di avviare Codex ufficiale",
+      "autoSyncThreads": "Sync auto sessioni",
+      "autoSyncThreadsDesc": "Disattivato mantiene isolate le sessioni multi-istanza. Se attivo, l'avvio o la chiusura di un'istanza unisce automaticamente i record locali delle sessioni solo dopo l'arresto di tutte le istanze Codex."
     },
     "quota": {
       "unbound": "Account non collegato",
@@ -1656,6 +1658,22 @@
         "hourly": "5 ore",
         "weekly": "Settimanale"
       },
+      "syncAllRecords": {
+        "action": "Sincronizza i record di tutte le istanze",
+        "autoAction": "Sincronizza automaticamente i record di tutte le istanze",
+        "autoDisabled": "Sincronizzazione automatica dei record di tutte le istanze disattivata",
+        "autoEnabled": "Sincronizzazione automatica dei record di tutte le istanze attivata",
+        "autoTooltip": "Sincronizza automaticamente i record di tutte le istanze",
+        "autoDesc": "Disattivata mantiene separati i record delle istanze multiple. Se attiva, l’avvio o la chiusura di un’istanza unisce automaticamente i record locali solo dopo l’arresto di tutte le istanze Codex.",
+        "closeFirst": "Chiudi tutte le istanze Codex prima di sincronizzare i record, per evitare che le istanze in esecuzione riscrivano record obsoleti.",
+        "confirmMessage": "I record delle sessioni locali verranno sincronizzati completamente tra tutte le istanze Codex. Le sessioni con lo stesso ID saranno unite a livello di evento e, prima della scrittura, verrà eseguito il backup dei file chiave di destinazione e dei vecchi file di sessione. Continuare?",
+        "needTwo": "Servono almeno due istanze per sincronizzare i record",
+        "settingsSection": "Impostazioni di sincronizzazione",
+        "settingsSubtitle": "Gestisci la sincronizzazione dei record tra più istanze Codex",
+        "settingsTitle": "Impostazioni record istanza",
+        "title": "Sincronizza i record in tutte le istanze",
+        "tooltip": "Sincronizza i record in tutte le istanze"
+      },
       "restartStrategy": {
         "safe": {
           "principle": "Invia un segnale SIGTERM a tutti i processi Codex, chiedendo all'app di salvare e chiudersi, quindi avvia l'istanza di destinazione (forza la chiusura se necessario).",
@@ -1786,19 +1804,18 @@
       "entryAction": "Aggiungi al servizio API",
       "testAction": "Prova",
       "testDialogTitle": "Test servizio API",
-      "testDialogDesc": "Invia una richiesta reale tramite Codex CLI per verificare servizio locale, chiave e risposta upstream.",
+      "testDialogDesc": "Avvia una chat reale in stile playground tramite il servizio API attuale per controllare modello, routing account e risposta upstream.",
       "testProgressTitle": "Verifica servizio in corso",
       "testProgressDesc": "Invio di una richiesta reale al servizio API locale. Attendere.",
       "testOutputTitle": "Risultato restituito",
       "testResultTitle": "Esito del controllo servizio",
-      "testSuccess": "Verifica riuscita: servizio locale, chiave e risposta upstream sono corretti ({{model}}, {{latency}}). Se Codex restituisce ancora 502, controlla Base URL, API Key o ambiente di esecuzione di Codex.",
+      "testSuccess": "Controllo servizio riuscito: servizio locale, chiave e risposta upstream sono corretti ({{model}}, {{latency}}). Se il client continua a fallire, controlla Base URL, API Key o impostazioni proxy.",
       "testFailureStage": "Fase individuata",
       "testFailureCause": "Motivo errore",
       "testFailureSuggestion": "Correzione suggerita",
       "testFailureStatus": "Stato HTTP",
       "testFailureModel": "Modello test",
       "testFailureDetail": "Dettagli diagnostica",
-      "testFailureCliOutput": "Output CLI",
       "testFailureGatewayOutput": "Risposta gateway",
       "testTimeout": "La verifica con richiesta reale è scaduta. Controlla il servizio locale, il proxy o la rete upstream.",
       "testUnavailable": "L’URL corrente del servizio API non è disponibile",
@@ -1908,7 +1925,7 @@
         "empty": "Nessuna statistica quota"
       },
       "oauthBinding": {
-        "desc": "Opzionale. Si possono selezionare solo account OAuth con indicazione del periodo di abbonamento; sono ammessi anche periodi scaduti. Senza collegamento, il servizio API usa il flusso API Key esistente; dopo il collegamento, l’accesso usa l’account OAuth e il Provider usa la configurazione del servizio API.",
+        "desc": "Opzionale. Si possono selezionare solo account OAuth con refresh_token. Senza collegamento, il servizio API usa il flusso API Key esistente; dopo il collegamento, l’accesso usa l’account OAuth e il Provider usa la configurazione del servizio API.",
         "currentService": "Servizio API: {{name}}"
       },
       "customRoutingEdit": "Modifica routing personalizzato",
@@ -1993,7 +2010,27 @@
       "debugLogsEnableConfirmAction": "Attiva",
       "debugLogsDisableConfirmTitle": "Disattiva log debug",
       "debugLogsDisableConfirmMessage": "Quando disattivo, il servizio API smette di emettere log debug, riducendo rumore e overhead. Puoi riattivarlo per diagnosticare gateway, proxy o streaming. Disattivare?",
-      "debugLogsDisableConfirmAction": "Disattiva"
+      "debugLogsDisableConfirmAction": "Disattiva",
+      "clientBaseUrlHostLabel": "Indirizzo client",
+      "clientBaseUrlHostDesc": "Influisce solo sulla Base URL scritta nel Codex Provider e copiata ai client; non cambia l’indirizzo di ascolto del servizio.",
+      "clientBaseUrlHostSaveSuccess": "Indirizzo client aggiornato",
+      "accountPoolHealth": {
+        "title": "Pool account",
+        "allAvailable": "Tutti OK {{count}}",
+        "availableRatio": "Pronti {{available}}/{{total}}",
+        "issueSummary": "Errore {{abnormal}} · Pausa {{cooldown}}",
+        "detail": "OK {{available}}/{{total}}, errore {{abnormal}}, pausa {{cooldown}}, mancanti {{missing}}, auth {{authError}}, quota {{quotaLimited}}"
+      },
+      "testChatModel": "Modello",
+      "testChatClear": "Svuota chat",
+      "testChatEmpty": "Invia un messaggio per avviare una chat reale tramite il servizio API attuale.",
+      "testChatLatency": "{{latency}} trascorsi",
+      "testChatSending": "Richiesta al servizio API",
+      "testChatInputPlaceholder": "Messaggio di test, Enter invia",
+      "testChatSend": "Invia",
+      "testChatInputRequired": "Inserisci un messaggio di test",
+      "testChatModelRequired": "Seleziona un ID modello",
+      "testChatEmptyResponse": "Risposta vuota"
     },
     "local": {
       "desc": "Importa l'account attuale da ~/.codex/auth.json",
@@ -2404,13 +2441,13 @@
         "action": "Collega OAuth",
         "actionShort": "Collega",
         "title": "Collega account OAuth",
-        "desc": "Opzionale. Si possono selezionare solo account OAuth con indicazione del periodo di abbonamento; sono ammessi anche periodi scaduti. Senza collegamento, questo account cambia con il flusso API Key esistente; dopo il collegamento, l’accesso usa l’account OAuth e il Provider usa la configurazione di questo account API Key.",
+        "desc": "Opzionale. Si possono selezionare solo account OAuth con refresh_token. Senza collegamento, questo account cambia con il flusso API Key esistente; dopo il collegamento, l’accesso usa l’account OAuth e il Provider usa la configurazione di questo account API Key.",
         "currentAccount": "Account API Key: {{name}}",
         "selectLabel": "Seleziona account OAuth",
         "empty": "Nessun account OAuth. Aggiungi prima un account autorizzato OAuth.",
-        "emptyEligible": "Nessun account OAuth con periodo di abbonamento. Aggiorna la quota o aggiungi prima un account OAuth idoneo.",
+        "emptyEligible": "Nessun account OAuth con refresh_token. Autorizza di nuovo con OAuth o aggiungi prima un account OAuth idoneo.",
         "validationRequired": "Seleziona un account OAuth",
-        "validationSubscriptionRequired": "Si possono collegare solo account OAuth con periodo di abbonamento",
+        "validationSubscriptionRequired": "Si possono collegare solo account OAuth con refresh_token",
         "saveSuccess": "Collegamento OAuth aggiornato",
         "saveFailed": "Collegamento OAuth non riuscito: {{error}}",
         "switchRequiresBinding": "Collega prima un account OAuth",

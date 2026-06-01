@@ -42,6 +42,7 @@ type UpdateInstancePayload = {
   followLocalAccount?: boolean;
   launchMode?: InstanceLaunchMode;
   appSpeed?: CodexAppSpeed;
+  autoSyncThreads?: boolean;
 };
 
 export type PlatformInstanceService = {
@@ -105,6 +106,9 @@ export function createPlatformInstanceService(
       }
       if (payload.appSpeed !== undefined) {
         body.appSpeed = payload.appSpeed;
+      }
+      if (payload.autoSyncThreads !== undefined) {
+        body.autoSyncThreads = payload.autoSyncThreads;
       }
       return await invoke(commandFor(prefix, "update_instance"), body);
     },

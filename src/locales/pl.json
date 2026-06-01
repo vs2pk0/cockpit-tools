@@ -447,7 +447,9 @@
         }
       },
       "appSpeed": "Szybkość",
-      "appSpeedDesc": "Zapisuje wybraną szybkość przed uruchomieniem oficjalnego Codex"
+      "appSpeedDesc": "Zapisuje wybraną szybkość przed uruchomieniem oficjalnego Codex",
+      "autoSyncThreads": "Auto-sync sesji",
+      "autoSyncThreadsDesc": "Wyłączone utrzymuje izolację sesji wielu instancji. Po włączeniu uruchomienie lub zamknięcie instancji automatycznie scala lokalne rekordy sesji tylko wtedy, gdy wszystkie instancje Codex są zatrzymane."
     },
     "quota": {
       "unbound": "Konto niepowiązane",
@@ -1656,6 +1658,22 @@
         "hourly": "5 godz",
         "weekly": "Tygodniowo"
       },
+      "syncAllRecords": {
+        "action": "Synchronizuj rekordy wszystkich instancji",
+        "autoAction": "Automatycznie synchronizuj rekordy wszystkich instancji",
+        "autoDisabled": "Automatyczna synchronizacja rekordów wszystkich instancji jest wyłączona",
+        "autoEnabled": "Automatyczna synchronizacja rekordów wszystkich instancji jest włączona",
+        "autoTooltip": "Automatycznie synchronizuj rekordy wszystkich instancji",
+        "autoDesc": "Wyłączone pozostawia rekordy wielu instancji odizolowane. Po włączeniu uruchomienie lub zamknięcie instancji automatycznie scala lokalne rekordy dopiero po zatrzymaniu wszystkich instancji Codex.",
+        "closeFirst": "Zamknij wszystkie instancje Codex przed synchronizacją rekordów, aby uruchomione instancje nie zapisały ponownie starych rekordów.",
+        "confirmMessage": "Lokalne rekordy sesji zostaną w pełni zsynchronizowane między wszystkimi instancjami Codex. Sesje o tym samym ID zostaną scalone na poziomie zdarzeń, a przed zapisem zostaną utworzone kopie zapasowe kluczowych plików docelowych i starych plików sesji. Kontynuować?",
+        "needTwo": "Do synchronizacji rekordów wymagane są co najmniej dwie instancje",
+        "settingsSection": "Ustawienia synchronizacji",
+        "settingsSubtitle": "Zarządzaj synchronizacją rekordów wielu instancji Codex",
+        "settingsTitle": "Ustawienia rekordów instancji",
+        "title": "Synchronizuj rekordy wszystkich instancji",
+        "tooltip": "Synchronizuj rekordy wszystkich instancji"
+      },
       "restartStrategy": {
         "safe": {
           "principle": "Wysyła sygnał SIGTERM do wszystkich procesów Codex, prosząc aplikację o zapisanie danych i zamknięcie się, a następnie uruchamia instancję docelową (wymusza zamknięcie w razie potrzeby).",
@@ -1786,19 +1804,18 @@
       "entryAction": "Dodaj do usługi API",
       "testAction": "Testuj",
       "testDialogTitle": "Test usługi API",
-      "testDialogDesc": "Wyślij prawdziwe żądanie przez Codex CLI, aby sprawdzić usługę lokalną, klucz i odpowiedź upstream.",
+      "testDialogDesc": "Uruchamia prawdziwy czat w stylu playground przez bieżącą usługę API, aby sprawdzić model, routing kont i odpowiedź upstream.",
       "testProgressTitle": "Trwa test usługi",
       "testProgressDesc": "Wysyłane jest prawdziwe żądanie do lokalnej usługi API. Poczekaj.",
       "testOutputTitle": "Zwrócony wynik",
       "testResultTitle": "Wynik sprawdzenia usługi",
-      "testSuccess": "Sprawdzenie usługi powiodło się: lokalna usługa, klucz i odpowiedź upstream działają poprawnie ({{model}}, {{latency}}). Jeśli Codex nadal zwraca 502, sprawdź Base URL, API Key lub środowisko uruchomieniowe Codex.",
+      "testSuccess": "Test usługi zakończony powodzeniem: usługa lokalna, klucz i odpowiedź upstream są prawidłowe ({{model}}, {{latency}}). Jeśli klient nadal zgłasza błąd, sprawdź Base URL, API Key lub ustawienia proxy.",
       "testFailureStage": "Etap diagnozy",
       "testFailureCause": "Przyczyna błędu",
       "testFailureSuggestion": "Sugerowana naprawa",
       "testFailureStatus": "Status HTTP",
       "testFailureModel": "Model testowy",
       "testFailureDetail": "Szczegóły diagnostyki",
-      "testFailureCliOutput": "Wyjście CLI",
       "testFailureGatewayOutput": "Odpowiedź bramy",
       "testTimeout": "Sprawdzenie rzeczywistym żądaniem przekroczyło limit czasu. Sprawdź lokalną usługę, proxy lub sieć upstream.",
       "testUnavailable": "Bieżący adres URL usługi API jest niedostępny",
@@ -1908,7 +1925,7 @@
         "empty": "Brak statystyk limitów"
       },
       "oauthBinding": {
-        "desc": "Opcjonalne. Można wybrać tylko konta OAuth z oznaczeniem okresu subskrypcji; okresy wygasłe też są dozwolone. Bez powiązania usługa API działa według dotychczasowej logiki API Key; po powiązaniu logowanie używa konta OAuth, a Provider konfiguracji usługi API.",
+        "desc": "Opcjonalne. Można wybrać tylko konta OAuth z refresh_token. Bez powiązania usługa API działa według dotychczasowej logiki API Key; po powiązaniu logowanie używa konta OAuth, a Provider konfiguracji usługi API.",
         "currentService": "Usługa API: {{name}}"
       },
       "customRoutingEdit": "Edytuj niestandardowe routowanie",
@@ -1993,7 +2010,27 @@
       "debugLogsEnableConfirmAction": "Włącz",
       "debugLogsDisableConfirmTitle": "Wyłącz logi debug",
       "debugLogsDisableConfirmMessage": "Po wyłączeniu usługa API przestanie zapisywać logi debug, co zmniejszy szum i narzut. Możesz je ponownie włączyć przy diagnozowaniu bramy, proxy lub strumieni. Wyłączyć?",
-      "debugLogsDisableConfirmAction": "Wyłącz"
+      "debugLogsDisableConfirmAction": "Wyłącz",
+      "clientBaseUrlHostLabel": "Adres klienta",
+      "clientBaseUrlHostDesc": "Wpływa tylko na Base URL zapisywany w Codex Provider i kopiowany do klientów; nie zmienia adresu nasłuchiwania usługi.",
+      "clientBaseUrlHostSaveSuccess": "Adres klienta zaktualizowany",
+      "accountPoolHealth": {
+        "title": "Pula kont",
+        "allAvailable": "Wszystkie OK {{count}}",
+        "availableRatio": "Dobre {{available}}/{{total}}",
+        "issueSummary": "Błąd {{abnormal}} · Pauza {{cooldown}}",
+        "detail": "OK {{available}}/{{total}}, błąd {{abnormal}}, pauza {{cooldown}}, brak {{missing}}, auth {{authError}}, limit {{quotaLimited}}"
+      },
+      "testChatModel": "Model ID",
+      "testChatClear": "Wyczyść czat",
+      "testChatEmpty": "Wyślij wiadomość, aby rozpocząć prawdziwy czat przez bieżącą usługę API.",
+      "testChatLatency": "Czas {{latency}}",
+      "testChatSending": "Żądanie do API",
+      "testChatInputPlaceholder": "Wpisz test, Enter wysyła",
+      "testChatSend": "Wyślij",
+      "testChatInputRequired": "Wpisz wiadomość testową",
+      "testChatModelRequired": "Wybierz ID modelu",
+      "testChatEmptyResponse": "Pusta odpowiedź"
     },
     "local": {
       "desc": "Importuj bieżące konto z ~/.codex/auth.json",
@@ -2404,13 +2441,13 @@
         "action": "Powiąż OAuth",
         "actionShort": "Powiąż",
         "title": "Powiąż konto OAuth",
-        "desc": "Opcjonalne. Można wybrać tylko konta OAuth z oznaczeniem okresu subskrypcji; okresy wygasłe też są dozwolone. Bez powiązania to konto przełącza się według dotychczasowej logiki API Key; po powiązaniu logowanie używa konta OAuth, a Provider konfiguracji tego konta API Key.",
+        "desc": "Opcjonalne. Można wybrać tylko konta OAuth z refresh_token. Bez powiązania to konto przełącza się według dotychczasowej logiki API Key; po powiązaniu logowanie używa konta OAuth, a Provider konfiguracji tego konta API Key.",
         "currentAccount": "Konto API Key: {{name}}",
         "selectLabel": "Wybierz konto OAuth",
         "empty": "Brak kont OAuth. Najpierw dodaj konto z autoryzacją OAuth.",
-        "emptyEligible": "Brak kont OAuth z okresem subskrypcji. Najpierw odśwież limit albo dodaj kwalifikujące się konto OAuth.",
+        "emptyEligible": "Brak kont OAuth z refresh_token. Autoryzuj ponownie OAuth albo dodaj kwalifikujące się konto OAuth.",
         "validationRequired": "Wybierz konto OAuth",
-        "validationSubscriptionRequired": "Można powiązać tylko konto OAuth z okresem subskrypcji",
+        "validationSubscriptionRequired": "Można powiązać tylko konto OAuth z refresh_token",
         "saveSuccess": "Powiązanie OAuth zaktualizowane",
         "saveFailed": "Nie udało się powiązać OAuth: {{error}}",
         "switchRequiresBinding": "Najpierw powiąż konto OAuth",

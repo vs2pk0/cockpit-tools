@@ -493,7 +493,9 @@
         }
       },
       "appSpeed": "السرعة",
-      "appSpeedDesc": "يكتب السرعة المختارة قبل تشغيل Codex الرسمي"
+      "appSpeedDesc": "يكتب السرعة المختارة قبل تشغيل Codex الرسمي",
+      "autoSyncThreads": "مزامنة الجلسات تلقائياً",
+      "autoSyncThreadsDesc": "عند إيقافه تبقى جلسات مثيلات Codex المتعددة معزولة. عند تفعيله، يتم دمج سجلات الجلسات المحلية تلقائياً عند تشغيل مثيل أو إغلاقه، فقط بعد توقف جميع مثيلات Codex."
     },
     "quota": {
       "unbound": "حساب غير مرتبط",
@@ -1702,6 +1704,22 @@
         "hourly": "5 ساعات",
         "weekly": "أسبوعي"
       },
+      "syncAllRecords": {
+        "action": "مزامنة كل سجلات المثيلات",
+        "autoAction": "مزامنة تلقائية لكل سجلات المثيلات",
+        "autoDisabled": "تم إيقاف المزامنة التلقائية لكل سجلات المثيلات",
+        "autoEnabled": "تم تشغيل المزامنة التلقائية لكل سجلات المثيلات",
+        "autoTooltip": "مزامنة تلقائية لكل سجلات المثيلات",
+        "autoDesc": "عند الإيقاف تبقى سجلات المثيلات المتعددة معزولة. عند التشغيل، يدمج بدء مثيل أو إغلاقه السجلات المحلية تلقائياً فقط بعد توقف كل مثيلات Codex.",
+        "closeFirst": "أغلق كل مثيلات Codex قبل مزامنة السجلات لمنع المثيلات العاملة من إعادة كتابة السجلات القديمة.",
+        "confirmMessage": "سيتم تنفيذ مزامنة كاملة لسجلات الجلسات المحلية عبر كل مثيلات Codex. ستُدمج الجلسات ذات المعرّف نفسه على مستوى الأحداث، وسيتم نسخ الملفات المهمة وملفات الجلسات القديمة احتياطياً قبل الكتابة. هل تريد المتابعة؟",
+        "needTwo": "يلزم وجود مثيلين على الأقل لمزامنة السجلات",
+        "settingsSection": "إعدادات المزامنة",
+        "settingsSubtitle": "إدارة طريقة مزامنة سجلات مثيلات Codex المتعددة",
+        "settingsTitle": "إعدادات سجلات المثيلات",
+        "title": "مزامنة كل سجلات المثيلات",
+        "tooltip": "مزامنة كل سجلات المثيلات"
+      },
       "restartStrategy": {
         "safe": {
           "principle": "إرسال SIGTERM إلى جميع عمليات Codex، يطلب من التطبيق الحفظ والخروج ذاتيًا، ثم تشغيل المثيل المستهدف (سيتم الإنهاء القسري إذا لزم الأمر).",
@@ -1832,19 +1850,18 @@
       "entryAction": "إضافة إلى خدمة API",
       "testAction": "اختبار",
       "testDialogTitle": "اختبار خدمة API",
-      "testDialogDesc": "أرسل طلبًا حقيقيًا عبر Codex CLI للتحقق من الخدمة المحلية والمفتاح واستجابة upstream.",
+      "testDialogDesc": "ابدأ محادثة فعلية بأسلوب ساحة التجربة عبر خدمة API الحالية لفحص النموذج وتوجيه الحسابات ورد المنبع.",
       "testProgressTitle": "جارٍ اختبار الخدمة",
       "testProgressDesc": "جارٍ إرسال طلب حقيقي إلى خدمة API المحلية، يرجى الانتظار.",
       "testOutputTitle": "النتيجة المرجعة",
       "testResultTitle": "نتيجة فحص الخدمة",
-      "testSuccess": "نجح فحص الخدمة: الخدمة المحلية والمفتاح واستجابة upstream سليمة ({{model}}، {{latency}}). إذا ظل Codex يعيد 502، فتحقق من Base URL و API Key أو بيئة التشغيل في Codex.",
+      "testSuccess": "نجح فحص الخدمة: الخدمة المحلية والمفتاح واستجابة upstream سليمة ({{model}}، {{latency}}). إذا استمر فشل العميل، فتحقق من Base URL أو API Key أو إعدادات الوكيل.",
       "testFailureStage": "مرحلة التشخيص",
       "testFailureCause": "سبب الفشل",
       "testFailureSuggestion": "الإجراء المقترح",
       "testFailureStatus": "حالة HTTP",
       "testFailureModel": "نموذج الاختبار",
       "testFailureDetail": "تفاصيل التشخيص",
-      "testFailureCliOutput": "مخرجات CLI",
       "testFailureGatewayOutput": "استجابة البوابة",
       "testTimeout": "انتهت مهلة فحص الطلب الحقيقي. تحقق من الخدمة المحلية أو الوكيل أو شبكة upstream.",
       "testUnavailable": "عنوان خدمة API الحالي غير متاح",
@@ -1954,7 +1971,7 @@
         "empty": "لا توجد إحصاءات حصة بعد"
       },
       "oauthBinding": {
-        "desc": "اختياري. لا يمكن اختيار إلا حساب OAuth لديه علامة مدة اشتراك؛ والحسابات المنتهية مسموحة. بدون ربط، تعمل خدمة API بالمسار السابق لمفتاح API؛ وبعد الربط تستخدم حالة تسجيل الدخول حساب OAuth ويستخدم Provider إعدادات خدمة API الحالية.",
+        "desc": "اختياري. يمكن اختيار حسابات OAuth التي تحتوي على refresh_token فقط. بدون ربط، تعمل خدمة API بالمسار السابق لمفتاح API؛ وبعد الربط تستخدم حالة تسجيل الدخول حساب OAuth ويستخدم Provider إعدادات خدمة API الحالية.",
         "currentService": "خدمة API: {{name}}"
       },
       "customRoutingEdit": "تعديل التوجيه المخصص",
@@ -2039,7 +2056,27 @@
       "debugLogsEnableConfirmAction": "تشغيل",
       "debugLogsDisableConfirmTitle": "إيقاف وضع سجلات التصحيح",
       "debugLogsDisableConfirmMessage": "عند الإيقاف، تتوقف سجلات تصحيح خدمة API، ما يقلل ضجيج السجلات والكلفة الإضافية. يمكنك تشغيله مجددًا عند تشخيص مشاكل البوابة أو الوكيل أو الاستجابات المتدفقة. هل تريد إيقافه؟",
-      "debugLogsDisableConfirmAction": "إيقاف"
+      "debugLogsDisableConfirmAction": "إيقاف",
+      "clientBaseUrlHostLabel": "عنوان العميل",
+      "clientBaseUrlHostDesc": "يؤثر فقط على Base URL المكتوب في Codex Provider والمنسوخ للعميل، ولا يغير عنوان الاستماع للخدمة.",
+      "clientBaseUrlHostSaveSuccess": "تم تحديث عنوان العميل",
+      "accountPoolHealth": {
+        "title": "مجموعة الحسابات",
+        "allAvailable": "كلها سليمة {{count}}",
+        "availableRatio": "سليم {{available}}/{{total}}",
+        "issueSummary": "خلل {{abnormal}} · تهدئة {{cooldown}}",
+        "detail": "سليم {{available}}/{{total}}، خلل {{abnormal}}، تهدئة {{cooldown}}، مفقود {{missing}}، مصادقة {{authError}}، حصة {{quotaLimited}}"
+      },
+      "testChatModel": "النموذج",
+      "testChatClear": "مسح المحادثة",
+      "testChatEmpty": "أرسل رسالة لبدء محادثة فعلية عبر خدمة API الحالية.",
+      "testChatLatency": "استغرق {{latency}}",
+      "testChatSending": "جارٍ طلب خدمة API",
+      "testChatInputPlaceholder": "اكتب رسالة اختبار، Enter للإرسال",
+      "testChatSend": "إرسال",
+      "testChatInputRequired": "أدخل رسالة اختبار",
+      "testChatModelRequired": "اختر معرّف النموذج",
+      "testChatEmptyResponse": "استجابة فارغة"
     },
     "local": {
       "desc": "استيراد الحساب الحالي من ~/.codex/auth.json",
@@ -2450,13 +2487,13 @@
         "action": "ربط OAuth",
         "actionShort": "ربط",
         "title": "ربط حساب OAuth",
-        "desc": "اختياري. لا يمكن اختيار إلا حساب OAuth لديه علامة مدة اشتراك؛ والحسابات المنتهية مسموحة. بدون ربط، ينتقل هذا الحساب بالمسار السابق لمفتاح API؛ وبعد الربط تستخدم حالة تسجيل الدخول حساب OAuth ويستخدم Provider إعدادات حساب API Key هذا.",
+        "desc": "اختياري. يمكن اختيار حسابات OAuth التي تحتوي على refresh_token فقط. بدون ربط، ينتقل هذا الحساب بالمسار السابق لمفتاح API؛ وبعد الربط تستخدم حالة تسجيل الدخول حساب OAuth ويستخدم Provider إعدادات حساب API Key هذا.",
         "currentAccount": "حساب API Key: {{name}}",
         "selectLabel": "اختر حساب OAuth",
         "empty": "لا توجد حسابات OAuth بعد. أضف حسابا مصرحا عبر OAuth أولا.",
-        "emptyEligible": "لا توجد حسابات OAuth لديها مدة اشتراك. حدّث الحصة أو أضف حساب OAuth مؤهلاً أولاً.",
+        "emptyEligible": "لا توجد حسابات OAuth تحتوي على refresh_token. أعد التفويض عبر OAuth أو أضف حساب OAuth مؤهلاً.",
         "validationRequired": "اختر حساب OAuth",
-        "validationSubscriptionRequired": "يمكن ربط حساب OAuth لديه مدة اشتراك فقط",
+        "validationSubscriptionRequired": "يمكن ربط حساب OAuth يحتوي على refresh_token فقط",
         "saveSuccess": "تم تحديث ربط OAuth",
         "saveFailed": "فشل ربط OAuth: {{error}}",
         "switchRequiresBinding": "اربط حساب OAuth أولا",

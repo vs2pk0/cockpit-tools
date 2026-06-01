@@ -447,7 +447,9 @@
         }
       },
       "appSpeed": "速度",
-      "appSpeedDesc": "啟動官方 Codex 前寫入對應速度"
+      "appSpeedDesc": "啟動官方 Codex 前寫入對應速度",
+      "autoSyncThreads": "自動同步會話",
+      "autoSyncThreadsDesc": "關閉時保持多實例會話隔離；開啟後僅在所有 Codex 實例已停止時，啟動或關閉實例會自動合併本地會話記錄。"
     },
     "quota": {
       "unbound": "未綁定帳號",
@@ -1656,6 +1658,22 @@
         "hourly": "5小時",
         "weekly": "週"
       },
+      "syncAllRecords": {
+        "action": "同步所有實例記錄",
+        "autoAction": "自動同步所有實例記錄",
+        "autoDisabled": "已關閉自動同步所有實例記錄",
+        "autoEnabled": "已開啟自動同步所有實例記錄",
+        "autoTooltip": "自動同步所有實例記錄",
+        "autoDesc": "關閉時保持多實例記錄隔離；開啟後僅在所有 Codex 實例已停止時，啟動或關閉實例會自動合併本機記錄。",
+        "closeFirst": "請先關閉所有 Codex 實例後再同步記錄，避免執行中的實例把舊記錄寫回。",
+        "confirmMessage": "會將所有 Codex 實例中的本機工作階段記錄做一次完整同步；同 ID 工作階段會進行事件級合併，寫入前會備份目標實例關鍵檔案和舊工作階段檔案。確認繼續？",
+        "needTwo": "至少需要兩個實例才能同步記錄",
+        "settingsSection": "同步設定",
+        "settingsSubtitle": "管理 Codex 多實例記錄同步方式",
+        "settingsTitle": "實例記錄設定",
+        "title": "同步所有實例記錄",
+        "tooltip": "同步所有實例記錄"
+      },
       "restartStrategy": {
         "safe": {
           "principle": "向所有 Codex 進程發送 SIGTERM 信號，請求程序保存數據並退出，隨後啟動目標實例（必要時強制結束）。",
@@ -1786,19 +1804,18 @@
       "entryAction": "加入 API 服務",
       "testAction": "測試",
       "testDialogTitle": "測試 API 服務",
-      "testDialogDesc": "透過 Codex CLI 發出一次真實請求，驗證本機服務、密鑰與上游回應。",
+      "testDialogDesc": "像遊樂場一樣透過目前 API 服務發起真實對話，便於檢查模型、帳號路由與上游回應。",
       "testProgressTitle": "正在測試服務",
       "testProgressDesc": "正在向本機 API 服務發出真實請求，請稍候。",
       "testOutputTitle": "回傳結果",
       "testResultTitle": "服務檢測結果",
-      "testSuccess": "服務檢測成功：本地服務、密鑰與上游回應正常（{{model}}，{{latency}}）。如果 Codex 仍回報 502，請檢查 Codex 的 Base URL、API Key 或執行環境。",
+      "testSuccess": "服務檢測成功：本機服務、金鑰與上游回應正常（{{model}}，{{latency}}）。如果用戶端仍失敗，請檢查 Base URL、API Key 或代理設定。",
       "testFailureStage": "定位階段",
       "testFailureCause": "失敗原因",
       "testFailureSuggestion": "處理建議",
       "testFailureStatus": "HTTP 狀態",
       "testFailureModel": "檢測模型",
       "testFailureDetail": "診斷詳情",
-      "testFailureCliOutput": "CLI 輸出",
       "testFailureGatewayOutput": "網關回應",
       "testTimeout": "真實請求檢測逾時，請檢查本地服務、代理或上游網路。",
       "testUnavailable": "目前的 API 服務位址不可用",
@@ -1908,7 +1925,7 @@
         "empty": "尚無額度統計"
       },
       "oauthBinding": {
-        "desc": "可選綁定。只能選擇帶訂閱時間（有效期標識）的 OAuth 帳號，已過期也可綁定；未綁定時 API 服務會沿用原 API Key 邏輯；綁定後登入狀態使用 OAuth 帳號，Provider 使用目前 API 服務設定。",
+        "desc": "可選綁定。只能選擇帶 refresh_token、可自動續期的 OAuth 帳號；未綁定時 API 服務會沿用原 API Key 邏輯；綁定後登入狀態使用 OAuth 帳號，Provider 使用目前 API 服務設定。",
         "currentService": "API 服務：{{name}}"
       },
       "customRoutingEdit": "編輯自訂調度",
@@ -1993,7 +2010,27 @@
       "debugLogsEnableConfirmAction": "開啟",
       "debugLogsDisableConfirmTitle": "關閉日誌除錯模式",
       "debugLogsDisableConfirmMessage": "關閉後會停止輸出 API 服務除錯日誌，減少日誌雜訊與額外開銷；後續排查閘道、代理或串流回應問題時可再次開啟。確認關閉嗎？",
-      "debugLogsDisableConfirmAction": "關閉"
+      "debugLogsDisableConfirmAction": "關閉",
+      "clientBaseUrlHostLabel": "用戶端位址",
+      "clientBaseUrlHostDesc": "僅影響寫入 Codex Provider 和複製給用戶端的 Base URL，不會改變服務監聽位址。",
+      "clientBaseUrlHostSaveSuccess": "用戶端位址已更新",
+      "accountPoolHealth": {
+        "title": "帳號池",
+        "allAvailable": "全部可用 {{count}}",
+        "availableRatio": "可用 {{available}}/{{total}}",
+        "issueSummary": "異常 {{abnormal}} · 冷卻 {{cooldown}}",
+        "detail": "可用 {{available}}/{{total}}，異常 {{abnormal}}，冷卻 {{cooldown}}，缺失 {{missing}}，鑑權 {{authError}}，額度 {{quotaLimited}}"
+      },
+      "testChatModel": "模型",
+      "testChatClear": "清空對話",
+      "testChatEmpty": "輸入一則訊息後，會透過目前 API 服務發起真實對話。",
+      "testChatLatency": "耗時 {{latency}}",
+      "testChatSending": "正在請求 API 服務",
+      "testChatInputPlaceholder": "輸入測試訊息，Enter 傳送",
+      "testChatSend": "傳送",
+      "testChatInputRequired": "請輸入測試訊息",
+      "testChatModelRequired": "請選擇模型 ID",
+      "testChatEmptyResponse": "回應為空"
     },
     "api": {
       "baseUrl": "基礎網址",
@@ -2091,13 +2128,13 @@
         "action": "綁定 OAuth",
         "actionShort": "綁定",
         "title": "綁定 OAuth 帳號",
-        "desc": "可選綁定。只能選擇帶訂閱時間（有效期標識）的 OAuth 帳號，已過期也可綁定；未綁定時此帳號會沿用原 API Key 邏輯切換；綁定後登入狀態使用 OAuth 帳號，Provider 使用目前 API Key 帳號設定。",
+        "desc": "可選綁定。只能選擇帶 refresh_token、可自動續期的 OAuth 帳號；未綁定時此帳號會沿用原 API Key 邏輯切換；綁定後登入狀態使用 OAuth 帳號，Provider 使用目前 API Key 帳號設定。",
         "currentAccount": "API Key 帳號：{{name}}",
         "selectLabel": "選擇 OAuth 帳號",
         "empty": "尚無 OAuth 帳號，請先新增 OAuth 授權帳號。",
-        "emptyEligible": "沒有帶訂閱時間的 OAuth 帳號，請先重新整理配額或新增符合條件的 OAuth 帳號。",
+        "emptyEligible": "沒有帶 refresh_token 的 OAuth 帳號，請重新 OAuth 授權或新增符合條件的 OAuth 帳號。",
         "validationRequired": "請選擇 OAuth 帳號",
-        "validationSubscriptionRequired": "只能綁定帶訂閱時間的 OAuth 帳號",
+        "validationSubscriptionRequired": "只能綁定帶 refresh_token 的 OAuth 帳號",
         "saveSuccess": "OAuth 綁定已更新",
         "saveFailed": "OAuth 綁定失敗：{{error}}",
         "switchRequiresBinding": "請先綁定 OAuth 帳號",

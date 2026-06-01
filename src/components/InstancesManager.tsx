@@ -21,6 +21,7 @@ import {
   X,
   Search,
   ArrowDownWideNarrow,
+  RefreshCw,
   ExternalLink,
   Eye,
   EyeOff,
@@ -2277,39 +2278,44 @@ export function InstancesManager<TAccount extends AccountLike>({
           </button>
         </div>
         <div className="toolbar-right">
-          {toolbarExtraActions}
           <button
-            className="btn btn-primary"
+            className="btn btn-primary icon-only"
             onClick={openCreateModal}
             title={t("instances.actions.create", "新建实例")}
+            aria-label={t("instances.actions.create", "新建实例")}
           >
             <Plus size={16} />
           </button>
           <button
-            className="btn btn-secondary"
+            className="btn btn-secondary icon-only"
             onClick={handleStartAll}
             disabled={bulkActionLoading || restartingAll}
             title={t("instances.actions.startAll", "全部启动")}
+            aria-label={t("instances.actions.startAll", "全部启动")}
           >
             <Play size={16} />
           </button>
           {supportsStopControl && (
             <button
-              className="btn btn-secondary"
+              className="btn btn-secondary icon-only"
               onClick={handleCloseAll}
               disabled={bulkActionLoading || restartingAll}
               title={t("instances.actions.stopAll", "全部关闭")}
+              aria-label={t("instances.actions.stopAll", "全部关闭")}
             >
               <Square size={16} />
             </button>
           )}
           <button
-            className="btn btn-secondary"
+            className="btn btn-secondary icon-only"
             onClick={handleRefresh}
             disabled={refreshing || bulkActionLoading || restartingAll}
+            title={t("instances.actions.refresh", "刷新")}
+            aria-label={t("instances.actions.refresh", "刷新")}
           >
-            {t("instances.actions.refresh", "刷新")}
+            <RefreshCw size={16} className={refreshing ? "icon-spin" : ""} />
           </button>
+          {toolbarExtraActions}
         </div>
       </div>
 

@@ -102,6 +102,8 @@ pub struct CodexAccount {
     pub account_structure: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound_phone: Option<String>,
     #[serde(default)]
     pub app_speed: CodexAppSpeed,
     pub tokens: CodexTokens,
@@ -303,6 +305,7 @@ impl CodexAccount {
             account_name: None,
             account_structure: None,
             account_note: None,
+            bound_phone: None,
             app_speed: CodexAppSpeed::Standard,
             tokens,
             token_generation: 0,

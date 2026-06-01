@@ -7,6 +7,20 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [0.24.10-vs2pk0.1] - 2026-06-01
+
+### Added
+- **Codex account cards now show subscription expiry in UTC+8**: the existing expiry footer keeps its status tone and uses the account expiry timestamp adjusted by +8 hours.
+- **Codex account cards now support bound phone numbers**: the card tag/action opens a phone binding dialog, saves the phone on the account, and masks it with the page privacy toggle.
+
+### Changed
+- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `afaa0b5d`**: this build includes upstream `v0.24.10` Codex API Service chat testing, account-pool health, multi-instance session sync, wakeup confirmation, per-account refresh intervals, and packaging fixes.
+- **Preserved local fork CPA and custom-service enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime download/import, account JSON sync, CPA account filters, model-list fetching, config editing, version update/import, stop confirmation, and Cockpit-owned CPA process detection remain available.
+
+### Backup
+- **Refreshed the modified-file backup set for this upstream sync**: files that differ from upstream are intended to be mirrored under `/Users/dalong/Documents/cockpit-tools.backup` with their repository-relative paths.
+
+---
 ## [0.24.9-vs2pk0.1] - 2026-05-27
 
 ### Changed
@@ -48,6 +62,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Backup
 - **Refreshed the modified-file backup set for this fork build**: files that differ from upstream are intended to be mirrored under `/Users/dalong/Documents/cockpit-tools.backup` with their repository-relative paths.
+---
+## [0.24.10] - 2026-05-31
+
+### Added
+- **Codex API Service testing now uses a built-in streaming chat dialog**: the API Service test action opens a dedicated chat dialog, sends real `/v1/chat/completions` requests through the local service, streams assistant output back into the dialog, and no longer depends on Codex CLI execution.
+- **Codex API Service cards now show account-pool health at a glance**: the account card and setup panel summarize available, abnormal, and cooled-down accounts while keeping quota-pool statistics separate.
+- **Codex multi-instance session records now have a settings panel with manual and automatic sync**: the Codex instances page adds a dedicated record-sync settings dialog, keeps manual full sync available, and can automatically merge local session records only after all Codex instances are stopped.
+- **Codex macOS and Windows multi-instance launches now adapt to the latest Codex app runtime**: managed Codex instances on macOS and Windows pass both `CODEX_ELECTRON_USER_DATA_PATH` and `--user-data-dir` so each `CODEX_HOME` gets a stable isolated Electron app data directory.
+- **macOS app bundles now include an explicit Info.plist override**: packaged bundles use the Cockpit Tools display name and set `LSRequiresCarbon` to false.
+- **Wakeup tasks now support an optional confirmation mode**: scheduled Codex wakeup tasks can notify first, then run only after the user confirms within the timeout window, helping users verify VPN or proxy readiness before wakeup. Thanks @Ac-spider.
+- **Accounts can now override automatic refresh intervals individually**: account-level refresh settings can override platform defaults or disable automatic refresh for specific accounts while keeping unset accounts on inherited defaults. Thanks @Ac-spider.
+
+### Changed
+- **Codex API Service routing now skips known unhealthy accounts**: accounts with repeated blocking authentication, preparation, free-account restriction, or quota failures are excluded from Legacy routing and Sidecar launch manifests so healthy accounts are preferred.
+- **Codex API Service diagnostics now use direct local gateway requests**: service tests call the local OpenAI-compatible endpoint through Cockpit's Tauri backend, avoiding Codex CLI-specific behavior while preserving local gateway, API key, model, and upstream validation.
+- **Codex OAuth binding now only allows OAuth accounts with `refresh_token`**: API Key account binding and Codex API Service binding both filter and validate on `refresh_token`, and stale bindings without it are removed during API Service state sanitization.
+- **Codex API Service client Base URL host is now configurable**: users can choose `localhost` or `127.0.0.1` for the Base URL written to Codex Provider and copied to clients, without changing the service bind address.
+- **Add-account dialogs no longer close when the overlay is clicked**: account add modals across supported platforms stay open unless the user uses the explicit close/back action or Escape.
+- **Codex API Service account rows now surface token usage earlier**: account-level statistics show compact token usage beside request result details, and the legacy local access account grid orders metrics before quota.
+- **Instance toolbar actions are now compact icon buttons**: create, start all, stop all, refresh, and Codex sync settings controls use consistent icon-only actions with accessible labels.
+- **Codex default-instance restarts are faster after account switching and API Service activation**: when the profile has already been prepared, Cockpit skips duplicate bound-account injection and pre-start idle thread sync, uses cached Windows Store AppUserModelId detection, and prefers fast PID-based close/start probes with phase timing logs.
+- **`npm run tauri` now prepares the Windows build toolchain before launching Tauri**: the wrapper still runs version sync first, then loads the Visual Studio Build Tools environment and Go binary path on Windows before invoking the local Tauri CLI, with fallback to the existing shell environment when the toolchain hook is unavailable.
+
+### Fixed
+- **Tauri startup no longer fails on the notification plugin configuration**: the app configuration no longer passes an invalid object to `plugins.notification`, avoiding a startup panic during application initialization.
+- **Antigravity Windows account switching is now more tolerant of version-detection failures**: Cockpit falls back safely when the installed Antigravity version cannot be detected, tries both system credentials and the legacy SQLite state database, and only fails when both injection paths fail. Thanks @xdd666t.
+- **Antigravity Windows version detection now passes the executable path as a PowerShell argument**: this avoids path quoting issues, keeps UTF-8 JSON output, and preserves hidden console-window startup behavior.
+- **Codex API Service gateway probes no longer duplicate the `/v1` path**: fallback health checks now preserve Base URLs that already include `/v1`, preventing false `endpoint not supported` failures during local API Service diagnostics. Thanks @wjh4sg.
+- **Windows Antigravity 2.0 local data directory and process detection now support `Antigravity.exe` installs**: local import, default profile injection, switching, launch, and PID matching prefer the `%APPDATA%\Antigravity` and `Programs\Antigravity` layout while retaining the `Antigravity IDE` fallback. Thanks @li6535202.
+- **Antigravity install-version detection now checks common Linux install roots**: Linux detection includes `/usr/share` and `/opt` paths for Antigravity and Antigravity IDE targets. Thanks @vadbes46.
+- **Windows Codex multi-instance shared storage no longer depends on symlink privileges**: shared directories now use directory junctions, shared files are copied into instance profiles, and existing reparse-point directory links are recognized during sync.
+- **Windows Codex shared-directory junction creation is more reliable**: Cockpit now creates junctions with PowerShell `New-Item -ItemType Junction` first, falls back to a quoted `mklink /J` command, and reports both command results with source and target paths when creation fails.
+- **Windows Codex default instance detection now follows the current app data layout more reliably**: the default app user data path recognizes `%APPDATA%\Codex\web\Codex`, filters helper/resource Codex processes from main-process matching, and avoids treating a reused Store-launched instance as a newly started process.
+- **Codex managed-process shutdown now verifies that target PIDs actually exited**: graceful and forced close flows recheck the original managed PID set and return a clear manual-close error when a process remains alive instead of silently reporting success.
 
 ---
 ## [0.24.9] - 2026-05-26
@@ -154,6 +202,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Codex plan badges now reuse the raw account plan value with shared styling**: account cards, summaries, and routing views keep backend/local plan labels unchanged while using one presentation path for badge classes.
 
 ### Fixed
+- **Windows Antigravity 2.0 local data directory and process detection now support `Antigravity.exe` installs**: when the official client is installed under `Programs\Antigravity` and stores user data in `%APPDATA%\Antigravity`, local import, default profile injection, switching, launch, and PID matching prefer that layout while retaining the `Antigravity IDE` fallback.
 - **Legacy Antigravity account switching no longer fails when installed-version metadata is unavailable or unparseable**: cached known versions still block Antigravity `2.0.0` and later, while missing cache data allows the legacy path to proceed.
 - **Codex custom routing account lists now keep their header and rows within a bounded scroll area**: the modal body scrolls correctly and plan badges keep stable sizing in narrow layouts.
 

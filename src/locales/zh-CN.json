@@ -505,7 +505,9 @@
       "pathRequired": "请选择实例目录",
       "bindRequired": "请选择要绑定的账号",
       "appSpeed": "速度",
-      "appSpeedDesc": "启动官方 Codex 前写入对应速度"
+      "appSpeedDesc": "启动官方 Codex 前写入对应速度",
+      "autoSyncThreads": "自动同步会话",
+      "autoSyncThreadsDesc": "关闭时保持多实例会话隔离；开启后仅在所有 Codex 实例已停止时，启动或关闭实例会自动合并本地会话记录。"
     },
     "quota": {
       "unbound": "未绑定账号",
@@ -1923,6 +1925,22 @@
         "hourly": "5小时",
         "weekly": "周"
       },
+      "syncAllRecords": {
+        "action": "同步所有实例记录",
+        "autoAction": "自动同步所有实例记录",
+        "autoDisabled": "已关闭自动同步所有实例记录",
+        "autoEnabled": "已开启自动同步所有实例记录",
+        "autoTooltip": "自动同步所有实例记录",
+        "autoDesc": "关闭时保持多实例记录隔离；开启后仅在所有 Codex 实例已停止时，启动或关闭实例会自动合并本地记录。",
+        "closeFirst": "请先关闭所有 Codex 实例后再同步记录，避免运行中的实例把旧记录写回。",
+        "confirmMessage": "会把所有 Codex 实例中的本地会话记录做一次全量同步；同 ID 会话会进行事件级合并，写入前会备份目标实例关键文件和旧会话文件。确认继续？",
+        "needTwo": "至少需要两个实例才能同步记录",
+        "settingsSection": "同步设置",
+        "settingsSubtitle": "管理 Codex 多实例记录同步方式",
+        "settingsTitle": "实例记录设置",
+        "title": "同步所有实例记录",
+        "tooltip": "同步所有实例记录"
+      },
       "restartStrategy": {
         "safe": {
           "principle": "向目标 Codex 进程发送 SIGTERM，请求应用自行保存并退出，退出后再启动该实例（必要时会强制结束）。",
@@ -2047,6 +2065,18 @@
       "saved": "账号备注已保存",
       "saveFailed": "保存账号备注失败：{{error}}"
     },
+    "accountPhone": {
+      "title": "绑定手机",
+      "label": "手机号",
+      "desc": "给 {{account}} 绑定手机号，卡片展示会跟随隐私开关隐藏。",
+      "placeholder": "请输入绑定手机号",
+      "emptyTitle": "绑定手机号",
+      "boundTitle": "绑定手机：{{phone}}",
+      "addShort": "绑定手机",
+      "saved": "绑定手机号已保存",
+      "cleared": "绑定手机号已清空",
+      "saveFailed": "保存绑定手机号失败：{{error}}"
+    },
     "localAccess": {
       "title": "API 服务",
       "entryAction": "添加至 API 服务",
@@ -2107,14 +2137,14 @@
       "enableService": "启用服务",
       "testAction": "测试",
       "testDialogTitle": "测试 API 服务",
-      "testDialogDesc": "通过 Codex CLI 发起一次真实请求，验证本地服务、密钥和上游响应。",
+      "testDialogDesc": "通过当前 API 服务发起一次真实请求，验证模型、账号路由、密钥和上游响应。",
       "testDialogDescCustom": "直接请求自定义 API；如已绑定 OAuth，会先刷新登录态。",
       "testProgressTitle": "正在测试服务",
       "testProgressDesc": "正在向本地 API 服务发起真实请求，请稍候。",
       "testProgressDescCustom": "正在向自定义 API 发起真实请求，请稍候。",
       "testOutputTitle": "返回结果",
       "testResultTitle": "服务检测结果",
-      "testSuccess": "服务检测成功：本地服务、密钥和上游响应正常（{{model}}，{{latency}}）。如果 Codex 仍报 502，请检查 Codex 的 Base URL、API Key 或运行环境。",
+      "testSuccess": "服务检测成功：本地服务、密钥和上游响应正常（{{model}}，{{latency}}）。如果客户端仍报错，请检查 Base URL、API Key 或网络代理设置。",
       "testSuccessCustom": "服务检测成功：自定义 API 和密钥正常（{{model}}，{{latency}}）。如已绑定 OAuth，登录态也可用。",
       "testFailureStage": "定位阶段",
       "testFailureCause": "失败原因",
@@ -2122,7 +2152,6 @@
       "testFailureStatus": "HTTP 状态",
       "testFailureModel": "检测模型",
       "testFailureDetail": "诊断详情",
-      "testFailureCliOutput": "CLI 输出",
       "testFailureGatewayOutput": "网关返回",
       "testTimeout": "真实请求检测超时，请检查本地服务、代理或上游网络。",
       "testUnavailable": "当前 API 服务地址不可用",
@@ -2257,6 +2286,13 @@
         "modalTitle": "API 服务额度池",
         "empty": "暂无额度统计"
       },
+      "accountPoolHealth": {
+        "title": "账号池",
+        "allAvailable": "全部可用 {{count}}",
+        "availableRatio": "可用 {{available}}/{{total}}",
+        "issueSummary": "异常 {{abnormal}} · 冷却 {{cooldown}}",
+        "detail": "可用 {{available}}/{{total}}，异常 {{abnormal}}，冷却 {{cooldown}}，缺失 {{missing}}，鉴权 {{authError}}，额度 {{quotaLimited}}"
+      },
       "memberTitle": "集合成员",
       "routingStrategy": {
         "auto": "自动（推荐）",
@@ -2308,7 +2344,7 @@
         "save": "保存集合"
       },
       "oauthBinding": {
-        "desc": "可选绑定。只能选择带订阅时间（有效期标识）的 OAuth 账号，已过期也可绑定；未绑定时 API 服务按原 API Key 逻辑运行；绑定后登录态使用 OAuth 账号，Provider 使用当前 API 服务配置。",
+        "desc": "可选绑定。只能选择带 refresh_token、可自动续期的 OAuth 账号；未绑定时 API 服务按原 API Key 逻辑运行；绑定后登录态使用 OAuth 账号，Provider 使用当前 API 服务配置。",
         "currentService": "API 服务：{{name}}"
       },
       "customRoutingEdit": "编辑自定义调度",
@@ -2354,7 +2390,20 @@
       "debugLogsDisableConfirmMessage": "关闭后会停止输出 API 服务调试日志，减少日志噪声和额外开销；后续排查网关、代理或流式响应问题时可再次打开。确认关闭吗？",
       "debugLogsDisableConfirmAction": "关闭",
       "debugLogsEnabledSuccess": "调试日志已开启",
-      "debugLogsDisabledSuccess": "调试日志已关闭"
+      "debugLogsDisabledSuccess": "调试日志已关闭",
+      "clientBaseUrlHostLabel": "客户端地址",
+      "clientBaseUrlHostDesc": "仅影响写入 Codex Provider 和复制给客户端的 Base URL，不改变服务监听地址。",
+      "clientBaseUrlHostSaveSuccess": "客户端地址已更新",
+      "testChatModel": "模型",
+      "testChatClear": "清空对话",
+      "testChatEmpty": "输入一条消息后，会通过当前 API 服务发起真实对话。",
+      "testChatLatency": "耗时 {{latency}}",
+      "testChatSending": "正在请求 API 服务",
+      "testChatInputPlaceholder": "输入测试消息，Enter 发送",
+      "testChatSend": "发送",
+      "testChatInputRequired": "请输入测试消息",
+      "testChatModelRequired": "请选择模型 ID",
+      "testChatEmptyResponse": "响应为空"
     },
     "api": {
       "baseUrl": "基础地址",
@@ -2452,13 +2501,13 @@
         "action": "绑定 OAuth",
         "actionShort": "绑定",
         "title": "绑定 OAuth 账号",
-        "desc": "可选绑定。只能选择带订阅时间（有效期标识）的 OAuth 账号，已过期也可绑定；未绑定时该账号按原 API Key 逻辑切换；绑定后登录态使用 OAuth 账号，Provider 使用当前 API Key 账号配置。",
+        "desc": "可选绑定。只能选择带 refresh_token、可自动续期的 OAuth 账号；未绑定时该账号按原 API Key 逻辑切换；绑定后登录态使用 OAuth 账号，Provider 使用当前 API Key 账号配置。",
         "currentAccount": "API Key 账号：{{name}}",
         "selectLabel": "选择 OAuth 账号",
         "empty": "暂无 OAuth 账号，请先添加 OAuth 授权账号。",
-        "emptyEligible": "没有带订阅时间的 OAuth 账号，请先刷新配额或添加符合条件的 OAuth 账号。",
+        "emptyEligible": "没有带 refresh_token 的 OAuth 账号，请重新 OAuth 授权或添加符合条件的 OAuth 账号。",
         "validationRequired": "请选择 OAuth 账号",
-        "validationSubscriptionRequired": "只能绑定带订阅时间的 OAuth 账号",
+        "validationSubscriptionRequired": "只能绑定带 refresh_token 的 OAuth 账号",
         "saveSuccess": "OAuth 绑定已更新",
         "saveFailed": "OAuth 绑定失败：{{error}}",
         "switchRequiresBinding": "请先绑定 OAuth 账号",

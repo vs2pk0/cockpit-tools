@@ -87,7 +87,17 @@ pub fn get_default_user_data_dir() -> Result<PathBuf, String> {
     {
         let appdata =
             std::env::var("APPDATA").map_err(|_| "无法获取 APPDATA 环境变量".to_string())?;
-        return Ok(PathBuf::from(appdata).join("Antigravity IDE"));
+        let appdata = PathBuf::from(appdata);
+        let candidates = windows_antigravity_user_data_candidates(&appdata);
+        for candidate in candidates {
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+        return Ok(windows_antigravity_user_data_candidates(&appdata)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| appdata.join("Antigravity IDE")));
     }
 
     #[cfg(target_os = "linux")]
@@ -98,6 +108,32 @@ pub fn get_default_user_data_dir() -> Result<PathBuf, String> {
 
     #[allow(unreachable_code)]
     Err("无法确定 Antigravity IDE 默认目录".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn windows_antigravity_user_data_candidates(appdata: &Path) -> Vec<PathBuf> {
+    let antigravity_dir = appdata.join("Antigravity");
+    let antigravity_ide_dir = appdata.join("Antigravity IDE");
+
+    if windows_app_root_exists("Antigravity", &["Antigravity.exe", "antigravity.exe"]) {
+        return vec![antigravity_dir, antigravity_ide_dir];
+    }
+
+    vec![antigravity_ide_dir, antigravity_dir]
+}
+
+#[cfg(target_os = "windows")]
+fn windows_app_root_exists(root_name: &str, exe_names: &[&str]) -> bool {
+    let Some(programs_dir) = std::env::var("LOCALAPPDATA")
+        .ok()
+        .map(|value| PathBuf::from(value).join("Programs"))
+    else {
+        return false;
+    };
+    let root = programs_dir.join(root_name);
+    exe_names
+        .iter()
+        .any(|exe_name| root.join(exe_name).exists())
 }
 
 pub fn get_default_instances_root_dir() -> Result<PathBuf, String> {

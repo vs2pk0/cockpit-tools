@@ -7,6 +7,20 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
 ---
+## [0.24.10-vs2pk0.1] - 2026-06-01
+
+### 新增
+- **Codex 账号卡片现在按 UTC+8 显示订阅过期时间**：卡片底部原有过期时间继续保留状态颜色，并基于账号过期时间额外加 8 小时展示。
+- **Codex 账号卡片现在支持绑定手机号**：卡片标签和操作按钮可打开手机号绑定弹窗，保存后在账号卡片中显示，并受页面隐私开关统一控制。
+
+### 变更
+- **已同步 fork 到作者仓库 `jlcodes99/cockpit-tools` 的 `afaa0b5d`**：本构建包含上游 `v0.24.10` 的 Codex API 服务流式对话测试、账号池健康、多实例会话同步、唤醒确认、账号级刷新间隔和打包修复。
+- **上游合并后继续保留本地 fork 的 CPA/自定义服务增强**：Codex API 服务仍支持内置服务、自定义配置和 CPA 服务模式；CPA 运行时按需下载或导入，账号 JSON 同步、CPA 账号筛选、模型列表获取、配置编辑、版本更新/导入、停止确认和只识别 Cockpit 自有 CPA 进程的状态判断仍可使用。
+
+### 备份
+- **已为本次上游同步刷新改动文件备份集**：相对上游有差异的文件会按仓库相对路径镜像到 `/Users/dalong/Documents/cockpit-tools.backup`。
+
+---
 ## [0.24.9-vs2pk0.1] - 2026-05-27
 
 ### 变更
@@ -57,6 +71,40 @@
 
 ### 备份
 - **已为本次 fork 构建刷新改动文件备份集**：相对上游有差异的文件会按仓库相对路径镜像到 `/Users/dalong/Documents/cockpit-tools.backup`。
+---
+## [0.24.10] - 2026-05-31
+
+### 新增
+- **Codex API 服务测试现使用内置流式对话框**：API 服务测试操作会打开独立对话弹框，通过本地服务发起真实 `/v1/chat/completions` 请求，并将 assistant 输出流式回显到弹框中，不再依赖 Codex CLI 执行。
+- **Codex API 服务卡片现可快速查看账号池健康**：账号卡片与快速配置面板会汇总可用、异常和冷却账号，并与额度池统计分开展示。
+- **Codex 多实例会话记录新增手动与自动同步设置面板**：Codex 实例页新增记录同步设置弹框，保留手动全量同步，并可在所有 Codex 实例停止后自动合并本地会话记录。
+- **Codex macOS/Windows 多实例启动现适配最新版 Codex App 运行方式**：macOS 与 Windows 上的受管 Codex 实例会同时写入 `CODEX_ELECTRON_USER_DATA_PATH` 与 `--user-data-dir`，让每个 `CODEX_HOME` 使用稳定且隔离的 Electron App 数据目录。
+- **macOS App 包现包含显式 Info.plist 覆盖**：打包产物使用 Cockpit Tools 显示名称，并将 `LSRequiresCarbon` 设为 false。
+- **唤醒任务现支持可选确认模式**：Codex 定时唤醒任务可先发送通知，并仅在用户于超时时间内确认后执行，便于在唤醒前确认 VPN 或代理环境已就绪。感谢 @Ac-spider。
+- **账号现可单独覆盖自动刷新间隔**：账号级刷新设置可覆盖平台默认值，或对指定账号禁用自动刷新；未单独设置的账号继续继承平台默认配置。感谢 @Ac-spider。
+
+### 变更
+- **Codex API 服务调度现跳过已知异常账号**：连续出现阻断类鉴权、账号准备、Free 账号限制或额度失败的账号会从旧网关路由和 Sidecar 启动 manifest 中排除，优先使用健康账号。
+- **Codex API 服务诊断现改为直接请求本地网关**：服务测试通过 Cockpit 的 Tauri 后端调用本地 OpenAI 兼容端点，避免 Codex CLI 特有行为，同时保留本地网关、API Key、模型和上游响应校验。
+- **Codex OAuth 绑定现只允许带 `refresh_token` 的 OAuth 账号**：API Key 账号绑定与 Codex API 服务绑定都会按 `refresh_token` 过滤和校验，API 服务状态清理时也会移除不符合条件的旧绑定。
+- **Codex API 服务客户端 Base URL 主机现可配置**：可选择 `localhost` 或 `127.0.0.1` 写入 Codex Provider 并复制给客户端，不改变服务监听地址。
+- **添加账号弹框不再因点击遮罩而关闭**：各平台添加账号弹框仅能通过明确的关闭/返回操作或 Esc 关闭，避免误触中断填写。
+- **Codex API 服务账号行更靠前展示 Token 用量**：账号级统计会在请求结果详情旁展示紧凑 Token 用量，旧本地访问账号表格也将统计列前置到配额列之前。
+- **实例工具栏操作改为紧凑图标按钮**：新建、全部启动、全部关闭、刷新与 Codex 同步设置操作统一为带无障碍标签的图标按钮。
+- **Codex 默认实例在切号和启用 API 服务后的重启速度更快**：当 profile 已由上游流程准备完成时，Cockpit 会跳过重复的绑定账号注入与启动前空闲会话同步，并在 Windows 上复用已缓存的 Store AppUserModelId 检测结果，优先使用基于 PID 的快速关闭/启动探测并记录阶段耗时。
+- **`npm run tauri` 现会在启动 Tauri 前准备 Windows 构建工具链**：包装脚本仍会先执行版本同步；在 Windows 上会加载 Visual Studio Build Tools 环境和 Go 二进制路径，再调用本地 Tauri CLI；当工具链入口不可用时会回退到当前 shell 环境。
+
+### 修复
+- **Tauri 启动不再因 notification 插件配置失败**：应用配置不再向 `plugins.notification` 传入无效对象，避免应用初始化阶段 panic。
+- **Antigravity Windows 账号切换现可容忍版本检测失败**：当无法检测已安装 Antigravity 版本时会安全回退，并同时尝试系统凭据与旧版 SQLite 状态数据库两条注入路径；仅在两者都失败时才报错。感谢 @xdd666t。
+- **Antigravity Windows 版本检测现通过 PowerShell 参数传递可执行文件路径**：避免路径转义问题，保留 UTF-8 JSON 输出，并继续隐藏启动时的控制台窗口。
+- **Codex API 服务网关探测不再重复拼接 `/v1` 路径**：fallback 健康检查会保留已包含 `/v1` 的 Base URL，避免本地 API 服务诊断误报 `endpoint not supported`。感谢 @wjh4sg。
+- **Windows Antigravity 2.0 本地数据目录与进程识别现兼容 `Antigravity.exe` 安装**：本地导入、默认实例注入、切号、启动与 PID 匹配会优先使用 `%APPDATA%\Antigravity` 和 `Programs\Antigravity` 布局，并继续回退兼容 `Antigravity IDE`。感谢 @li6535202。
+- **Antigravity 安装版本检测现覆盖常见 Linux 安装目录**：Linux 检测会纳入 Antigravity 与 Antigravity IDE 在 `/usr/share` 和 `/opt` 下的安装路径。感谢 @vadbes46。
+- **Windows Codex 多实例共享存储不再依赖符号链接权限**：共享目录现使用目录联接，共享文件会复制到实例 profile，并且同步时可识别已有的 reparse-point 目录链接。
+- **Windows Codex 共享目录联接创建更可靠**：Cockpit 现在会优先通过 PowerShell `New-Item -ItemType Junction` 创建目录联接，失败后再回退到带引号的 `mklink /J` 命令；创建失败时会同时报告两条命令的结果以及源路径和目标路径。
+- **Windows Codex 默认实例检测现更可靠地匹配当前 App 数据目录结构**：默认 App 用户数据路径会识别 `%APPDATA%\Codex\web\Codex`，主进程匹配时会过滤 helper/resource Codex 进程，并避免把 Store 入口复用的既有实例误判为新启动进程。
+- **Codex 受管进程关闭现会确认目标 PID 已实际退出**：优雅关闭和强制关闭流程会复查原始受管 PID 集合；若仍有进程存活，会返回明确的手动关闭错误，不再静默报告成功。
 
 ---
 ## [0.24.9] - 2026-05-26
@@ -163,6 +211,7 @@
 - **Codex 套餐徽标现复用账号原始套餐值与共享样式**：账号卡片、摘要与路由视图都会保留后端或本地套餐标签原值，同时通过统一展示路径生成徽标样式。
 
 ### 修复
+- **Windows Antigravity 2.0 本地数据目录与进程识别现兼容 `Antigravity.exe` 安装**：当官方客户端安装在 `Programs\Antigravity` 且使用 `%APPDATA%\Antigravity` 数据目录时，本地导入、默认实例注入、切号、启动与 PID 匹配会优先使用该布局，并继续回退兼容 `Antigravity IDE`。
 - **Antigravity 旧版切号不再因安装版本元数据缺失或无法解析而失败**：已缓存的明确版本仍会阻断 Antigravity `2.0.0` 及以上版本；缺少缓存信息时允许旧版路径继续执行。
 - **Codex 自定义路由账号列表现将表头与行内容限制在固定滚动区域内**：弹框主体可正确滚动，套餐徽标在窄布局下也保持稳定尺寸。
 

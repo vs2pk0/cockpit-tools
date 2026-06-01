@@ -447,7 +447,9 @@
         }
       },
       "appSpeed": "Tốc độ",
-      "appSpeedDesc": "Ghi tốc độ đã chọn trước khi mở Codex chính thức"
+      "appSpeedDesc": "Ghi tốc độ đã chọn trước khi mở Codex chính thức",
+      "autoSyncThreads": "Tự đồng bộ phiên",
+      "autoSyncThreadsDesc": "Tắt để giữ phiên của nhiều instance tách biệt. Khi bật, việc mở hoặc đóng instance sẽ tự gộp bản ghi phiên cục bộ chỉ sau khi mọi instance Codex đã dừng."
     },
     "quota": {
       "unbound": "Tài khoản chưa liên kết",
@@ -1656,6 +1658,22 @@
         "hourly": "5 giờ",
         "weekly": "Tuần"
       },
+      "syncAllRecords": {
+        "action": "Đồng bộ tất cả bản ghi phiên bản",
+        "autoAction": "Tự động đồng bộ tất cả bản ghi phiên bản",
+        "autoDisabled": "Đã tắt tự động đồng bộ tất cả bản ghi phiên bản",
+        "autoEnabled": "Đã bật tự động đồng bộ tất cả bản ghi phiên bản",
+        "autoTooltip": "Tự động đồng bộ tất cả bản ghi phiên bản",
+        "autoDesc": "Khi tắt, bản ghi của nhiều phiên bản được giữ riêng biệt. Khi bật, việc khởi động hoặc đóng một phiên bản chỉ tự động gộp bản ghi cục bộ sau khi tất cả phiên bản Codex đã dừng.",
+        "closeFirst": "Hãy đóng tất cả phiên bản Codex trước khi đồng bộ bản ghi để tránh phiên bản đang chạy ghi lại bản ghi cũ.",
+        "confirmMessage": "Các bản ghi phiên cục bộ sẽ được đồng bộ toàn bộ giữa mọi phiên bản Codex. Các phiên có cùng ID sẽ được gộp theo từng sự kiện, và các tệp quan trọng của đích cùng tệp phiên cũ sẽ được sao lưu trước khi ghi. Tiếp tục?",
+        "needTwo": "Cần ít nhất hai phiên bản để đồng bộ bản ghi",
+        "settingsSection": "Cài đặt đồng bộ",
+        "settingsSubtitle": "Quản lý cách đồng bộ bản ghi nhiều phiên bản Codex",
+        "settingsTitle": "Cài đặt bản ghi phiên bản",
+        "title": "Đồng bộ tất cả bản ghi phiên bản",
+        "tooltip": "Đồng bộ tất cả bản ghi phiên bản"
+      },
       "restartStrategy": {
         "safe": {
           "principle": "Gửi tín hiệu SIGTERM đến tất cả các tiến trình Codex, yêu cầu ứng dụng lưu dữ liệu và đóng lại, sau đó bắt đầu phiên bản đích (buộc đóng nếu cần).",
@@ -1786,19 +1804,18 @@
       "entryAction": "Thêm vào dịch vụ API",
       "testAction": "Kiểm tra",
       "testDialogTitle": "Kiểm tra dịch vụ API",
-      "testDialogDesc": "Gửi một yêu cầu thực qua Codex CLI để kiểm tra dịch vụ cục bộ, khóa và phản hồi upstream.",
+      "testDialogDesc": "Bắt đầu cuộc trò chuyện thật kiểu playground qua dịch vụ API hiện tại để kiểm tra mô hình, định tuyến tài khoản và phản hồi upstream.",
       "testProgressTitle": "Đang kiểm tra dịch vụ",
       "testProgressDesc": "Đang gửi yêu cầu thực tới dịch vụ API cục bộ. Vui lòng chờ.",
       "testOutputTitle": "Kết quả trả về",
       "testResultTitle": "Kết quả kiểm tra dịch vụ",
-      "testSuccess": "Kiểm tra dịch vụ thành công: dịch vụ cục bộ, khóa và phản hồi upstream đều bình thường ({{model}}, {{latency}}). Nếu Codex vẫn trả 502, hãy kiểm tra Base URL, API Key hoặc môi trường chạy của Codex.",
+      "testSuccess": "Kiểm tra dịch vụ thành công: dịch vụ cục bộ, khóa và phản hồi upstream đều bình thường ({{model}}, {{latency}}). Nếu máy khách vẫn lỗi, hãy kiểm tra Base URL, API Key hoặc thiết lập proxy.",
       "testFailureStage": "Giai đoạn xác định",
       "testFailureCause": "Nguyên nhân lỗi",
       "testFailureSuggestion": "Cách xử lý đề xuất",
       "testFailureStatus": "Trạng thái HTTP",
       "testFailureModel": "Mô hình kiểm tra",
       "testFailureDetail": "Chi tiết chẩn đoán",
-      "testFailureCliOutput": "Đầu ra CLI",
       "testFailureGatewayOutput": "Phản hồi gateway",
       "testTimeout": "Kiểm tra bằng yêu cầu thật đã hết thời gian. Hãy kiểm tra dịch vụ cục bộ, proxy hoặc mạng upstream.",
       "testUnavailable": "URL dịch vụ API hiện tại không khả dụng",
@@ -1908,7 +1925,7 @@
         "empty": "Chưa có thống kê hạn mức"
       },
       "oauthBinding": {
-        "desc": "Tùy chọn. Chỉ có thể chọn tài khoản OAuth có thông tin thời hạn đăng ký; tài khoản đã hết hạn cũng được phép liên kết. Khi chưa liên kết, dịch vụ API chạy theo luồng API Key cũ; sau khi liên kết, trạng thái đăng nhập dùng tài khoản OAuth và Provider dùng cấu hình dịch vụ API hiện tại.",
+        "desc": "Tùy chọn. Chỉ có thể chọn tài khoản OAuth có refresh_token. Khi chưa liên kết, dịch vụ API chạy theo luồng API Key cũ; sau khi liên kết, trạng thái đăng nhập dùng tài khoản OAuth và Provider dùng cấu hình dịch vụ API hiện tại.",
         "currentService": "Dịch vụ API: {{name}}"
       },
       "customRoutingEdit": "Sửa định tuyến tùy chỉnh",
@@ -1993,7 +2010,27 @@
       "debugLogsEnableConfirmAction": "Bật",
       "debugLogsDisableConfirmTitle": "Tắt nhật ký debug",
       "debugLogsDisableConfirmMessage": "Khi tắt, dịch vụ API sẽ dừng xuất nhật ký debug, giảm nhiễu nhật ký và chi phí bổ sung. Bạn có thể bật lại khi chẩn đoán gateway, proxy hoặc streaming. Tắt?",
-      "debugLogsDisableConfirmAction": "Tắt"
+      "debugLogsDisableConfirmAction": "Tắt",
+      "clientBaseUrlHostLabel": "Địa chỉ client",
+      "clientBaseUrlHostDesc": "Chỉ ảnh hưởng đến Base URL ghi vào Codex Provider và sao chép cho client; không đổi địa chỉ lắng nghe của dịch vụ.",
+      "clientBaseUrlHostSaveSuccess": "Đã cập nhật địa chỉ client",
+      "accountPoolHealth": {
+        "title": "Nhóm tài khoản",
+        "allAvailable": "Tất cả OK {{count}}",
+        "availableRatio": "Tốt {{available}}/{{total}}",
+        "issueSummary": "Lỗi {{abnormal}} · Chờ {{cooldown}}",
+        "detail": "OK {{available}}/{{total}}, lỗi {{abnormal}}, chờ {{cooldown}}, thiếu {{missing}}, auth {{authError}}, hạn mức {{quotaLimited}}"
+      },
+      "testChatModel": "Mô hình",
+      "testChatClear": "Xóa chat",
+      "testChatEmpty": "Gửi một tin nhắn để bắt đầu cuộc trò chuyện thật qua dịch vụ API hiện tại.",
+      "testChatLatency": "Mất {{latency}}",
+      "testChatSending": "Đang gọi API",
+      "testChatInputPlaceholder": "Nhập tin nhắn thử, Enter để gửi",
+      "testChatSend": "Gửi",
+      "testChatInputRequired": "Nhập tin nhắn thử",
+      "testChatModelRequired": "Chọn ID mô hình",
+      "testChatEmptyResponse": "Phản hồi trống"
     },
     "local": {
       "desc": "Nhập tài khoản hiện tại từ ~/.codex/auth.json",
@@ -2404,13 +2441,13 @@
         "action": "Liên kết OAuth",
         "actionShort": "Liên kết",
         "title": "Liên kết tài khoản OAuth",
-        "desc": "Tùy chọn. Chỉ có thể chọn tài khoản OAuth có thông tin thời hạn đăng ký; tài khoản đã hết hạn cũng được phép liên kết. Khi chưa liên kết, tài khoản này chuyển theo luồng API Key cũ; sau khi liên kết, trạng thái đăng nhập dùng tài khoản OAuth và Provider dùng cấu hình tài khoản API Key này.",
+        "desc": "Tùy chọn. Chỉ có thể chọn tài khoản OAuth có refresh_token. Khi chưa liên kết, tài khoản này chuyển theo luồng API Key cũ; sau khi liên kết, trạng thái đăng nhập dùng tài khoản OAuth và Provider dùng cấu hình tài khoản API Key này.",
         "currentAccount": "Tài khoản API Key: {{name}}",
         "selectLabel": "Chọn tài khoản OAuth",
         "empty": "Chưa có tài khoản OAuth. Hãy thêm tài khoản ủy quyền OAuth trước.",
-        "emptyEligible": "Không có tài khoản OAuth có thông tin thời hạn đăng ký. Hãy làm mới quota hoặc thêm tài khoản OAuth đủ điều kiện trước.",
+        "emptyEligible": "Không có tài khoản OAuth có refresh_token. Hãy ủy quyền OAuth lại hoặc thêm tài khoản OAuth đủ điều kiện.",
         "validationRequired": "Vui lòng chọn tài khoản OAuth",
-        "validationSubscriptionRequired": "Chỉ có thể liên kết tài khoản OAuth có thông tin thời hạn đăng ký",
+        "validationSubscriptionRequired": "Chỉ có thể liên kết tài khoản OAuth có refresh_token",
         "saveSuccess": "Đã cập nhật liên kết OAuth",
         "saveFailed": "Liên kết OAuth thất bại: {{error}}",
         "switchRequiresBinding": "Hãy liên kết tài khoản OAuth trước",

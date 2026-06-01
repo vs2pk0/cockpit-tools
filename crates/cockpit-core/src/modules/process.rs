@@ -1375,8 +1375,7 @@ fn find_antigravity_process_exe() -> Option<std::path::PathBuf> {
                 || exe_path.contains("crashpad");
 
             #[cfg(target_os = "windows")]
-            let is_antigravity =
-                name == "antigravity ide.exe" || exe_path.ends_with("\\antigravity ide.exe");
+            let is_antigravity = is_windows_antigravity_main_executable(&name, &exe_path);
             #[cfg(target_os = "linux")]
             let is_antigravity = (name.contains("antigravity-ide")
                 || exe_path.contains("/antigravity-ide"))
@@ -1513,6 +1512,15 @@ fn find_codex_process_exe() -> Option<std::path::PathBuf> {
     None
 }
 
+#[cfg(target_os = "windows")]
+fn is_windows_antigravity_main_executable(name: &str, exe_path: &str) -> bool {
+    (name == "antigravity ide.exe"
+        || name == "antigravity.exe"
+        || exe_path.ends_with("\\antigravity ide.exe")
+        || exe_path.ends_with("\\antigravity.exe"))
+        && !exe_path.contains("crashpad")
+}
+
 fn detect_antigravity_exec_path() -> Option<std::path::PathBuf> {
     if let Some(path) = find_antigravity_process_exe() {
         return Some(path);
@@ -1531,6 +1539,18 @@ fn detect_antigravity_exec_path() -> Option<std::path::PathBuf> {
         let mut candidates: Vec<std::path::PathBuf> = Vec::new();
         if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
             candidates.push(
+                std::path::PathBuf::from(&local_appdata)
+                    .join("Programs")
+                    .join("Antigravity")
+                    .join("Antigravity.exe"),
+            );
+            candidates.push(
+                std::path::PathBuf::from(&local_appdata)
+                    .join("Programs")
+                    .join("Antigravity")
+                    .join("Electron.exe"),
+            );
+            candidates.push(
                 std::path::PathBuf::from(local_appdata)
                     .join("Programs")
                     .join("Antigravity IDE")
@@ -1539,12 +1559,32 @@ fn detect_antigravity_exec_path() -> Option<std::path::PathBuf> {
         }
         if let Ok(program_files) = std::env::var("PROGRAMFILES") {
             candidates.push(
+                std::path::PathBuf::from(&program_files)
+                    .join("Antigravity")
+                    .join("Antigravity.exe"),
+            );
+            candidates.push(
+                std::path::PathBuf::from(&program_files)
+                    .join("Antigravity")
+                    .join("Electron.exe"),
+            );
+            candidates.push(
                 std::path::PathBuf::from(program_files)
                     .join("Antigravity IDE")
                     .join("Antigravity IDE.exe"),
             );
         }
         if let Ok(program_files_x86) = std::env::var("PROGRAMFILES(X86)") {
+            candidates.push(
+                std::path::PathBuf::from(&program_files_x86)
+                    .join("Antigravity")
+                    .join("Antigravity.exe"),
+            );
+            candidates.push(
+                std::path::PathBuf::from(&program_files_x86)
+                    .join("Antigravity")
+                    .join("Electron.exe"),
+            );
             candidates.push(
                 std::path::PathBuf::from(program_files_x86)
                     .join("Antigravity IDE")
@@ -1558,9 +1598,15 @@ fn detect_antigravity_exec_path() -> Option<std::path::PathBuf> {
         }
         if let Some(path) = detect_windows_exec_path_by_signatures(
             "antigravity",
-            &["Antigravity IDE.exe", "antigravity-ide.exe", "Electron.exe"],
-            &["antigravity ide"],
-            &["antigravity ide"],
+            &[
+                "Antigravity.exe",
+                "antigravity.exe",
+                "Antigravity IDE.exe",
+                "antigravity-ide.exe",
+                "Electron.exe",
+            ],
+            &["antigravity", "antigravity ide"],
+            &["antigravity", "antigravity ide"],
             &["antigravity ide", "antigravity"],
         ) {
             return Some(path);
@@ -3381,8 +3427,7 @@ fn is_antigravity_main_process(
 
     #[cfg(target_os = "windows")]
     {
-        return (name == "antigravity ide.exe" || exe_path.ends_with("\\antigravity ide.exe"))
-            && !exe_path.contains("crashpad");
+        return is_windows_antigravity_main_executable(name, exe_path);
     }
 
     #[cfg(target_os = "linux")]
@@ -3678,12 +3723,25 @@ fn collect_antigravity_process_entries_from_ps() -> Vec<(u32, Option<String>)> {
 }
 
 #[cfg(target_os = "windows")]
+fn windows_antigravity_process_name_for_expected_exe(expected_exe_path: &str) -> String {
+    Path::new(expected_exe_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| {
+            name.eq_ignore_ascii_case("Antigravity.exe")
+                || name.eq_ignore_ascii_case("Antigravity IDE.exe")
+        })
+        .unwrap_or("Antigravity IDE.exe")
+        .to_string()
+}
+
+#[cfg(target_os = "windows")]
 fn collect_antigravity_process_entries_from_powershell(
     expected_exe_path: &str,
 ) -> Vec<(u32, Option<String>)> {
     let mut result = Vec::new();
-    let script =
-        build_windows_path_filtered_process_probe_script("Antigravity IDE.exe", expected_exe_path);
+    let process_name = windows_antigravity_process_name_for_expected_exe(expected_exe_path);
+    let script = build_windows_path_filtered_process_probe_script(&process_name, expected_exe_path);
     let output = powershell_output_with_timeout(
         &["-NoProfile", "-Command", &script],
         WINDOWS_PROCESS_PROBE_TIMEOUT,
@@ -3725,7 +3783,7 @@ fn collect_antigravity_process_entries_from_powershell(
             Err(_) => continue,
         };
         let lower = cmdline.to_lowercase();
-        if !is_antigravity_main_process("antigravity ide.exe", "", Some(&lower)) {
+        if !is_antigravity_main_process(&process_name.to_lowercase(), "", Some(&lower)) {
             continue;
         }
         let dir = extract_user_data_dir_from_command_line(cmdline);
@@ -6058,7 +6116,7 @@ fn log_antigravity_process_details_for_pids(pids: &[u32]) {
         .collect::<Vec<String>>()
         .join(",");
     let script = format!(
-        "$ids=@({}); Get-CimInstance Win32_Process -Filter \"Name='Antigravity IDE.exe'\" | Where-Object {{$ids -contains $_.ProcessId}} | ForEach-Object {{ \"$($_.ProcessId)|$($_.ParentProcessId)|$($_.CommandLine)\" }}",
+        "$ids=@({}); Get-CimInstance Win32_Process -Filter \"Name='Antigravity IDE.exe' OR Name='Antigravity.exe'\" | Where-Object {{$ids -contains $_.ProcessId}} | ForEach-Object {{ \"$($_.ProcessId)|$($_.ParentProcessId)|$($_.CommandLine)\" }}",
         pid_list
     );
     match powershell_output(&["-Command", &script]) {

@@ -768,7 +768,7 @@ export function CodebuddyAccountsPage() {
       />
 
       {showAddModal && (
-        <div className="modal-overlay" onClick={closeAddModal}>
+        <div className="modal-overlay">
             <div className="modal-content ghcp-add-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{t('codebuddy.addAccount', '添加 CodeBuddy 账号')}</h2>

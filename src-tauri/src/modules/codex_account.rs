@@ -1263,7 +1263,7 @@ fn is_missing_refresh_token_reason(reason: &str) -> bool {
     reason.contains("缺少 refresh_token")
 }
 
-fn account_has_refresh_token(account: &CodexAccount) -> bool {
+pub(crate) fn account_has_refresh_token(account: &CodexAccount) -> bool {
     account
         .tokens
         .refresh_token
@@ -1803,6 +1803,11 @@ fn apply_compat_account_metadata(
         .or_else(|| account.account_structure.clone());
     account.account_note = read_json_string(value, &["account_note", "accountNote"])
         .or_else(|| account.account_note.clone());
+    account.bound_phone = read_json_string(
+        value,
+        &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
+    )
+    .or_else(|| account.bound_phone.clone());
     account.auth_file_plan_type =
         read_json_string(value, &["auth_file_plan_type", "authFilePlanType"])
             .or_else(|| account.auth_file_plan_type.clone());
@@ -1833,6 +1838,12 @@ fn apply_api_key_import_metadata(account: &mut CodexAccount, value: &serde_json:
     }
     if let Some(account_note) = read_json_string(value, &["account_note", "accountNote"]) {
         account.account_note = Some(account_note);
+    }
+    if let Some(bound_phone) = read_json_string(
+        value,
+        &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
+    ) {
+        account.bound_phone = Some(bound_phone);
     }
     if let Some(plan_type) = read_json_string(value, &["plan_type", "planType"]) {
         account.plan_type = Some(plan_type);
@@ -3254,6 +3265,9 @@ fn validate_api_key_bound_oauth_account(
         load_account(&bound_id).ok_or_else(|| format!("绑定的 OAuth 账号不存在: {}", bound_id))?;
     if oauth_account.is_api_key_auth() {
         return Err("只能绑定 OAuth 账号，不能绑定 API Key 账号".to_string());
+    }
+    if !account_has_refresh_token(&oauth_account) {
+        return Err("只能绑定带 refresh_token 的 OAuth 账号".to_string());
     }
 
     Ok(oauth_account)
@@ -6920,6 +6934,16 @@ pub fn update_account_note(account_id: &str, note: String) -> Result<CodexAccoun
         load_account(account_id).ok_or_else(|| format!("账号不存在: {}", account_id))?;
 
     account.account_note = normalize_optional_value(Some(note));
+    save_account(&account)?;
+
+    Ok(account)
+}
+
+pub fn update_account_phone(account_id: &str, phone: String) -> Result<CodexAccount, String> {
+    let mut account =
+        load_account(account_id).ok_or_else(|| format!("账号不存在: {}", account_id))?;
+
+    account.bound_phone = normalize_optional_value(Some(phone));
     save_account(&account)?;
 
     Ok(account)

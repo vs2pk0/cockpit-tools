@@ -505,7 +505,9 @@
         }
       },
       "appSpeed": "Kecepatan",
-      "appSpeedDesc": "Menulis kecepatan pilihan sebelum menjalankan Codex resmi"
+      "appSpeedDesc": "Menulis kecepatan pilihan sebelum menjalankan Codex resmi",
+      "autoSyncThreads": "Sinkron sesi otomatis",
+      "autoSyncThreadsDesc": "Saat mati, sesi multi-instance tetap terisolasi. Saat aktif, memulai atau menutup instance otomatis menggabungkan catatan sesi lokal hanya setelah semua instance Codex berhenti."
     },
     "quota": {
       "unbound": "Tidak ada akun tertaut",
@@ -1702,6 +1704,22 @@
         "hourly": "5h",
         "weekly": "Weekly"
       },
+      "syncAllRecords": {
+        "action": "Sinkronkan semua catatan instans",
+        "autoAction": "Sinkronkan otomatis semua catatan instans",
+        "autoDisabled": "Sinkronisasi otomatis semua catatan instans dimatikan",
+        "autoEnabled": "Sinkronisasi otomatis semua catatan instans diaktifkan",
+        "autoTooltip": "Sinkronkan otomatis semua catatan instans",
+        "autoDesc": "Saat dimatikan, catatan multi-instans tetap terpisah. Saat diaktifkan, memulai atau menutup instans akan menggabungkan catatan lokal secara otomatis hanya setelah semua instans Codex berhenti.",
+        "closeFirst": "Tutup semua instans Codex sebelum menyinkronkan catatan agar instans yang berjalan tidak menulis kembali catatan lama.",
+        "confirmMessage": "Catatan sesi lokal akan disinkronkan penuh di semua instans Codex. Sesi dengan ID yang sama akan digabung pada tingkat peristiwa, dan file penting tujuan serta file sesi lama akan dicadangkan sebelum ditulis. Lanjutkan?",
+        "needTwo": "Diperlukan minimal dua instans untuk menyinkronkan catatan",
+        "settingsSection": "Pengaturan sinkronisasi",
+        "settingsSubtitle": "Kelola cara sinkronisasi catatan multi-instans Codex",
+        "settingsTitle": "Pengaturan catatan instans",
+        "title": "Sinkronkan semua catatan instans",
+        "tooltip": "Sinkronkan semua catatan instans"
+      },
       "restartStrategy": {
         "safe": {
           "principle": "Send SIGTERM to the target Codex process so the app can save and exit, then relaunch that instance (force kill if needed).",
@@ -1835,19 +1853,18 @@
       "entryAction": "Tambahkan ke Layanan API",
       "testAction": "Tes",
       "testDialogTitle": "Uji Layanan API",
-      "testDialogDesc": "Kirim satu permintaan nyata lewat Codex CLI untuk memeriksa layanan lokal, kunci, dan respons upstream.",
+      "testDialogDesc": "Mulai chat nyata bergaya playground melalui layanan API saat ini untuk memeriksa model, routing akun, dan respons upstream.",
       "testProgressTitle": "Menguji layanan",
       "testProgressDesc": "Sedang mengirim permintaan nyata ke layanan API lokal. Tunggu sebentar.",
       "testOutputTitle": "Hasil yang dikembalikan",
       "testResultTitle": "Hasil pemeriksaan layanan",
-      "testSuccess": "Pemeriksaan layanan berhasil: layanan lokal, kunci, dan respons upstream sehat ({{model}}, {{latency}}). Jika Codex masih mengembalikan 502, periksa Base URL, API Key, atau lingkungan runtime Codex.",
+      "testSuccess": "Pemeriksaan layanan berhasil: layanan lokal, kunci, dan respons upstream sehat ({{model}}, {{latency}}). Jika klien masih gagal, periksa Base URL, API Key, atau pengaturan proxy.",
       "testFailureStage": "Tahap diagnosis",
       "testFailureCause": "Penyebab gagal",
       "testFailureSuggestion": "Saran perbaikan",
       "testFailureStatus": "Status HTTP",
       "testFailureModel": "Model uji",
       "testFailureDetail": "Detail diagnosis",
-      "testFailureCliOutput": "Output CLI",
       "testFailureGatewayOutput": "Respons gateway",
       "testTimeout": "Pemeriksaan dengan permintaan nyata kehabisan waktu. Periksa layanan lokal, proxy, atau jaringan upstream.",
       "testUnavailable": "URL layanan API saat ini tidak tersedia",
@@ -1957,7 +1974,7 @@
         "empty": "Belum ada statistik kuota"
       },
       "oauthBinding": {
-        "desc": "Opsional. Hanya akun OAuth dengan penanda masa langganan yang dapat dipilih; masa yang sudah kedaluwarsa juga boleh. Tanpa tautan, layanan API tetap memakai alur API Key lama; setelah ditautkan, status masuk memakai akun OAuth dan Provider memakai konfigurasi layanan API.",
+        "desc": "Opsional. Hanya akun OAuth dengan refresh_token yang dapat dipilih. Tanpa tautan, layanan API tetap memakai alur API Key lama; setelah ditautkan, status masuk memakai akun OAuth dan Provider memakai konfigurasi layanan API.",
         "currentService": "Layanan API: {{name}}"
       },
       "customRoutingEdit": "Edit routing kustom",
@@ -2042,7 +2059,27 @@
       "debugLogsEnableConfirmAction": "Aktifkan",
       "debugLogsDisableConfirmTitle": "Nonaktifkan Log Debug",
       "debugLogsDisableConfirmMessage": "Saat nonaktif, layanan API berhenti mengeluarkan log debug sehingga kebisingan log dan beban tambahan berkurang. Anda dapat mengaktifkannya lagi saat mendiagnosis gateway, proxy, atau streaming. Nonaktifkan?",
-      "debugLogsDisableConfirmAction": "Nonaktifkan"
+      "debugLogsDisableConfirmAction": "Nonaktifkan",
+      "clientBaseUrlHostLabel": "Alamat klien",
+      "clientBaseUrlHostDesc": "Hanya memengaruhi Base URL yang ditulis ke Codex Provider dan disalin ke klien; alamat listen layanan tidak berubah.",
+      "clientBaseUrlHostSaveSuccess": "Alamat klien diperbarui",
+      "accountPoolHealth": {
+        "title": "Pool Akun",
+        "allAvailable": "Semua OK {{count}}",
+        "availableRatio": "Baik {{available}}/{{total}}",
+        "issueSummary": "Error {{abnormal}} · Jeda {{cooldown}}",
+        "detail": "OK {{available}}/{{total}}, error {{abnormal}}, jeda {{cooldown}}, hilang {{missing}}, auth {{authError}}, kuota {{quotaLimited}}"
+      },
+      "testChatModel": "Model uji",
+      "testChatClear": "Hapus chat",
+      "testChatEmpty": "Kirim pesan untuk memulai chat nyata melalui layanan API saat ini.",
+      "testChatLatency": "{{latency}} berlalu",
+      "testChatSending": "Meminta API",
+      "testChatInputPlaceholder": "Ketik pesan uji, Enter untuk kirim",
+      "testChatSend": "Kirim",
+      "testChatInputRequired": "Masukkan pesan uji",
+      "testChatModelRequired": "Pilih ID model",
+      "testChatEmptyResponse": "Respons kosong"
     },
     "api": {
       "baseUrl": "URL Dasar",
@@ -2140,13 +2177,13 @@
         "action": "Tautkan OAuth",
         "actionShort": "Tautkan",
         "title": "Tautkan Akun OAuth",
-        "desc": "Opsional. Hanya akun OAuth dengan penanda masa langganan yang dapat dipilih; masa yang sudah kedaluwarsa juga boleh. Tanpa tautan, akun ini beralih dengan alur API Key lama; setelah ditautkan, status masuk memakai akun OAuth dan Provider memakai konfigurasi akun API Key ini.",
+        "desc": "Opsional. Hanya akun OAuth dengan refresh_token yang dapat dipilih. Tanpa tautan, akun ini beralih dengan alur API Key lama; setelah ditautkan, status masuk memakai akun OAuth dan Provider memakai konfigurasi akun API Key ini.",
         "currentAccount": "Akun API Key: {{name}}",
         "selectLabel": "Pilih akun OAuth",
         "empty": "Belum ada akun OAuth. Tambahkan akun berotorisasi OAuth terlebih dahulu.",
-        "emptyEligible": "Tidak ada akun OAuth dengan masa langganan. Segarkan kuota atau tambahkan akun OAuth yang memenuhi syarat terlebih dahulu.",
+        "emptyEligible": "Tidak ada akun OAuth dengan refresh_token. Otorisasi ulang lewat OAuth atau tambahkan akun OAuth yang memenuhi syarat.",
         "validationRequired": "Pilih akun OAuth",
-        "validationSubscriptionRequired": "Hanya akun OAuth dengan masa langganan yang dapat ditautkan",
+        "validationSubscriptionRequired": "Hanya akun OAuth dengan refresh_token yang dapat ditautkan",
         "saveSuccess": "Tautan OAuth diperbarui",
         "saveFailed": "Gagal menautkan OAuth: {{error}}",
         "switchRequiresBinding": "Tautkan akun OAuth terlebih dahulu",

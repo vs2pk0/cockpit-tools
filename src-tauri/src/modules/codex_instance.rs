@@ -1,5 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "windows")]
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
 use chrono::Utc;
@@ -22,6 +24,12 @@ const CODEX_SHARED_AGENTS_FILE_NAME: &str = "AGENTS.md";
 const CODEX_SHARED_VENDOR_IMPORTS_SKILLS_DIR: &str = "vendor_imports/skills";
 #[cfg(target_os = "windows")]
 const CODEX_WINDOWS_APP_DATA_DIR_NAME: &str = "codex-app-data";
+#[cfg(target_os = "macos")]
+const CODEX_MACOS_APP_DATA_DIR_NAME: &str = "codex-app-data";
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+#[cfg(target_os = "windows")]
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 
 pub fn is_api_service_bind_account_id(account_id: &str) -> bool {
     account_id.trim() == CODEX_API_SERVICE_BIND_ACCOUNT_ID
@@ -80,6 +88,7 @@ pub fn update_default_settings(
     extra_args: Option<String>,
     follow_local_account: Option<bool>,
     launch_mode: Option<InstanceLaunchMode>,
+    auto_sync_threads: Option<bool>,
 ) -> Result<DefaultInstanceSettings, String> {
     let _lock = CODEX_INSTANCE_STORE_LOCK
         .lock()
@@ -107,6 +116,10 @@ pub fn update_default_settings(
 
     if let Some(mode) = launch_mode {
         settings.launch_mode = mode;
+    }
+
+    if let Some(enabled) = auto_sync_threads {
+        settings.auto_sync_threads = enabled;
     }
 
     let updated = settings.clone();
@@ -230,6 +243,23 @@ pub fn delete_windows_app_user_data_dir(codex_home: &Path) -> Result<(), String>
     modules::instance::delete_instance_directory(&app_user_data_dir)
 }
 
+#[cfg(target_os = "macos")]
+fn normalize_macos_codex_home_for_hash(path: &Path) -> String {
+    let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    resolved.to_string_lossy().to_string()
+}
+
+#[cfg(target_os = "macos")]
+pub fn get_macos_app_user_data_dir(codex_home: &Path) -> Result<PathBuf, String> {
+    let root = get_default_instances_root_dir()?
+        .parent()
+        .ok_or("无法获取 Codex 实例根目录")?
+        .join(CODEX_MACOS_APP_DATA_DIR_NAME);
+    let normalized = normalize_macos_codex_home_for_hash(codex_home);
+    let digest = format!("{:x}", md5::compute(normalized.as_bytes()));
+    Ok(root.join(digest))
+}
+
 #[cfg(unix)]
 fn create_directory_symlink(source: &Path, target: &Path) -> Result<(), String> {
     std::os::unix::fs::symlink(source, target).map_err(|e| format!("创建目录共享链接失败: {}", e))
@@ -237,8 +267,87 @@ fn create_directory_symlink(source: &Path, target: &Path) -> Result<(), String> 
 
 #[cfg(windows)]
 fn create_directory_symlink(source: &Path, target: &Path) -> Result<(), String> {
-    std::os::windows::fs::symlink_dir(source, target)
-        .map_err(|e| format!("创建目录共享链接失败: {}", e))
+    use std::os::windows::process::CommandExt;
+
+    fn escape_powershell_single_quoted(value: &str) -> String {
+        value.replace('\'', "''")
+    }
+
+    fn quote_cmd_arg(value: &Path) -> String {
+        format!("\"{}\"", value.to_string_lossy().replace('"', "\"\""))
+    }
+
+    fn output_detail(stdout: &[u8], stderr: &[u8]) -> String {
+        let stdout = String::from_utf8_lossy(stdout);
+        let stderr = String::from_utf8_lossy(stderr);
+        [stdout.trim(), stderr.trim()]
+            .into_iter()
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
+    let source_text = source.to_string_lossy();
+    let target_text = target.to_string_lossy();
+    let script = format!(
+        "$ErrorActionPreference='Stop';\n\
+         [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);\n\
+         $target='{}';\n\
+         $source='{}';\n\
+         New-Item -ItemType Junction -Path $target -Target $source -ErrorAction Stop | Out-Null",
+        escape_powershell_single_quoted(&target_text),
+        escape_powershell_single_quoted(&source_text)
+    );
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("创建目录共享联接失败: {}", e))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+    let powershell_status = output.status;
+    let powershell_detail = output_detail(&output.stdout, &output.stderr);
+
+    let mklink_command = format!(
+        "mklink /J {} {}",
+        quote_cmd_arg(target),
+        quote_cmd_arg(source)
+    );
+    let output = Command::new("cmd")
+        .args(["/D", "/C", &mklink_command])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("创建目录共享联接失败: {}", e))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let mklink_detail = output_detail(&output.stdout, &output.stderr);
+    Err(format!(
+        "创建目录共享联接失败: powershell_status={}, powershell_detail={}, mklink_status={}, mklink_detail={}, source={}, target={}",
+        powershell_status,
+        powershell_detail,
+        output.status,
+        mklink_detail,
+        display_abs_path(source),
+        display_abs_path(target)
+    ))
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -253,8 +362,9 @@ fn create_file_symlink(source: &Path, target: &Path) -> Result<(), String> {
 
 #[cfg(windows)]
 fn create_file_symlink(source: &Path, target: &Path) -> Result<(), String> {
-    std::os::windows::fs::symlink_file(source, target)
-        .map_err(|e| format!("创建文件共享链接失败: {}", e))
+    fs::copy(source, target)
+        .map(|_| ())
+        .map_err(|e| format!("复制共享文件失败: {}", e))
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -266,6 +376,23 @@ fn remove_symlink(path: &Path) -> Result<(), String> {
     fs::remove_file(path)
         .or_else(|_| fs::remove_dir(path))
         .map_err(|e| format!("移除已有共享链接失败: {}", e))
+}
+
+#[cfg(target_os = "windows")]
+fn is_windows_reparse_point(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(target_os = "windows")]
+fn is_shared_directory_link(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_symlink() || is_windows_reparse_point(metadata)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_shared_directory_link(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
 }
 
 fn is_directory_empty(path: &Path) -> Result<bool, String> {
@@ -401,7 +528,7 @@ fn sync_shared_directory(
             e
         )
     })?;
-    if metadata.file_type().is_symlink() {
+    if is_shared_directory_link(&metadata) {
         let current_target = fs::read_link(&instance_dir).map_err(|e| {
             format!(
                 "读取实例共享目录链接失败 ({}): {}",

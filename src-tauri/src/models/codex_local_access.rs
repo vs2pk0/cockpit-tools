@@ -26,6 +26,20 @@ pub enum CodexLocalAccessScope {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CodexLocalAccessClientBaseUrlHost {
+    #[serde(rename = "localhost")]
+    Localhost,
+    #[serde(rename = "127.0.0.1")]
+    Ipv4Loopback,
+}
+
+impl Default for CodexLocalAccessClientBaseUrlHost {
+    fn default() -> Self {
+        Self::Localhost
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CodexLocalAccessCredentialMode {
     Local,
@@ -380,6 +394,8 @@ pub struct CodexLocalAccessCollection {
     #[serde(default = "default_access_scope_for_existing_config")]
     pub access_scope: CodexLocalAccessScope,
     #[serde(default)]
+    pub client_base_url_host: CodexLocalAccessClientBaseUrlHost,
+    #[serde(default)]
     pub image_generation_mode: CodexLocalAccessImageGenerationMode,
     #[serde(default)]
     pub gateway_mode: CodexLocalAccessGatewayMode,
@@ -675,7 +691,6 @@ pub struct CodexLocalAccessTestFailure {
     pub status: Option<u16>,
     pub model_id: Option<String>,
     pub detail: Option<String>,
-    pub cli_output: Option<String>,
     pub gateway_output: Option<String>,
 }
 
@@ -683,6 +698,22 @@ pub struct CodexLocalAccessTestFailure {
 #[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessTestResult {
     pub model_id: Option<String>,
+    pub latency_ms: Option<u64>,
+    pub output: Option<String>,
+    pub failure: Option<CodexLocalAccessTestFailure>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexLocalAccessChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexLocalAccessChatResult {
+    pub model_id: String,
     pub latency_ms: Option<u64>,
     pub output: Option<String>,
     pub failure: Option<CodexLocalAccessTestFailure>,

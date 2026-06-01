@@ -505,7 +505,9 @@
       "pathRequired": "Please select an instance directory",
       "bindRequired": "Please select an account to bind",
       "appSpeed": "Speed",
-      "appSpeedDesc": "Writes the selected speed before starting official Codex"
+      "appSpeedDesc": "Writes the selected speed before starting official Codex",
+      "autoSyncThreads": "Auto-sync sessions",
+      "autoSyncThreadsDesc": "Off keeps multi-instance sessions isolated. When enabled, starting or closing an instance automatically merges local session records only after all Codex instances are stopped."
     },
     "quota": {
       "unbound": "No bound account",
@@ -1702,6 +1704,22 @@
         "hourly": "5h",
         "weekly": "Weekly"
       },
+      "syncAllRecords": {
+        "action": "Sync All Instance Records",
+        "autoAction": "Auto Sync All Instance Records",
+        "autoDisabled": "Auto sync for all instance records is off",
+        "autoEnabled": "Auto sync for all instance records is on",
+        "autoTooltip": "Auto sync all instance records",
+        "autoDesc": "Off keeps multi-instance records isolated. When enabled, starting or closing an instance automatically merges local records only after all Codex instances are stopped.",
+        "closeFirst": "Close all Codex instances before syncing records to prevent running instances from writing old records back.",
+        "confirmMessage": "This will fully sync local session records across all Codex instances. Sessions with the same ID are merged at the event level, and target key files plus old session files are backed up before writing. Continue?",
+        "needTwo": "At least two instances are required to sync records",
+        "settingsSection": "Sync Settings",
+        "settingsSubtitle": "Manage Codex multi-instance record sync behavior",
+        "settingsTitle": "Instance Record Settings",
+        "title": "Sync All Instance Records",
+        "tooltip": "Sync all instance records"
+      },
       "restartStrategy": {
         "safe": {
           "principle": "Send SIGTERM to the target Codex process so the app can save and exit, then relaunch that instance (force kill if needed).",
@@ -1862,19 +1880,18 @@
       "enableService": "Enable Service",
       "testAction": "Test",
       "testDialogTitle": "Test API Service",
-      "testDialogDesc": "Send one real request through Codex CLI to verify the local service, key, and upstream response.",
+      "testDialogDesc": "Start a real playground-style chat through the current API service to check the model, account routing, and upstream response.",
       "testProgressTitle": "Testing service",
       "testProgressDesc": "Sending a real request to the local API service. Please wait.",
       "testOutputTitle": "Returned result",
       "testResultTitle": "Service check result",
-      "testSuccess": "Service check passed: local service, key, and upstream response are healthy ({{model}}, {{latency}}). If Codex still returns 502, check Codex Base URL, API Key, or runtime environment.",
+      "testSuccess": "Service check passed: local service, key, and upstream response are healthy ({{model}}, {{latency}}). If the client still fails, check the Base URL, API Key, or proxy settings.",
       "testFailureStage": "Failure stage",
       "testFailureCause": "Failure reason",
       "testFailureSuggestion": "Suggested fix",
       "testFailureStatus": "HTTP status",
       "testFailureModel": "Test model",
       "testFailureDetail": "Diagnostic details",
-      "testFailureCliOutput": "CLI output",
       "testFailureGatewayOutput": "Gateway response",
       "testTimeout": "Real request check timed out. Check the local service, proxy, or upstream network.",
       "testUnavailable": "The current API service URL is unavailable",
@@ -1968,6 +1985,13 @@
         "modalTitle": "API Service Quota Pool",
         "empty": "No quota stats yet"
       },
+      "accountPoolHealth": {
+        "title": "Account Pool",
+        "allAvailable": "All OK {{count}}",
+        "availableRatio": "OK {{available}}/{{total}}",
+        "issueSummary": "Bad {{abnormal}} · Cool {{cooldown}}",
+        "detail": "OK {{available}}/{{total}}, bad {{abnormal}}, cooldown {{cooldown}}, missing {{missing}}, auth {{authError}}, quota {{quotaLimited}}"
+      },
       "memberTitle": "Collection Members",
       "routingStrategy": {
         "auto": "Auto (Recommended)",
@@ -2019,7 +2043,7 @@
         "save": "Save Collection"
       },
       "oauthBinding": {
-        "desc": "Optional. Only OAuth accounts with a subscription term marker can be selected; expired terms are allowed. Without a link, the API service keeps the original API-key flow; after linking, sign-in uses the OAuth account and Provider uses the API service config.",
+        "desc": "Optional. Only OAuth accounts with a refresh_token can be selected. Without a link, the API service keeps the original API-key flow; after linking, sign-in uses the OAuth account and Provider uses the API service config.",
         "currentService": "API Service: {{name}}"
       },
       "customRoutingEdit": "Edit Custom Routing",
@@ -2065,7 +2089,20 @@
       "debugLogsDisableConfirmMessage": "Turning this off stops API service debug logs, reducing log noise and extra overhead. You can turn it on again when diagnosing gateway, proxy, or streaming response issues. Turn it off?",
       "debugLogsDisableConfirmAction": "Turn Off",
       "debugLogsEnabledSuccess": "Debug logs enabled",
-      "debugLogsDisabledSuccess": "Debug logs disabled"
+      "debugLogsDisabledSuccess": "Debug logs disabled",
+      "clientBaseUrlHostLabel": "Client address",
+      "clientBaseUrlHostDesc": "Only affects the Base URL written to the Codex Provider and copied to clients. It does not change the service bind address.",
+      "clientBaseUrlHostSaveSuccess": "Client address updated",
+      "testChatModel": "Model",
+      "testChatClear": "Clear chat",
+      "testChatEmpty": "Send a message to start a real chat through the current API service.",
+      "testChatLatency": "{{latency}} elapsed",
+      "testChatSending": "Requesting API service",
+      "testChatInputPlaceholder": "Type a test message, Enter to send",
+      "testChatSend": "Send",
+      "testChatInputRequired": "Enter a test message",
+      "testChatModelRequired": "Select a model ID",
+      "testChatEmptyResponse": "Empty response"
     },
     "api": {
       "baseUrl": "Base URL",
@@ -2163,13 +2200,13 @@
         "action": "Link OAuth",
         "actionShort": "Link",
         "title": "Link OAuth Account",
-        "desc": "Optional. Only OAuth accounts with a subscription term marker can be selected; expired terms are allowed. Without a link, this account switches with the original API-key flow; after linking, sign-in uses the OAuth account and Provider uses this API-key config.",
+        "desc": "Optional. Only OAuth accounts with a refresh_token can be selected. Without a link, this account switches with the original API-key flow; after linking, sign-in uses the OAuth account and Provider uses this API-key config.",
         "currentAccount": "API-key account: {{name}}",
         "selectLabel": "Select OAuth account",
         "empty": "No OAuth accounts yet. Add an OAuth-authorized account first.",
-        "emptyEligible": "No OAuth accounts with a subscription term. Refresh quota or add an eligible OAuth account first.",
+        "emptyEligible": "No OAuth accounts with a refresh_token. Reauthorize with OAuth or add an eligible OAuth account first.",
         "validationRequired": "Select an OAuth account.",
-        "validationSubscriptionRequired": "Only OAuth accounts with a subscription term can be linked.",
+        "validationSubscriptionRequired": "Only OAuth accounts with a refresh_token can be linked.",
         "saveSuccess": "OAuth link updated.",
         "saveFailed": "Failed to link OAuth: {{error}}",
         "switchRequiresBinding": "Link an OAuth account first.",

@@ -3613,7 +3613,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
 
       {/* Add Account Modal */}
       {showAddModal && (
-        <div className="modal-overlay" onClick={closeAddModal}>
+        <div className="modal-overlay">
           <div
             className="modal modal-lg add-account-modal"
             onClick={(e) => e.stopPropagation()}

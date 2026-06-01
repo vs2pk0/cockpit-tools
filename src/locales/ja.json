@@ -447,7 +447,9 @@
         }
       },
       "appSpeed": "速度",
-      "appSpeedDesc": "公式 Codex の起動前に選択した速度を書き込みます"
+      "appSpeedDesc": "公式 Codex の起動前に選択した速度を書き込みます",
+      "autoSyncThreads": "セッション自動同期",
+      "autoSyncThreadsDesc": "オフの場合、複数インスタンスのセッションは分離されます。オンの場合、すべての Codex インスタンスが停止しているときだけ、インスタンスの起動または終了時にローカルセッション記録を自動的に統合します。"
     },
     "quota": {
       "unbound": "紐付けアカウントなし",
@@ -1656,6 +1658,22 @@
         "hourly": "5時間",
         "weekly": "週間"
       },
+      "syncAllRecords": {
+        "action": "すべてのインスタンス記録を同期",
+        "autoAction": "すべてのインスタンス記録を自動同期",
+        "autoDisabled": "すべてのインスタンス記録の自動同期はオフです",
+        "autoEnabled": "すべてのインスタンス記録の自動同期はオンです",
+        "autoTooltip": "すべてのインスタンス記録を自動同期",
+        "autoDesc": "オフの場合、複数インスタンスの記録は分離されたままです。オンの場合、すべての Codex インスタンスが停止した後にのみ、インスタンスの起動または終了時にローカル記録を自動的に統合します。",
+        "closeFirst": "実行中のインスタンスが古い記録を書き戻さないように、記録を同期する前にすべての Codex インスタンスを閉じてください。",
+        "confirmMessage": "すべての Codex インスタンス間でローカルセッション記録を完全同期します。同じ ID のセッションはイベント単位で統合され、書き込み前に対象の主要ファイルと古いセッションファイルをバックアップします。続行しますか？",
+        "needTwo": "記録を同期するには少なくとも 2 つのインスタンスが必要です",
+        "settingsSection": "同期設定",
+        "settingsSubtitle": "Codex の複数インスタンス記録の同期方法を管理",
+        "settingsTitle": "インスタンス記録設定",
+        "title": "すべてのインスタンス記録を同期",
+        "tooltip": "すべてのインスタンス記録を同期"
+      },
       "restartStrategy": {
         "safe": {
           "principle": "すべての Codex プロセスに SIGTERM を送信して、アプリが自身で保存して終了するように促します。終了後にターゲットインスタンスを起動します（必要に応じて強制終了します）。",
@@ -1786,19 +1804,18 @@
       "entryAction": "API サービスに追加",
       "testAction": "テスト",
       "testDialogTitle": "API サービスをテスト",
-      "testDialogDesc": "Codex CLI から実リクエストを送り、ローカルサービス、キー、上流応答を確認します。",
+      "testDialogDesc": "Playground のように現在の API サービスで実際の会話を行い、モデル、アカウントルーティング、上流応答を確認します。",
       "testProgressTitle": "サービスをテスト中",
       "testProgressDesc": "ローカル API サービスへ実リクエストを送信しています。しばらくお待ちください。",
       "testOutputTitle": "返却結果",
       "testResultTitle": "サービス確認結果",
-      "testSuccess": "サービス確認に成功しました。ローカルサービス、キー、上流応答は正常です（{{model}}、{{latency}}）。Codex が引き続き 502 を返す場合は、Codex の Base URL、API Key、実行環境を確認してください。",
+      "testSuccess": "サービスチェックに成功しました: ローカルサービス、キー、上流応答は正常です（{{model}}、{{latency}}）。クライアントがまだ失敗する場合は、Base URL、API Key、プロキシ設定を確認してください。",
       "testFailureStage": "特定段階",
       "testFailureCause": "失敗理由",
       "testFailureSuggestion": "対処方法",
       "testFailureStatus": "HTTP ステータス",
       "testFailureModel": "確認モデル",
       "testFailureDetail": "診断詳細",
-      "testFailureCliOutput": "CLI 出力",
       "testFailureGatewayOutput": "ゲートウェイ応答",
       "testTimeout": "実リクエスト確認がタイムアウトしました。ローカルサービス、プロキシ、上流ネットワークを確認してください。",
       "testUnavailable": "現在の API サービス URL は利用できません",
@@ -1908,7 +1925,7 @@
         "empty": "クォータ統計はまだありません"
       },
       "oauthBinding": {
-        "desc": "任意です。サブスクリプション期間（有効期限表示）がある OAuth アカウントだけ選択できます。期限切れでも連携できます。未連携の場合、API サービスは従来の API Key ロジックで動作します。連携後はログイン状態に OAuth アカウントを使い、Provider は現在の API サービス設定を使います。",
+        "desc": "任意です。refresh_token があり自動更新できる OAuth アカウントのみ選択できます。未連携の場合、API サービスは従来の API Key ロジックで動作します。連携後はログイン状態に OAuth アカウントを使い、Provider は現在の API サービス設定を使います。",
         "currentService": "API サービス：{{name}}"
       },
       "customRoutingEdit": "カスタムルーティングを編集",
@@ -1993,7 +2010,27 @@
       "debugLogsEnableConfirmAction": "有効化",
       "debugLogsDisableConfirmTitle": "デバッグログを無効化",
       "debugLogsDisableConfirmMessage": "無効にすると、API サービスのデバッグログ出力を停止し、ログのノイズと追加負荷を減らします。ゲートウェイ、プロキシ、ストリーミングの調査時に再度有効化できます。無効にしますか？",
-      "debugLogsDisableConfirmAction": "無効化"
+      "debugLogsDisableConfirmAction": "無効化",
+      "clientBaseUrlHostLabel": "クライアントアドレス",
+      "clientBaseUrlHostDesc": "Codex Provider に書き込み、クライアントへコピーする Base URL だけに反映されます。サービスの待受アドレスは変わりません。",
+      "clientBaseUrlHostSaveSuccess": "クライアントアドレスを更新しました",
+      "accountPoolHealth": {
+        "title": "アカウントプール",
+        "allAvailable": "すべて正常 {{count}}",
+        "availableRatio": "正常 {{available}}/{{total}}",
+        "issueSummary": "異常 {{abnormal}} · 冷却 {{cooldown}}",
+        "detail": "正常 {{available}}/{{total}}、異常 {{abnormal}}、冷却 {{cooldown}}、欠落 {{missing}}、認証 {{authError}}、クォータ {{quotaLimited}}"
+      },
+      "testChatModel": "モデル",
+      "testChatClear": "会話を消去",
+      "testChatEmpty": "メッセージを入力すると、現在の API サービスで実際の会話を開始します。",
+      "testChatLatency": "所要時間 {{latency}}",
+      "testChatSending": "API サービスへ要求中",
+      "testChatInputPlaceholder": "テストメッセージを入力、Enter で送信",
+      "testChatSend": "送信",
+      "testChatInputRequired": "テストメッセージを入力してください",
+      "testChatModelRequired": "モデル ID を選択してください",
+      "testChatEmptyResponse": "空の応答"
     },
     "local": {
       "desc": "~/.codex/auth.json から現在ログイン中のアカウントをインポート",
@@ -2404,13 +2441,13 @@
         "action": "OAuth 連携",
         "actionShort": "連携",
         "title": "OAuth アカウントを連携",
-        "desc": "任意です。サブスクリプション期間（有効期限表示）がある OAuth アカウントだけ選択できます。期限切れでも連携できます。未連携の場合、このアカウントは従来の API Key ロジックで切り替わります。連携後はログイン状態に OAuth アカウントを使い、Provider はこの API Key アカウント設定を使います。",
+        "desc": "任意です。refresh_token があり自動更新できる OAuth アカウントのみ選択できます。未連携の場合、このアカウントは従来の API Key ロジックで切り替わります。連携後はログイン状態に OAuth アカウントを使い、Provider はこの API Key アカウント設定を使います。",
         "currentAccount": "API Key アカウント：{{name}}",
         "selectLabel": "OAuth アカウントを選択",
         "empty": "OAuth アカウントがありません。先に OAuth 認証アカウントを追加してください。",
-        "emptyEligible": "サブスクリプション期間がある OAuth アカウントがありません。先にクォータを更新するか、条件を満たす OAuth アカウントを追加してください。",
+        "emptyEligible": "refresh_token がある OAuth アカウントがありません。OAuth で再認証するか、条件を満たす OAuth アカウントを追加してください。",
         "validationRequired": "OAuth アカウントを選択してください",
-        "validationSubscriptionRequired": "サブスクリプション期間がある OAuth アカウントのみ連携できます",
+        "validationSubscriptionRequired": "refresh_token がある OAuth アカウントのみ連携できます",
         "saveSuccess": "OAuth 連携を更新しました",
         "saveFailed": "OAuth 連携に失敗しました：{{error}}",
         "switchRequiresBinding": "先に OAuth アカウントを連携してください",

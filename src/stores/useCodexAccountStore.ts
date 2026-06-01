@@ -103,6 +103,7 @@ interface CodexAccountState {
   ) => Promise<CodexAccount>;
   updateAccountTags: (accountId: string, tags: string[]) => Promise<CodexAccount>;
   updateAccountNote: (accountId: string, note: string) => Promise<CodexAccount>;
+  updateAccountPhone: (accountId: string, phone: string) => Promise<CodexAccount>;
   updateAccountAppSpeed: (accountId: string, speed: CodexAppSpeed) => Promise<CodexAccount>;
 }
 
@@ -373,6 +374,13 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
 
   updateAccountNote: async (accountId: string, note: string) => {
     const account = await codexService.updateCodexAccountNote(accountId, note);
+    await get().fetchAccounts();
+    await get().fetchCurrentAccount();
+    return account;
+  },
+
+  updateAccountPhone: async (accountId: string, phone: string) => {
+    const account = await codexService.updateCodexAccountPhone(accountId, phone);
     await get().fetchAccounts();
     await get().fetchCurrentAccount();
     return account;

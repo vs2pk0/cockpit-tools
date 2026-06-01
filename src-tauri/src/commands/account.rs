@@ -52,14 +52,15 @@ fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     Some(std::cmp::Ordering::Equal)
 }
 
+#[allow(dead_code)]
 fn resolve_antigravity_desktop_auth_mode() -> Result<AntigravityDesktopAuthMode, String> {
     let Some(info) = crate::commands::system::resolve_antigravity_installed_version_info_for_target(
         Some("antigravity"),
     ) else {
-        return Err(
-            "无法确认 Antigravity 安装版本，请确认已安装 Antigravity.app，或在设置中选择正确的 Antigravity 启动路径"
-                .to_string(),
+        modules::logger::log_warn(
+            "[Antigravity] 无法确认 Antigravity 安装版本，将默认采用 LegacyStateDb 认证模式",
         );
+        return Ok(AntigravityDesktopAuthMode::LegacyStateDb);
     };
 
     modules::logger::log_info(&format!(
@@ -69,7 +70,13 @@ fn resolve_antigravity_desktop_auth_mode() -> Result<AntigravityDesktopAuthMode,
     match compare_versions(&info.version, "2.0.0") {
         Some(std::cmp::Ordering::Less) => Ok(AntigravityDesktopAuthMode::LegacyStateDb),
         Some(_) => Ok(AntigravityDesktopAuthMode::SystemCredential),
-        None => Err(format!("无法解析 Antigravity 安装版本: {}", info.version)),
+        None => {
+            modules::logger::log_warn(&format!(
+                "[Antigravity] 无法解析 Antigravity 安装版本: {}，默认采用 LegacyStateDb",
+                info.version
+            ));
+            Ok(AntigravityDesktopAuthMode::LegacyStateDb)
+        }
     }
 }
 
@@ -114,11 +121,18 @@ fn legacy_antigravity_state_db_path() -> Result<PathBuf, String> {
         .join("User")
         .join("globalStorage")
         .join("state.vscdb");
-    if path.exists() {
-        Ok(path)
-    } else {
-        Err(format!("数据库文件不存在: {:?}", path))
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(conn) = rusqlite::Connection::open(&path) {
+            let _ = conn.execute(
+                "CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value TEXT)",
+                [],
+            );
+        }
     }
+    Ok(path)
 }
 
 fn write_legacy_service_machine_id(service_machine_id: &str) -> Result<(), String> {
@@ -298,7 +312,16 @@ async fn switch_account_legacy_antigravity(
         return Err(e);
     }
 
-    let auth_mode = resolve_antigravity_desktop_auth_mode()?;
+    if let Some(info) =
+        crate::commands::system::resolve_antigravity_installed_version_info_for_target(Some(
+            "antigravity",
+        ))
+    {
+        modules::logger::log_info(&format!(
+            "[Antigravity] 检测到桌面版版本: version={}, path={}, source={}",
+            info.version, info.app_path, info.source
+        ));
+    }
     let mut account = modules::account::prepare_account_for_injection(&account_id).await?;
     modules::set_current_account_id(&account_id)?;
     account.update_last_used();
@@ -332,21 +355,56 @@ async fn switch_account_legacy_antigravity(
         }
     }
 
-    match auth_mode {
-        AntigravityDesktopAuthMode::LegacyStateDb => {
-            let db_path = legacy_antigravity_state_db_path()?;
-            modules::db::inject_token_to_path(
+    let mut write_success = false;
+
+    // 1. 尝试写入系统凭据 (Windows Credential Manager / macOS Keychain / Linux Secret Service)
+    match modules::antigravity_credential::write_antigravity_system_credential(&account) {
+        Ok(_) => {
+            modules::logger::log_info("[Antigravity] 成功将凭据写入系统凭据管理器 (适合 2.0.0+)");
+            write_success = true;
+        }
+        Err(e) => {
+            modules::logger::log_warn(&format!(
+                "[Antigravity] 写入系统凭据失败: {} (若运行 2.0 以下版本请忽略)",
+                e
+            ));
+        }
+    }
+
+    // 2. 尝试写入旧版 SQLite 数据库
+    match legacy_antigravity_state_db_path() {
+        Ok(db_path) => {
+            match modules::db::inject_token_to_path(
                 &db_path,
                 &account.token.access_token,
                 &account.token.refresh_token,
                 account.token.expiry_timestamp,
-            )
-            .map_err(|e| format!("注入 Antigravity 旧版账号失败: {}", e))?;
+            ) {
+                Ok(_) => {
+                    modules::logger::log_info(&format!(
+                        "[Antigravity] 成功注入 Token 至旧版 SQLite 数据库 (适合 2.0 以下): {:?}",
+                        db_path
+                    ));
+                    write_success = true;
+                }
+                Err(e) => {
+                    modules::logger::log_warn(&format!("[Antigravity] 写入旧版 SQLite 数据库失败: {} (若运行 2.0 及以上版本请忽略)", e));
+                }
+            }
         }
-        AntigravityDesktopAuthMode::SystemCredential => {
-            modules::antigravity_credential::write_antigravity_system_credential(&account)
-                .map_err(|e| format!("写入 Antigravity 2.0 系统凭据失败: {}", e))?;
+        Err(e) => {
+            modules::logger::log_warn(&format!(
+                "[Antigravity] 获取旧版 SQLite 数据库路径失败: {}",
+                e
+            ));
         }
+    }
+
+    if !write_success {
+        return Err(
+            "注入账号失败：系统凭据与 SQLite 数据库均写入失败，请确保目标应用已正确安装。"
+                .to_string(),
+        );
     }
 
     modules::logger::log_info("正在启动 Antigravity 默认实例...");

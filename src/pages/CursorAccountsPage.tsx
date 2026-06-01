@@ -1138,7 +1138,7 @@ export function CursorAccountsPage() {
       />
 
       {showAddModal && (
-        <div className="modal-overlay" onClick={closeAddModal}>
+        <div className="modal-overlay">
           <div className="modal-content ghcp-add-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{t('cursor.addModal.title', '添加 Cursor 账号')}</h2>

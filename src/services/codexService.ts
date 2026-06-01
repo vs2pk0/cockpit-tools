@@ -386,3 +386,7 @@ export async function updateCodexAccountTags(accountId: string, tags: string[]):
 export async function updateCodexAccountNote(accountId: string, note: string): Promise<CodexAccount> {
   return await invoke('update_codex_account_note', { accountId, note });
 }
+
+export async function updateCodexAccountPhone(accountId: string, phone: string): Promise<CodexAccount> {
+  return await invoke('update_codex_account_phone', { accountId, phone });
+}

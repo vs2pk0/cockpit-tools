@@ -57,6 +57,7 @@ export async function updateInstance(payload: {
   followLocalAccount?: boolean;
   launchMode?: InstanceLaunchMode;
   appSpeed?: CodexAppSpeed;
+  autoSyncThreads?: boolean;
 }): Promise<InstanceProfile> {
   const body: Record<string, unknown> = {
     instanceId: payload.instanceId,
@@ -81,6 +82,9 @@ export async function updateInstance(payload: {
   }
   if (payload.appSpeed !== undefined) {
     body.appSpeed = payload.appSpeed;
+  }
+  if (payload.autoSyncThreads !== undefined) {
+    body.autoSyncThreads = payload.autoSyncThreads;
   }
   return await invoke("codex_update_instance", body);
 }

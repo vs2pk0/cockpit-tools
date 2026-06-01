@@ -461,10 +461,13 @@ fn find_antigravity_windows_exe(root: &Path) -> Option<PathBuf> {
 fn read_antigravity_windows_exe_metadata(root: &Path) -> Option<AntigravityInstalledVersionInfo> {
     let exe_path = find_antigravity_windows_exe(root)?;
     let script = r#"
-$p = $args[0]
-if (-not (Test-Path -LiteralPath $p)) { exit 2 }
-$v = (Get-Item -LiteralPath $p).VersionInfo
+param([Parameter(Mandatory=$true)][string]$p)
+$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { exit 2 }
+$v = (Get-Item -LiteralPath $p).VersionInfo
+if ([string]::IsNullOrWhiteSpace($v.ProductVersion) -and [string]::IsNullOrWhiteSpace($v.FileVersion)) { exit 3 }
 [pscustomobject]@{
   ProductName = $v.ProductName
   ProductVersion = $v.ProductVersion
@@ -628,6 +631,26 @@ fn antigravity_metadata_candidates(
             _ => &[
                 "/Applications/Antigravity.app",
                 "/Applications/Antigravity IDE.app",
+            ],
+        };
+        for path in paths {
+            let path = PathBuf::from(path);
+            if path.exists() {
+                push_unique_antigravity_candidate(&mut candidates, path);
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let paths: &[&str] = match normalize_antigravity_metadata_target(target) {
+            Some("antigravity") => &["/usr/share/antigravity", "/opt/antigravity"],
+            Some("antigravity_ide") => &["/usr/share/antigravity-ide", "/opt/antigravity-ide"],
+            _ => &[
+                "/usr/share/antigravity",
+                "/usr/share/antigravity-ide",
+                "/opt/antigravity",
+                "/opt/antigravity-ide",
             ],
         };
         for path in paths {

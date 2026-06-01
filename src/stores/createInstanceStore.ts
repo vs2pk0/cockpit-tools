@@ -35,6 +35,7 @@ export type InstanceStoreState = {
     followLocalAccount?: boolean;
     launchMode?: InstanceLaunchMode;
     appSpeed?: CodexAppSpeed;
+    autoSyncThreads?: boolean;
   }) => Promise<InstanceProfile>;
   deleteInstance: (instanceId: string) => Promise<void>;
   startInstance: (instanceId: string) => Promise<InstanceProfile>;
@@ -66,6 +67,7 @@ type InstanceService = {
     followLocalAccount?: boolean;
     launchMode?: InstanceLaunchMode;
     appSpeed?: CodexAppSpeed;
+    autoSyncThreads?: boolean;
   }) => Promise<InstanceProfile>;
   deleteInstance: (instanceId: string) => Promise<void>;
   startInstance: (instanceId: string) => Promise<InstanceProfile>;

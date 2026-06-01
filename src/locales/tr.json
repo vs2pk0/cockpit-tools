@@ -447,7 +447,9 @@
         }
       },
       "appSpeed": "Hız",
-      "appSpeedDesc": "Resmi Codex başlatılmadan önce seçilen hızı yazar"
+      "appSpeedDesc": "Resmi Codex başlatılmadan önce seçilen hızı yazar",
+      "autoSyncThreads": "Oto oturum sync",
+      "autoSyncThreadsDesc": "Kapalıyken çoklu instance oturumları ayrı kalır. Açıldığında, bir instance başlatılırken veya kapatılırken yerel oturum kayıtları yalnızca tüm Codex instance'ları durmuşsa otomatik birleştirilir."
     },
     "quota": {
       "unbound": "Hesap bağlı değil",
@@ -1656,6 +1658,22 @@
         "hourly": "5sa",
         "weekly": "Haftalık"
       },
+      "syncAllRecords": {
+        "action": "Tüm örnek kayıtlarını eşitle",
+        "autoAction": "Tüm örnek kayıtlarını otomatik eşitle",
+        "autoDisabled": "Tüm örnek kayıtları için otomatik eşitleme kapalı",
+        "autoEnabled": "Tüm örnek kayıtları için otomatik eşitleme açık",
+        "autoTooltip": "Tüm örnek kayıtlarını otomatik eşitle",
+        "autoDesc": "Kapalıyken çoklu örnek kayıtları ayrı kalır. Açıldığında, bir örneği başlatmak veya kapatmak yerel kayıtları yalnızca tüm Codex örnekleri durduktan sonra otomatik olarak birleştirir.",
+        "closeFirst": "Çalışan örneklerin eski kayıtları geri yazmasını önlemek için kayıtları eşitlemeden önce tüm Codex örneklerini kapatın.",
+        "confirmMessage": "Tüm Codex örneklerindeki yerel oturum kayıtları tam olarak eşitlenecek. Aynı ID’ye sahip oturumlar olay düzeyinde birleştirilecek; hedef ana dosyalar ve eski oturum dosyaları yazmadan önce yedeklenecek. Devam edilsin mi?",
+        "needTwo": "Kayıtları eşitlemek için en az iki örnek gerekir",
+        "settingsSection": "Eşitleme ayarları",
+        "settingsSubtitle": "Codex çoklu örnek kayıt eşitleme davranışını yönetin",
+        "settingsTitle": "Örnek kayıt ayarları",
+        "title": "Tüm örnek kayıtlarını eşitle",
+        "tooltip": "Tüm örnek kayıtlarını eşitle"
+      },
       "restartStrategy": {
         "safe": {
           "principle": "Tüm Codex işlemlerine SIGTERM sinyali göndererek uygulamanın verileri kaydedip kapanmasını ister, ardından hedef oturumu başlatır (gerekirse kapanmaya zorlar).",
@@ -1786,19 +1804,18 @@
       "entryAction": "API hizmetine ekle",
       "testAction": "Dene",
       "testDialogTitle": "API hizmetini test et",
-      "testDialogDesc": "Yerel hizmeti, anahtarı ve upstream yanıtını doğrulamak için Codex CLI üzerinden gerçek bir istek gönderir.",
+      "testDialogDesc": "Geçerli API hizmeti üzerinden playground tarzı gerçek bir sohbet başlatıp modeli, hesap yönlendirmesini ve üst yanıtı denetler.",
       "testProgressTitle": "Hizmet test ediliyor",
       "testProgressDesc": "Yerel API hizmetine gerçek istek gönderiliyor. Lütfen bekleyin.",
       "testOutputTitle": "Döndürülen sonuç",
       "testResultTitle": "Hizmet denetimi sonucu",
-      "testSuccess": "Hizmet denetimi başarılı: yerel hizmet, anahtar ve upstream yanıtı sağlıklı ({{model}}, {{latency}}). Codex hâlâ 502 döndürüyorsa Codex Base URL, API Key veya çalışma ortamını kontrol edin.",
+      "testSuccess": "Hizmet kontrolü başarılı: yerel hizmet, anahtar ve upstream yanıtı sağlıklı ({{model}}, {{latency}}). İstemci hâlâ başarısızsa Base URL, API Key veya proxy ayarlarını kontrol edin.",
       "testFailureStage": "Tanı aşaması",
       "testFailureCause": "Hata nedeni",
       "testFailureSuggestion": "Önerilen çözüm",
       "testFailureStatus": "HTTP durumu",
       "testFailureModel": "Test modeli",
       "testFailureDetail": "Tanı ayrıntıları",
-      "testFailureCliOutput": "CLI çıktısı",
       "testFailureGatewayOutput": "Ağ geçidi yanıtı",
       "testTimeout": "Gerçek istek denetimi zaman aşımına uğradı. Yerel hizmeti, proxy’yi veya upstream ağı kontrol edin.",
       "testUnavailable": "Mevcut API hizmeti URL’si kullanılamıyor",
@@ -1908,7 +1925,7 @@
         "empty": "Henüz kota istatistiği yok"
       },
       "oauthBinding": {
-        "desc": "İsteğe bağlı. Yalnızca abonelik süresi işareti olan OAuth hesapları seçilebilir; süresi dolmuş olanlar da kabul edilir. Bağlantı yoksa API hizmeti eski API Key akışıyla çalışır; bağlanınca oturum OAuth hesabını, Provider ise API hizmeti yapılandırmasını kullanır.",
+        "desc": "İsteğe bağlı. Yalnızca refresh_token içeren OAuth hesapları seçilebilir. Bağlantı yoksa API hizmeti eski API Key akışıyla çalışır; bağlanınca oturum OAuth hesabını, Provider ise API hizmeti yapılandırmasını kullanır.",
         "currentService": "API hizmeti: {{name}}"
       },
       "customRoutingEdit": "Özel yönlendirmeyi düzenle",
@@ -1993,7 +2010,27 @@
       "debugLogsEnableConfirmAction": "Aç",
       "debugLogsDisableConfirmTitle": "Debug günlüklerini kapat",
       "debugLogsDisableConfirmMessage": "Kapatıldığında API hizmeti debug günlükleri üretmeyi durdurur; günlük gürültüsü ve ek yük azalır. Gateway, proxy veya akış sorunlarını tanılarken tekrar açabilirsiniz. Kapatılsın mı?",
-      "debugLogsDisableConfirmAction": "Kapat"
+      "debugLogsDisableConfirmAction": "Kapat",
+      "clientBaseUrlHostLabel": "İstemci adresi",
+      "clientBaseUrlHostDesc": "Yalnızca Codex Provider’a yazılan ve istemcilere kopyalanan Base URL’yi etkiler; servisin dinleme adresini değiştirmez.",
+      "clientBaseUrlHostSaveSuccess": "İstemci adresi güncellendi",
+      "accountPoolHealth": {
+        "title": "Hesap Havuzu",
+        "allAvailable": "Tümü OK {{count}}",
+        "availableRatio": "Sağlam {{available}}/{{total}}",
+        "issueSummary": "Hata {{abnormal}} · Bekleme {{cooldown}}",
+        "detail": "OK {{available}}/{{total}}, hata {{abnormal}}, bekleme {{cooldown}}, eksik {{missing}}, auth {{authError}}, kota {{quotaLimited}}"
+      },
+      "testChatModel": "Model kimliği",
+      "testChatClear": "Sohbeti temizle",
+      "testChatEmpty": "Geçerli API hizmeti üzerinden gerçek sohbet başlatmak için mesaj gönderin.",
+      "testChatLatency": "{{latency}} sürdü",
+      "testChatSending": "API hizmeti isteniyor",
+      "testChatInputPlaceholder": "Test mesajı yazın, Enter gönderir",
+      "testChatSend": "Gönder",
+      "testChatInputRequired": "Test mesajı girin",
+      "testChatModelRequired": "Model ID seçin",
+      "testChatEmptyResponse": "Boş yanıt"
     },
     "local": {
       "desc": "~/.codex/auth.json'dan mevcut hesabı içe aktar",
@@ -2404,13 +2441,13 @@
         "action": "OAuth Bağla",
         "actionShort": "Bağla",
         "title": "OAuth Hesabı Bağla",
-        "desc": "İsteğe bağlı. Yalnızca abonelik süresi işareti olan OAuth hesapları seçilebilir; süresi dolmuş olanlar da kabul edilir. Bağlantı yoksa bu hesap eski API Key akışıyla geçiş yapar; bağlanınca oturum OAuth hesabını, Provider ise bu API Key hesap yapılandırmasını kullanır.",
+        "desc": "İsteğe bağlı. Yalnızca refresh_token içeren OAuth hesapları seçilebilir. Bağlantı yoksa bu hesap eski API Key akışıyla geçiş yapar; bağlanınca oturum OAuth hesabını, Provider ise bu API Key hesap yapılandırmasını kullanır.",
         "currentAccount": "API Key hesabı: {{name}}",
         "selectLabel": "OAuth hesabı seç",
         "empty": "Henüz OAuth hesabı yok. Önce OAuth yetkili bir hesap ekleyin.",
-        "emptyEligible": "Abonelik süresi işareti olan OAuth hesabı yok. Önce kotayı yenileyin veya uygun bir OAuth hesabı ekleyin.",
+        "emptyEligible": "refresh_token içeren OAuth hesabı yok. OAuth ile yeniden yetkilendirin veya uygun bir OAuth hesabı ekleyin.",
         "validationRequired": "Bir OAuth hesabı seçin",
-        "validationSubscriptionRequired": "Yalnızca abonelik süresi işareti olan OAuth hesapları bağlanabilir",
+        "validationSubscriptionRequired": "Yalnızca refresh_token içeren OAuth hesapları bağlanabilir",
         "saveSuccess": "OAuth bağı güncellendi",
         "saveFailed": "OAuth bağı kurulamadı: {{error}}",
         "switchRequiresBinding": "Önce bir OAuth hesabı bağlayın",

@@ -53,6 +53,7 @@ import {
   Terminal,
   Link2,
   Palette,
+  Smartphone,
 } from "lucide-react";
 import { useCodexAccountStore } from "../stores/useCodexAccountStore";
 import { useCodexInstanceStore } from "../stores/useCodexInstanceStore";
@@ -388,6 +389,31 @@ interface CodexSortPreference {
 }
 const DEFAULT_CODEX_SORT_BY: CodexSortBy = "created_at";
 const DEFAULT_CODEX_SORT_DIRECTION: SortDirection = "desc";
+
+interface LocalAccessAccountPoolHealthSummary {
+  total: number;
+  available: number;
+  abnormal: number;
+  cooldown: number;
+  missing: number;
+  authError: number;
+  quotaLimited: number;
+}
+
+const BLOCKING_LOCAL_ACCESS_ACCOUNT_FAILURE_CATEGORIES = new Set([
+  "auth_unavailable",
+  "auth_refresh_failed",
+  "account_prepare_failed",
+  "free_account_restricted",
+]);
+
+function isBlockingLocalAccessAccountFailureCategory(
+  category?: string | null,
+): boolean {
+  return Boolean(
+    category && BLOCKING_LOCAL_ACCESS_ACCOUNT_FAILURE_CATEGORIES.has(category),
+  );
+}
 
 function normalizeLocalAccessAddressKind(
   value: string | null | undefined,
@@ -977,6 +1003,12 @@ export function CodexAccountsPage() {
   >(null);
   const [editingAccountNoteValue, setEditingAccountNoteValue] = useState("");
   const [savingAccountNote, setSavingAccountNote] = useState(false);
+  const [editingAccountPhoneId, setEditingAccountPhoneId] = useState<
+    string | null
+  >(null);
+  const [editingAccountPhoneValue, setEditingAccountPhoneValue] =
+    useState("");
+  const [savingAccountPhone, setSavingAccountPhone] = useState(false);
   const [savingAppSpeedId, setSavingAppSpeedId] = useState<string | null>(null);
   const [apiServiceAppSpeed, setApiServiceAppSpeed] =
     useState<CodexAppSpeed>("standard");
@@ -987,6 +1019,11 @@ export function CodexAccountsPage() {
     message: accountNoteError,
     scrollKey: accountNoteErrorScrollKey,
     set: setAccountNoteError,
+  } = useModalErrorState();
+  const {
+    message: accountPhoneError,
+    scrollKey: accountPhoneErrorScrollKey,
+    set: setAccountPhoneError,
   } = useModalErrorState();
   const initialSortPreference = useMemo(readCodexSortPreference, []);
 
@@ -2311,6 +2348,11 @@ export function CodexAccountsPage() {
       accounts.find((account) => account.id === editingAccountNoteId) || null,
     [accounts, editingAccountNoteId],
   );
+  const editingAccountPhoneAccount = useMemo(
+    () =>
+      accounts.find((account) => account.id === editingAccountPhoneId) || null,
+    [accounts, editingAccountPhoneId],
+  );
 
   const openAccountNoteModal = useCallback(
     (account: CodexAccount) => {
@@ -2327,6 +2369,22 @@ export function CodexAccountsPage() {
     setEditingAccountNoteValue("");
     setAccountNoteError(null);
   }, [savingAccountNote, setAccountNoteError]);
+
+  const openAccountPhoneModal = useCallback(
+    (account: CodexAccount) => {
+      setEditingAccountPhoneId(account.id);
+      setEditingAccountPhoneValue(account.bound_phone || "");
+      setAccountPhoneError(null);
+    },
+    [setAccountPhoneError],
+  );
+
+  const closeAccountPhoneModal = useCallback(() => {
+    if (savingAccountPhone) return;
+    setEditingAccountPhoneId(null);
+    setEditingAccountPhoneValue("");
+    setAccountPhoneError(null);
+  }, [savingAccountPhone, setAccountPhoneError]);
 
   const loadApiServiceAppSpeed = useCallback(async () => {
     try {
@@ -2442,6 +2500,41 @@ export function CodexAccountsPage() {
     t,
   ]);
 
+  const handleSubmitAccountPhone = useCallback(async () => {
+    if (!editingAccountPhoneId || savingAccountPhone) return;
+    const normalizedPhone = editingAccountPhoneValue.trim();
+    setSavingAccountPhone(true);
+    setAccountPhoneError(null);
+    try {
+      await store.updateAccountPhone(editingAccountPhoneId, normalizedPhone);
+      setMessage({
+        text: normalizedPhone
+          ? t("codex.accountPhone.saved", "绑定手机号已保存")
+          : t("codex.accountPhone.cleared", "绑定手机号已清空"),
+        tone: "success",
+      });
+      setEditingAccountPhoneId(null);
+      setEditingAccountPhoneValue("");
+    } catch (error) {
+      setAccountPhoneError(
+        t("codex.accountPhone.saveFailed", {
+          error: String(error).replace(/^Error:\s*/, ""),
+          defaultValue: "保存绑定手机号失败：{{error}}",
+        }),
+      );
+    } finally {
+      setSavingAccountPhone(false);
+    }
+  }, [
+    editingAccountPhoneId,
+    editingAccountPhoneValue,
+    savingAccountPhone,
+    setAccountPhoneError,
+    setMessage,
+    store,
+    t,
+  ]);
+
   const renderAccountNoteButton = useCallback(
     (account: CodexAccount, className = "codex-account-note-chip") => {
       const hasNote = Boolean(account.account_note?.trim());
@@ -2466,6 +2559,39 @@ export function CodexAccountsPage() {
       );
     },
     [openAccountNoteModal, t],
+  );
+
+  const renderAccountPhoneButton = useCallback(
+    (
+      account: CodexAccount,
+      className = "codex-account-note-chip codex-account-phone-chip",
+    ) => {
+      const phone = account.bound_phone?.trim() || "";
+      const hasPhone = Boolean(phone);
+      return (
+        <button
+          type="button"
+          className={`${className} ${hasPhone ? "has-phone" : "empty-phone"}`}
+          onClick={() => openAccountPhoneModal(account)}
+          title={
+            hasPhone
+              ? t("codex.accountPhone.boundTitle", {
+                  phone: maskAccountText(phone),
+                  defaultValue: "绑定手机：{{phone}}",
+                })
+              : t("codex.accountPhone.emptyTitle", "绑定手机号")
+          }
+        >
+          <Smartphone size={12} />
+          <span>
+            {hasPhone
+              ? maskAccountText(phone)
+              : t("codex.accountPhone.addShort", "绑定手机")}
+          </span>
+        </button>
+      );
+    },
+    [maskAccountText, openAccountPhoneModal, t],
   );
 
   // ─── Codex-specific: OAuth via Tauri events ──────────────────────────
@@ -2669,16 +2795,9 @@ export function CodexAccountsPage() {
     () => accounts.filter((account) => !isCodexApiKeyAccount(account)),
     [accounts],
   );
-  const isOAuthBindingEligibleAccount = useCallback(
-    (account: CodexAccount) => {
-      const subscription = getCodexSubscriptionPresentation(
-        account.subscription_active_until,
-        t,
-      );
-      return subscription.timestampMs != null;
-    },
-    [t],
-  );
+  const isOAuthBindingEligibleAccount = useCallback((account: CodexAccount) => {
+    return Boolean(account.tokens.refresh_token?.trim());
+  }, []);
   const oauthBindingEligibleAccounts = useMemo(
     () => oauthAccounts.filter(isOAuthBindingEligibleAccount),
     [isOAuthBindingEligibleAccount, oauthAccounts],
@@ -2721,7 +2840,8 @@ export function CodexAccountsPage() {
   ]);
   const oauthBindingTargetActive =
     oauthBindingTargetKind === "local_access" ||
-    (oauthBindingTargetKind === "api_key_account" && Boolean(oauthBindingAccount));
+    (oauthBindingTargetKind === "api_key_account" &&
+      Boolean(oauthBindingAccount));
   const cockpitApiPanelAccount = useMemo(
     () =>
       cockpitApiPanelAccountId
@@ -3739,10 +3859,7 @@ export function CodexAccountsPage() {
     if (!oauthBindingTargetKind) return;
     if (!selectedOAuthBindingAccount) {
       setOauthBindingError(
-        t(
-          "codex.api.oauthBinding.validationRequired",
-          "请选择 OAuth 账号",
-        ),
+        t("codex.api.oauthBinding.validationRequired", "请选择 OAuth 账号"),
       );
       return;
     }
@@ -3750,7 +3867,7 @@ export function CodexAccountsPage() {
       setOauthBindingError(
         t(
           "codex.api.oauthBinding.validationSubscriptionRequired",
-          "只能绑定带订阅时间的 OAuth 账号",
+          "只能绑定带 refresh_token 的 OAuth 账号",
         ),
       );
       return;
@@ -4563,12 +4680,7 @@ export function CodexAccountsPage() {
         </div>
       );
     },
-    [
-      maskAccountText,
-      openOAuthBindingModal,
-      resolveBoundOAuthAccount,
-      t,
-    ],
+    [maskAccountText, openOAuthBindingModal, resolveBoundOAuthAccount, t],
   );
 
   const resolveApiProviderDisplayName = useCallback(
@@ -4969,6 +5081,69 @@ export function CodexAccountsPage() {
     () => summarizeCodexQuotaPool(localAccessAccounts),
     [localAccessAccounts],
   );
+  const localAccessAccountPoolHealthSummary =
+    useMemo<LocalAccessAccountPoolHealthSummary>(() => {
+      const accountById = new Map(
+        accounts.map((account) => [account.id, account]),
+      );
+      const healthById = new Map(
+        (localAccessState?.accountHealth ?? []).map((health) => [
+          health.accountId,
+          health,
+        ]),
+      );
+      const summary: LocalAccessAccountPoolHealthSummary = {
+        total: localAccessCollection?.accountIds.length ?? 0,
+        available: 0,
+        abnormal: 0,
+        cooldown: 0,
+        missing: 0,
+        authError: 0,
+        quotaLimited: 0,
+      };
+
+      (localAccessCollection?.accountIds ?? []).forEach((accountId) => {
+        const account = accountById.get(accountId);
+        const health = healthById.get(accountId);
+        if (!account) {
+          summary.missing += 1;
+          summary.abnormal += 1;
+          return;
+        }
+        if (health?.cooldowns?.length) {
+          summary.cooldown += 1;
+          return;
+        }
+        if (account.quota_error) {
+          summary.quotaLimited += 1;
+          summary.abnormal += 1;
+          return;
+        }
+        if (
+          isBlockingLocalAccessAccountFailureCategory(
+            health?.lastFailureCategory,
+          )
+        ) {
+          summary.authError += 1;
+          summary.abnormal += 1;
+          return;
+        }
+        if (health && !health.available) {
+          summary.abnormal += 1;
+          return;
+        }
+        summary.available += 1;
+      });
+
+      return summary;
+    }, [
+      accounts,
+      localAccessCollection?.accountIds,
+      localAccessState?.accountHealth,
+    ]);
+  const localAccessAccountPoolHealthHasIssue =
+    localAccessAccountPoolHealthSummary.abnormal > 0 ||
+    localAccessAccountPoolHealthSummary.cooldown > 0;
   const localAccessQuotaPoolLabels = useMemo(
     () => ({
       hourly: t("codex.localAccess.quotaPool.hourlyShort", "5h"),
@@ -5029,7 +5204,6 @@ export function CodexAccountsPage() {
     : localAccessScopeLabel;
   const localAccessBusy =
     localAccessSaving ||
-    localAccessTesting ||
     localAccessStarting ||
     localAccessRefreshing ||
     localAccessPortKilling;
@@ -5472,9 +5646,7 @@ export function CodexAccountsPage() {
 
   const toggleOAuthBindingTagFilterValue = useCallback((tag: string) => {
     setOauthBindingTagFilter((prev) =>
-      prev.includes(tag)
-        ? prev.filter((item) => item !== tag)
-        : [...prev, tag],
+      prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag],
     );
   }, []);
 
@@ -5501,8 +5673,9 @@ export function CodexAccountsPage() {
     }
 
     if (oauthBindingFilterTypes.length > 0) {
-      const { requireValidAccounts, selectedTypes } =
-        splitValidityFilterValues(oauthBindingFilterTypes);
+      const { requireValidAccounts, selectedTypes } = splitValidityFilterValues(
+        oauthBindingFilterTypes,
+      );
       if (requireValidAccounts) {
         result = result.filter((account) => !isAbnormalAccount(account));
       }
@@ -5914,7 +6087,10 @@ export function CodexAccountsPage() {
         });
         return nextState;
       } catch (error) {
-        console.error("Failed to update local access upstream proxy config:", error);
+        console.error(
+          "Failed to update local access upstream proxy config:",
+          error,
+        );
         throw new Error(String(error).replace(/^Error:\s*/, ""));
       } finally {
         setLocalAccessSaving(false);
@@ -6019,7 +6195,10 @@ export function CodexAccountsPage() {
 
   const handleUpdateLocalAccessGatewayMode = useCallback(
     async (gatewayMode: CodexLocalAccessGatewayMode) => {
-      if (!localAccessCollection || localAccessCollection.gatewayMode === gatewayMode) {
+      if (
+        !localAccessCollection ||
+        localAccessCollection.gatewayMode === gatewayMode
+      ) {
         return;
       }
       setLocalAccessSaving(true);
@@ -6611,10 +6790,7 @@ export function CodexAccountsPage() {
 
       if (targetIds.length === 0) {
         setMessage({
-          text: t(
-            "accounts.groups.refreshEmpty",
-            "当前分组没有可刷新的账号",
-          ),
+          text: t("accounts.groups.refreshEmpty", "当前分组没有可刷新的账号"),
           tone: "error",
         });
         return;
@@ -6623,7 +6799,9 @@ export function CodexAccountsPage() {
       setRefreshingGroupId(group.id);
       try {
         const results = await Promise.allSettled(
-          targetIds.map((accountId) => codexService.refreshCodexQuota(accountId)),
+          targetIds.map((accountId) =>
+            codexService.refreshCodexQuota(accountId),
+          ),
         );
         const successCount = results.filter(
           (result) => result.status === "fulfilled",
@@ -6664,13 +6842,7 @@ export function CodexAccountsPage() {
         setRefreshingGroupId(null);
       }
     },
-    [
-      fetchAccounts,
-      fetchCurrentAccount,
-      resolveGroupAccounts,
-      setMessage,
-      t,
-    ],
+    [fetchAccounts, fetchCurrentAccount, resolveGroupAccounts, setMessage, t],
   );
 
   useEffect(() => {
@@ -6812,6 +6984,21 @@ export function CodexAccountsPage() {
             aria-label={t("codex.accountNote.title", "账号备注")}
           >
             <FileText size={13} />
+          </button>
+          <button
+            className={`codex-compact-note-btn codex-compact-phone-btn ${account.bound_phone?.trim() ? "has-note" : ""}`}
+            onClick={() => openAccountPhoneModal(account)}
+            title={
+              account.bound_phone?.trim()
+                ? t("codex.accountPhone.boundTitle", {
+                    phone: maskAccountText(account.bound_phone),
+                    defaultValue: "绑定手机：{{phone}}",
+                  })
+                : t("codex.accountPhone.emptyTitle", "绑定手机号")
+            }
+            aria-label={t("codex.accountPhone.title", "绑定手机")}
+          >
+            <Smartphone size={13} />
           </button>
           <button
             className={`codex-compact-switch-btn ${!isCurrent ? "success" : ""}`}
@@ -6965,7 +7152,8 @@ export function CodexAccountsPage() {
           </div>
           {(meta.accountContextText ||
             isInLocalAccess ||
-            account.account_note?.trim()) && (
+            account.account_note?.trim() ||
+            account.bound_phone?.trim()) && (
             <div className="account-sub-line">
               {meta.accountContextText && (
                 <span
@@ -6981,6 +7169,7 @@ export function CodexAccountsPage() {
                 </span>
               )}
               {renderAccountNoteButton(account)}
+              {renderAccountPhoneButton(account)}
             </div>
           )}
           {!isApiKeyAccount && (
@@ -7195,6 +7384,23 @@ export function CodexAccountsPage() {
                     <FileText size={14} />
                   </button>
                 )}
+                {!isNewApiAccount && (
+                  <button
+                    className={`card-action-btn ${account.bound_phone?.trim() ? "active" : ""}`}
+                    onClick={() => openAccountPhoneModal(account)}
+                    title={
+                      account.bound_phone?.trim()
+                        ? t("codex.accountPhone.boundTitle", {
+                            phone: maskAccountText(account.bound_phone),
+                            defaultValue: "绑定手机：{{phone}}",
+                          })
+                        : t("codex.accountPhone.emptyTitle", "绑定手机号")
+                    }
+                    aria-label={t("codex.accountPhone.title", "绑定手机")}
+                  >
+                    <Smartphone size={14} />
+                  </button>
+                )}
                 {isApiKeyAccount && (
                   <button
                     className={`card-action-btn ${resolveBoundOAuthAccount(account) ? "active" : ""}`}
@@ -7368,7 +7574,8 @@ export function CodexAccountsPage() {
       scope: localAccessEndpointLabel,
       defaultValue: "{{count}} 个账号 · {{scope}}",
     });
-    const localAccessGatewayMode = localAccessCollection?.gatewayMode ?? "sidecar";
+    const localAccessGatewayMode =
+      localAccessCollection?.gatewayMode ?? "sidecar";
     const localAccessGatewayModeOptions = [
       {
         value: "sidecar",
@@ -7404,10 +7611,7 @@ export function CodexAccountsPage() {
             <X size={12} />
           </button>
           <div className="codex-local-access-gateway-guide-title">
-            {t(
-              "codex.localAccess.gatewayGuideTitle",
-              "这里可以切换网关",
-            )}
+            {t("codex.localAccess.gatewayGuideTitle", "这里可以切换网关")}
           </div>
           <p>
             {t(
@@ -7839,6 +8043,44 @@ export function CodexAccountsPage() {
               </div>
             )}
 
+            {localAccessAccountPoolHealthSummary.total > 0 && (
+              <div
+                className={`codex-local-access-health-summary${
+                  localAccessAccountPoolHealthHasIssue ? " has-issue" : ""
+                }`}
+                title={t("codex.localAccess.accountPoolHealth.detail", {
+                  available: localAccessAccountPoolHealthSummary.available,
+                  total: localAccessAccountPoolHealthSummary.total,
+                  abnormal: localAccessAccountPoolHealthSummary.abnormal,
+                  cooldown: localAccessAccountPoolHealthSummary.cooldown,
+                  missing: localAccessAccountPoolHealthSummary.missing,
+                  authError: localAccessAccountPoolHealthSummary.authError,
+                  quotaLimited:
+                    localAccessAccountPoolHealthSummary.quotaLimited,
+                  defaultValue:
+                    "可用 {{available}}/{{total}}，异常 {{abnormal}}，冷却 {{cooldown}}，缺失 {{missing}}，鉴权 {{authError}}，额度 {{quotaLimited}}",
+                })}
+              >
+                <span className="codex-local-access-health-summary-title">
+                  {t("codex.localAccess.accountPoolHealth.title", "账号池")}
+                </span>
+                <span className="codex-local-access-health-summary-value">
+                  {t("codex.localAccess.accountPoolHealth.availableRatio", {
+                    available: localAccessAccountPoolHealthSummary.available,
+                    total: localAccessAccountPoolHealthSummary.total,
+                    defaultValue: "可用 {{available}}/{{total}}",
+                  })}
+                </span>
+                <span className="codex-local-access-health-summary-value">
+                  {t("codex.localAccess.accountPoolHealth.issueSummary", {
+                    abnormal: localAccessAccountPoolHealthSummary.abnormal,
+                    cooldown: localAccessAccountPoolHealthSummary.cooldown,
+                    defaultValue: "异常 {{abnormal}} · 冷却 {{cooldown}}",
+                  })}
+                </span>
+              </div>
+            )}
+
             {localAccessState?.lastError && (
               <div className="quota-error-inline">
                 <CircleAlert size={14} />
@@ -8236,7 +8478,8 @@ export function CodexAccountsPage() {
               </div>
               {(meta.accountContextText ||
                 isInLocalAccess ||
-                account.account_note?.trim()) && (
+                account.account_note?.trim() ||
+                account.bound_phone?.trim()) && (
                 <div className="account-sub-line codex-account-meta-inline">
                   {meta.accountContextText && (
                     <span
@@ -8252,6 +8495,7 @@ export function CodexAccountsPage() {
                     </span>
                   )}
                   {renderAccountNoteButton(account)}
+                  {renderAccountPhoneButton(account)}
                 </div>
               )}
               {!isApiKeyAccount && (
@@ -8469,6 +8713,23 @@ export function CodexAccountsPage() {
                   aria-label={t("codex.accountNote.title", "账号备注")}
                 >
                   <FileText size={14} />
+                </button>
+              )}
+              {!isNewApiAccount && (
+                <button
+                  className={`action-btn ${account.bound_phone?.trim() ? "active" : ""}`}
+                  onClick={() => openAccountPhoneModal(account)}
+                  title={
+                    account.bound_phone?.trim()
+                      ? t("codex.accountPhone.boundTitle", {
+                          phone: maskAccountText(account.bound_phone),
+                          defaultValue: "绑定手机：{{phone}}",
+                        })
+                      : t("codex.accountPhone.emptyTitle", "绑定手机号")
+                  }
+                  aria-label={t("codex.accountPhone.title", "绑定手机")}
+                >
+                  <Smartphone size={14} />
                 </button>
               )}
               {isApiKeyAccount && (
@@ -8904,7 +9165,10 @@ export function CodexAccountsPage() {
                           "quota_display",
                         );
                         return (
-                          <div className="cockpit-api-usage-row" key={modelName}>
+                          <div
+                            className="cockpit-api-usage-row"
+                            key={modelName}
+                          >
                             <div>
                               <span className="cockpit-api-usage-name">
                                 {modelName}
@@ -9813,7 +10077,7 @@ export function CodexAccountsPage() {
           />
 
           {showAddModal && (
-            <div className="modal-overlay" onClick={closeCodexAddModal}>
+            <div className="modal-overlay">
               <div
                 className="modal-content codex-add-modal"
                 onClick={(e) => e.stopPropagation()}
@@ -10666,11 +10930,11 @@ export function CodexAccountsPage() {
                         {oauthBindingTargetKind === "local_access"
                           ? t(
                               "codex.localAccess.oauthBinding.desc",
-                              "可选绑定。只能选择带订阅时间（有效期标识）的 OAuth 账号，已过期也可绑定；未绑定时 API 服务按原 API Key 逻辑运行；绑定后登录态使用 OAuth 账号，Provider 使用当前 API 服务配置。",
+                              "可选绑定。只能选择带 refresh_token、可自动续期的 OAuth 账号；未绑定时 API 服务按原 API Key 逻辑运行；绑定后登录态使用 OAuth 账号，Provider 使用当前 API 服务配置。",
                             )
                           : t(
                               "codex.api.oauthBinding.desc",
-                              "可选绑定。只能选择带订阅时间（有效期标识）的 OAuth 账号，已过期也可绑定；未绑定时该账号按原 API Key 逻辑切换；绑定后登录态使用 OAuth 账号，Provider 使用当前 API Key 账号配置。",
+                              "可选绑定。只能选择带 refresh_token、可自动续期的 OAuth 账号；未绑定时该账号按原 API Key 逻辑切换；绑定后登录态使用 OAuth 账号，Provider 使用当前 API Key 账号配置。",
                             )}
                       </p>
                       <div className="section-desc codex-oauth-binding-current-target">
@@ -10713,7 +10977,7 @@ export function CodexAccountsPage() {
                           <span>
                             {t(
                               "codex.api.oauthBinding.emptyEligible",
-                              "没有带订阅时间的 OAuth 账号，请先刷新配额或添加符合条件的 OAuth 账号。",
+                              "没有带 refresh_token 的 OAuth 账号，请重新 OAuth 授权或添加符合条件的 OAuth 账号。",
                             )}
                           </span>
                         </div>
@@ -10730,9 +10994,7 @@ export function CodexAccountsPage() {
                                 )}
                                 value={oauthBindingSearchQuery}
                                 onChange={(event) =>
-                                  setOauthBindingSearchQuery(
-                                    event.target.value,
-                                  )
+                                  setOauthBindingSearchQuery(event.target.value)
                                 }
                                 disabled={oauthBindingSaving}
                               />
@@ -10747,15 +11009,9 @@ export function CodexAccountsPage() {
                                 "common.shared.filterLabel",
                                 "筛选",
                               )}
-                              clearLabel={t(
-                                "accounts.clearFilter",
-                                "清空筛选",
-                              )}
+                              clearLabel={t("accounts.clearFilter", "清空筛选")}
                               emptyLabel={t("common.none", "暂无")}
-                              ariaLabel={t(
-                                "common.shared.filterLabel",
-                                "筛选",
-                              )}
+                              ariaLabel={t("common.shared.filterLabel", "筛选")}
                               onToggleValue={toggleOAuthBindingFilterTypeValue}
                               onClear={() => setOauthBindingFilterTypes([])}
                             />
@@ -10938,9 +11194,7 @@ export function CodexAccountsPage() {
                             }
                             rangeStart={oauthBindingPagination.rangeStart}
                             rangeEnd={oauthBindingPagination.rangeEnd}
-                            canGoPrevious={
-                              oauthBindingPagination.canGoPrevious
-                            }
+                            canGoPrevious={oauthBindingPagination.canGoPrevious}
                             canGoNext={oauthBindingPagination.canGoNext}
                             onPageSizeChange={
                               oauthBindingPagination.setPageSize
@@ -10972,10 +11226,7 @@ export function CodexAccountsPage() {
                           onClick={() => void handleClearOAuthBinding()}
                           disabled={oauthBindingSaving}
                         >
-                          {t(
-                            "codex.api.oauthBinding.clearAction",
-                            "解除绑定",
-                          )}
+                          {t("codex.api.oauthBinding.clearAction", "解除绑定")}
                         </button>
                       )}
                       <button
@@ -12267,6 +12518,79 @@ export function CodexAccountsPage() {
                     disabled={savingAccountNote}
                   >
                     {savingAccountNote
+                      ? t("common.saving", "保存中...")
+                      : t("common.save", "保存")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {editingAccountPhoneAccount && (
+            <div className="modal-overlay" onClick={closeAccountPhoneModal}>
+              <div
+                className="modal codex-account-note-modal"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="modal-header">
+                  <h2>{t("codex.accountPhone.title", "绑定手机")}</h2>
+                  <button
+                    className="modal-close"
+                    onClick={closeAccountPhoneModal}
+                    aria-label={t("common.close", "关闭")}
+                    disabled={savingAccountPhone}
+                  >
+                    <X />
+                  </button>
+                </div>
+                <div className="modal-body">
+                  <ModalErrorMessage
+                    message={accountPhoneError}
+                    scrollKey={accountPhoneErrorScrollKey}
+                  />
+                  <p className="codex-account-note-desc">
+                    {t("codex.accountPhone.desc", {
+                      account: maskAccountText(
+                        resolvePresentation(editingAccountPhoneAccount)
+                          .displayName,
+                      ),
+                      defaultValue:
+                        "给 {{account}} 绑定手机号，卡片展示会跟随隐私开关隐藏。",
+                    })}
+                  </p>
+                  <label className="codex-account-note-field">
+                    <span>{t("codex.accountPhone.label", "手机号")}</span>
+                    <input
+                      className="codex-account-phone-input"
+                      type="tel"
+                      value={editingAccountPhoneValue}
+                      onChange={(event) => {
+                        setEditingAccountPhoneValue(event.target.value);
+                        setAccountPhoneError(null);
+                      }}
+                      placeholder={t(
+                        "codex.accountPhone.placeholder",
+                        "请输入绑定手机号",
+                      )}
+                      disabled={savingAccountPhone}
+                      autoFocus
+                    />
+                  </label>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={closeAccountPhoneModal}
+                    disabled={savingAccountPhone}
+                  >
+                    {t("common.cancel", "取消")}
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => void handleSubmitAccountPhone()}
+                    disabled={savingAccountPhone}
+                  >
+                    {savingAccountPhone
                       ? t("common.saving", "保存中...")
                       : t("common.save", "保存")}
                   </button>

@@ -34,6 +34,7 @@ export interface CodexAccount {
   account_name?: string;
   account_structure?: string;
   account_note?: string;
+  bound_phone?: string;
   app_speed?: CodexAppSpeed;
   tokens: CodexTokens;
   token_generation?: number;
@@ -627,8 +628,9 @@ export function parseCodexSubscriptionDate(value?: string): Date | null {
 }
 
 function formatCodexSubscriptionDate(date: Date): string {
+  const shifted = new Date(date.getTime() + 8 * HOUR_IN_MS);
   const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())} ${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}`;
 }
 
 export function getCodexSubscriptionExpiryBucket(

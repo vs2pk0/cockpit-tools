@@ -44,7 +44,32 @@ import {
   type CurrentAccountRefreshPlatform,
   loadCurrentAccountRefreshMinutesMap,
   saveCurrentAccountRefreshMinutesMap,
+  loadAccountRefreshOverrides,
+  setAccountRefreshMinutes,
+  removeAccountRefreshOverride,
+  type AccountRefreshOverrides,
 } from '../utils/currentAccountRefresh';
+import { useGitHubCopilotAccountStore } from '../stores/useGitHubCopilotAccountStore';
+import { useWindsurfAccountStore } from '../stores/useWindsurfAccountStore';
+import { useKiroAccountStore } from '../stores/useKiroAccountStore';
+import { useCursorAccountStore } from '../stores/useCursorAccountStore';
+import { useGeminiAccountStore } from '../stores/useGeminiAccountStore';
+import { useCodebuddyAccountStore } from '../stores/useCodebuddyAccountStore';
+import { useCodebuddyCnAccountStore } from '../stores/useCodebuddyCnAccountStore';
+import { useWorkbuddyAccountStore } from '../stores/useWorkbuddyAccountStore';
+import { useQoderAccountStore } from '../stores/useQoderAccountStore';
+import { useTraeAccountStore } from '../stores/useTraeAccountStore';
+import { useZedAccountStore } from '../stores/useZedAccountStore';
+import { getGitHubCopilotAccountDisplayEmail } from '../types/githubCopilot';
+import { getWindsurfAccountDisplayEmail } from '../types/windsurf';
+import { getKiroAccountDisplayEmail } from '../types/kiro';
+import { getCursorAccountDisplayEmail } from '../types/cursor';
+import { getGeminiAccountDisplayEmail } from '../types/gemini';
+import { getCodebuddyAccountDisplayEmail } from '../types/codebuddy';
+import { getWorkbuddyAccountDisplayEmail } from '../types/workbuddy';
+import { getQoderAccountDisplayEmail } from '../types/qoder';
+import { getTraeAccountDisplayEmail } from '../types/trae';
+import { getZedAccountDisplayEmail } from '../types/zed';
 import { ALL_PLATFORM_IDS, PlatformId } from '../types/platform';
 import { SettingsAccountTransferSection } from '../components/SettingsAccountTransferSection';
 import { useEscClose } from '../hooks/useEscClose';
@@ -377,6 +402,9 @@ export function SettingsPage() {
   const [currentAccountRefreshCustomMode, setCurrentAccountRefreshCustomMode] = useState<
     Record<CurrentAccountRefreshPlatform, boolean>
   >(() => buildDefaultCurrentAccountRefreshCustomModeMap());
+  const [accountOverrides, setAccountOverrides] = useState<AccountRefreshOverrides>(
+    loadAccountRefreshOverrides(),
+  );
   const [codebuddyQuotaAlertEnabled, setCodebuddyQuotaAlertEnabled] = useState(false);
   const [codebuddyQuotaAlertThreshold, setCodebuddyQuotaAlertThreshold] = useState('20');
   const [codebuddyCnQuotaAlertEnabled, setCodebuddyCnQuotaAlertEnabled] = useState(false);
@@ -1652,6 +1680,147 @@ export function SettingsPage() {
     );
   };
 
+  const getAccountsForPlatform = (
+    platform: CurrentAccountRefreshPlatform,
+  ): Array<{ id: string; email: string }> => {
+    const getProviderAccounts = <T extends { id: string; email?: string | null }>(
+      store: { getState: () => { accounts: T[] } },
+      getDisplayEmail: (account: T) => string,
+    ): Array<{ id: string; email: string }> =>
+      store.getState().accounts.map((a) => ({
+        id: a.id,
+        email: a.email ?? getDisplayEmail(a),
+      }));
+
+    switch (platform) {
+      case 'antigravity':
+        return antigravityAccounts.map((a) => ({ id: a.id, email: a.email }));
+      case 'codex':
+        return codexAccounts.map((a) => ({ id: a.id, email: a.email }));
+      case 'ghcp':
+        return getProviderAccounts(useGitHubCopilotAccountStore, getGitHubCopilotAccountDisplayEmail);
+      case 'windsurf':
+        return getProviderAccounts(useWindsurfAccountStore, getWindsurfAccountDisplayEmail);
+      case 'kiro':
+        return getProviderAccounts(useKiroAccountStore, getKiroAccountDisplayEmail);
+      case 'cursor':
+        return getProviderAccounts(useCursorAccountStore, getCursorAccountDisplayEmail);
+      case 'gemini':
+        return getProviderAccounts(useGeminiAccountStore, getGeminiAccountDisplayEmail);
+      case 'codebuddy':
+        return getProviderAccounts(useCodebuddyAccountStore, getCodebuddyAccountDisplayEmail);
+      case 'codebuddy_cn':
+        return getProviderAccounts(useCodebuddyCnAccountStore, getCodebuddyAccountDisplayEmail);
+      case 'workbuddy':
+        return getProviderAccounts(useWorkbuddyAccountStore, getWorkbuddyAccountDisplayEmail);
+      case 'qoder':
+        return getProviderAccounts(useQoderAccountStore, getQoderAccountDisplayEmail);
+      case 'trae':
+        return getProviderAccounts(useTraeAccountStore, getTraeAccountDisplayEmail);
+      case 'zed':
+        return getProviderAccounts(useZedAccountStore, getZedAccountDisplayEmail);
+      default:
+        return [];
+    }
+  };
+
+  const handleAccountOverrideChange = (
+    platform: CurrentAccountRefreshPlatform,
+    email: string,
+    value: string,
+  ) => {
+    if (value === 'inherit') {
+      removeAccountRefreshOverride(platform, email);
+    } else {
+      setAccountRefreshMinutes(platform, email, Number(value));
+    }
+    setAccountOverrides(loadAccountRefreshOverrides());
+  };
+
+  const renderAccountLevelRefreshConfig = (platform: CurrentAccountRefreshPlatform) => {
+    const accounts = getAccountsForPlatform(platform);
+    if (accounts.length === 0) {
+      return null;
+    }
+
+    const platformOverrides = accountOverrides[platform] ?? {};
+    const hasAnyOverride = Object.keys(platformOverrides).length > 0;
+
+    return (
+      <div className="settings-row">
+        <div className="row-label">
+          <div className="row-title">
+            {t('settings.general.accountLevelRefreshTitle', '账号级刷新配置')}
+          </div>
+          <div className="row-desc">
+            {t(
+              'settings.general.accountLevelRefreshDesc',
+              '为不同账号设置不同的自动刷新间隔，覆盖平台级默认值。',
+            )}
+          </div>
+        </div>
+        <div className="row-control">
+          <details>
+            <summary style={{ cursor: 'pointer', fontSize: '13px', color: 'var(--text-secondary)' }}>
+              {hasAnyOverride
+                ? t('settings.general.accountLevelRefreshSummaryActive', '已配置 {{count}} 个账号', {
+                    count: Object.keys(platformOverrides).length,
+                  })
+                : t('settings.general.accountLevelRefreshSummary', '展开配置')}
+            </summary>
+            <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {accounts.map((account) => {
+                const overrideValue = platformOverrides[account.email];
+                const selectValue = overrideValue !== undefined ? String(overrideValue) : 'inherit';
+                return (
+                  <div
+                    key={account.id}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    <span
+                      style={{
+                        flex: 1,
+                        fontSize: '13px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={account.email}
+                    >
+                      {account.email}
+                    </span>
+                    <select
+                      className="settings-select"
+                      style={{ minWidth: '100px', width: 'auto', fontSize: '12px' }}
+                      value={selectValue}
+                      onChange={(e) =>
+                        handleAccountOverrideChange(platform, account.email, e.target.value)
+                      }
+                    >
+                      <option value="inherit">
+                        {t('settings.general.accountLevelRefreshInherit', '继承平台设置')}
+                      </option>
+                      <option value="-1">
+                        {t('settings.general.accountLevelRefreshDisabled', '禁用')}
+                      </option>
+                      <option value="1">1 {t('settings.general.minutes')}</option>
+                      <option value="2">2 {t('settings.general.minutes')}</option>
+                      <option value="5">5 {t('settings.general.minutes')}</option>
+                      <option value="10">10 {t('settings.general.minutes')}</option>
+                      <option value="15">15 {t('settings.general.minutes')}</option>
+                      <option value="30">30 {t('settings.general.minutes')}</option>
+                      <option value="60">60 {t('settings.general.minutes')}</option>
+                    </select>
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+        </div>
+      </div>
+    );
+  };
+
   const autoRefreshIsPreset = REFRESH_PRESET_VALUES.includes(autoRefresh);
   const codexAutoRefreshIsPreset = REFRESH_PRESET_VALUES.includes(codexAutoRefresh);
   const ghcpAutoRefreshIsPreset = REFRESH_PRESET_VALUES.includes(ghcpAutoRefresh);
@@ -2211,6 +2380,7 @@ export function SettingsPage() {
               </div>
 
               {renderCurrentAccountRefreshRow('antigravity')}
+              {renderAccountLevelRefreshConfig('antigravity')}
 
               <div className="settings-row">
                 <div className="row-label">
@@ -2643,6 +2813,7 @@ export function SettingsPage() {
               </div>
 
               {renderCurrentAccountRefreshRow('codex')}
+              {renderAccountLevelRefreshConfig('codex')}
 
               <div className="settings-row">
                 <div className="row-label">
@@ -3033,6 +3204,7 @@ export function SettingsPage() {
               </div>
 
               {renderCurrentAccountRefreshRow('ghcp')}
+              {renderAccountLevelRefreshConfig('ghcp')}
 
               <div className="settings-row">
                 <div className="row-label">
@@ -3220,6 +3392,7 @@ export function SettingsPage() {
               </div>
 
               {renderCurrentAccountRefreshRow('windsurf')}
+              {renderAccountLevelRefreshConfig('windsurf')}
 
               <div className="settings-row">
                 <div className="row-label">
@@ -3407,6 +3580,7 @@ export function SettingsPage() {
               </div>
 
               {renderCurrentAccountRefreshRow('kiro')}
+              {renderAccountLevelRefreshConfig('kiro')}
 
               <div className="settings-row">
                 <div className="row-label">
@@ -3595,6 +3769,7 @@ export function SettingsPage() {
               </div>
 
               {renderCurrentAccountRefreshRow('codebuddy')}
+              {renderAccountLevelRefreshConfig('codebuddy')}
 
               <div className="settings-row">
                 <div className="row-label">
@@ -3785,6 +3960,7 @@ export function SettingsPage() {
                   </div>
 
                   {renderCurrentAccountRefreshRow('codebuddy_cn')}
+                  {renderAccountLevelRefreshConfig('codebuddy_cn')}
 
                   <div className="settings-row">
                     <div className="row-label">
@@ -3975,6 +4151,7 @@ export function SettingsPage() {
                   </div>
 
                   {renderCurrentAccountRefreshRow('qoder')}
+                  {renderAccountLevelRefreshConfig('qoder')}
 
                   <div className="settings-row">
                     <div className="row-label">
@@ -4165,6 +4342,7 @@ export function SettingsPage() {
                   </div>
 
                   {renderCurrentAccountRefreshRow('trae')}
+                  {renderAccountLevelRefreshConfig('trae')}
 
                   <div className="settings-row">
                     <div className="row-label">
@@ -4355,6 +4533,7 @@ export function SettingsPage() {
                   </div>
 
                   {renderCurrentAccountRefreshRow('workbuddy')}
+                  {renderAccountLevelRefreshConfig('workbuddy')}
 
                   <div className="settings-row">
                     <div className="row-label">
@@ -4543,6 +4722,7 @@ export function SettingsPage() {
                   </div>
 
                   {renderCurrentAccountRefreshRow('zed')}
+                  {renderAccountLevelRefreshConfig('zed')}
 
                   <div className="settings-row">
                     <div className="row-label">
@@ -4729,6 +4909,7 @@ export function SettingsPage() {
               </div>
 
               {renderCurrentAccountRefreshRow('cursor')}
+              {renderAccountLevelRefreshConfig('cursor')}
 
               <div className="settings-row">
                 <div className="row-label">
@@ -4934,6 +5115,7 @@ export function SettingsPage() {
                   )}
 
                   {renderCurrentAccountRefreshRow('gemini')}
+                  {renderAccountLevelRefreshConfig('gemini')}
 
                   <div className="settings-row">
                     <div className="row-label">

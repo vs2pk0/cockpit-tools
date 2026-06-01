@@ -3,18 +3,18 @@ use crate::models::codex::{
     CodexQuota, CodexTokens,
 };
 use crate::models::codex_local_access::{
+    CodexLocalAccessChatMessage, CodexLocalAccessChatResult, CodexLocalAccessClientBaseUrlHost,
     CodexLocalAccessCredentialMode, CodexLocalAccessCustomCredential,
-    CodexLocalAccessCustomRoutingRule, CodexLocalAccessModelAlias,
-    CodexLocalAccessGatewayMode, CodexLocalAccessModelPricing,
-    CodexLocalAccessPortCleanupResult, CodexLocalAccessRequestKind,
+    CodexLocalAccessCustomRoutingRule, CodexLocalAccessGatewayMode, CodexLocalAccessModelAlias,
+    CodexLocalAccessModelPricing, CodexLocalAccessPortCleanupResult, CodexLocalAccessRequestKind,
     CodexLocalAccessRoutingStrategy, CodexLocalAccessScope, CodexLocalAccessState,
     CodexLocalAccessTestResult, CodexLocalAccessTimeoutPreset, CodexLocalAccessTimeouts,
     CodexLocalAccessUsageEventPage,
 };
 use crate::modules::{
     account, codex_account, codex_cpa_service, codex_local_access, codex_oauth, codex_quota,
-    codex_session_visibility, codex_speed, codex_wakeup, codex_wakeup_scheduler, config, logger,
-    openclaw_auth, opencode_auth, process,
+    codex_speed, codex_wakeup, codex_wakeup_scheduler, config, logger, openclaw_auth,
+    opencode_auth, process,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::AppHandle;
@@ -41,107 +41,6 @@ fn restart_codex_specified_app_if_enabled(user_config: &config::UserConfig) {
         }
         Err(error) => {
             logger::log_warn(&format!("重启指定应用失败（path={}）：{}", path, error));
-        }
-    }
-}
-
-fn read_default_codex_history_provider_for_switch() -> Option<String> {
-    let codex_home = codex_account::get_codex_home();
-    match codex_session_visibility::read_history_visibility_provider_for_dir(&codex_home) {
-        Ok(provider) => Some(provider),
-        Err(error) => {
-            logger::log_warn(&format!(
-                "[Codex切号] 读取切号前后会话 provider 失败: dir={}, error={}",
-                codex_home.display(),
-                error
-            ));
-            None
-        }
-    }
-}
-
-fn codex_history_provider_changed(
-    previous_provider: Option<&str>,
-    next_provider: Option<&str>,
-) -> bool {
-    match (previous_provider, next_provider) {
-        (Some(previous), Some(next)) => previous != next,
-        _ => false,
-    }
-}
-
-fn should_close_default_codex_before_switch_repair(user_config: &config::UserConfig) -> bool {
-    if !user_config.codex_launch_on_switch {
-        return false;
-    }
-
-    let default_settings = match crate::modules::codex_instance::load_default_settings() {
-        Ok(settings) => settings,
-        Err(error) => {
-            logger::log_warn(&format!(
-                "[Codex切号] 会话可见性修复前读取默认实例设置失败，跳过提前关闭默认实例: {}",
-                error
-            ));
-            return false;
-        }
-    };
-
-    if default_settings.launch_mode == crate::models::InstanceLaunchMode::Cli {
-        return true;
-    }
-
-    match process::ensure_codex_launch_path_configured() {
-        Ok(()) => true,
-        Err(error) => {
-            logger::log_warn(&format!(
-                "[Codex切号] Codex 启动路径未就绪，跳过会话可见性修复前的提前关闭: {}",
-                error
-            ));
-            false
-        }
-    }
-}
-
-fn repair_codex_session_visibility_after_provider_change(
-    previous_provider: Option<String>,
-    next_provider: Option<String>,
-    user_config: &config::UserConfig,
-) {
-    if !codex_history_provider_changed(previous_provider.as_deref(), next_provider.as_deref()) {
-        return;
-    }
-
-    let previous_label = previous_provider.as_deref().unwrap_or("<unknown>");
-    let next_label = next_provider.as_deref().unwrap_or("<unknown>");
-    logger::log_info(&format!(
-        "[Codex切号] 检测到会话 provider 变化，准备修复历史会话可见性: {} -> {}",
-        previous_label, next_label
-    ));
-
-    if should_close_default_codex_before_switch_repair(user_config) {
-        match process::close_codex_default(20) {
-            Ok(()) => logger::log_info("[Codex切号] 已在会话可见性修复前关闭默认 Codex 实例"),
-            Err(error) => logger::log_warn(&format!(
-                "[Codex切号] 会话可见性修复前关闭默认 Codex 实例失败，继续尝试修复: {}",
-                error
-            )),
-        }
-    }
-
-    match codex_session_visibility::repair_session_visibility_across_instances() {
-        Ok(summary) => {
-            logger::log_info(&format!(
-                "[Codex切号] 会话可见性修复完成: mutated_instances={}, rollout_files={}, official_rebuild=true, message={}",
-                summary.mutated_instance_count,
-                summary.changed_rollout_file_count,
-                summary.message
-            ));
-        }
-        Err(error) => {
-            logger::log_warn(&format!(
-                "[Codex切号] 会话可见性自动修复失败，切号已完成，可稍后在会话管理中手动重试: {}",
-                error
-            ));
         }
     }
 }
@@ -262,10 +161,8 @@ pub async fn switch_codex_account(
     app: AppHandle,
     account_id: String,
 ) -> Result<CodexAccount, String> {
-    let previous_history_provider = read_default_codex_history_provider_for_switch();
     // 切换账号（写入 auth.json）
     let account = codex_account::switch_account_managed(&account_id).await?;
-    let next_history_provider = read_default_codex_history_provider_for_switch();
     let account_speed = account.app_speed.clone();
     codex_speed::write_official_app_speed(account_speed.clone())?;
 
@@ -274,6 +171,7 @@ pub async fn switch_codex_account(
         Some(Some(account_id.clone())),
         None,
         Some(false),
+        None,
         None,
     ) {
         logger::log_warn(&format!("更新 Codex 默认实例绑定账号失败: {}", e));
@@ -288,11 +186,6 @@ pub async fn switch_codex_account(
     }
 
     let user_config = config::get_user_config();
-    repair_codex_session_visibility_after_provider_change(
-        previous_history_provider,
-        next_history_provider,
-        &user_config,
-    );
 
     let mut opencode_updated = false;
     if user_config.opencode_auth_overwrite_on_switch {
@@ -346,8 +239,7 @@ pub async fn switch_codex_account(
         if process::is_codex_running() {
             logger::log_info("检测到 Codex 正在运行，将按默认实例 PID 逻辑重启");
         }
-        match crate::commands::codex_instance::codex_start_instance("__default__".to_string()).await
-        {
+        match crate::commands::codex_instance::codex_start_default_with_prepared_profile().await {
             Ok(_) => {}
             Err(e) => {
                 logger::log_warn(&format!("Codex 启动失败: {}", e));
@@ -846,6 +738,14 @@ pub async fn update_codex_account_note(
     codex_account::update_account_note(&account_id, note)
 }
 
+#[tauri::command]
+pub async fn update_codex_account_phone(
+    account_id: String,
+    phone: String,
+) -> Result<CodexAccount, String> {
+    codex_account::update_account_phone(&account_id, phone)
+}
+
 /// 检查 Codex OAuth 端口是否被占用
 #[tauri::command]
 pub fn is_codex_oauth_port_in_use() -> Result<bool, String> {
@@ -1222,6 +1122,13 @@ pub async fn codex_local_access_update_credentials(
 }
 
 #[tauri::command]
+pub async fn codex_local_access_update_client_base_url_host(
+    client_base_url_host: CodexLocalAccessClientBaseUrlHost,
+) -> Result<CodexLocalAccessState, String> {
+    codex_local_access::update_local_access_client_base_url_host(client_base_url_host).await
+}
+
+#[tauri::command]
 pub async fn codex_local_access_update_image_generation_mode(
     image_generation_mode: crate::models::codex_local_access::CodexLocalAccessImageGenerationMode,
 ) -> Result<CodexLocalAccessState, String> {
@@ -1280,10 +1187,8 @@ async fn apply_codex_local_access_to_default_profile(
     app: Option<&AppHandle>,
     launch_after_apply: bool,
 ) -> Result<CodexLocalAccessState, String> {
-    let previous_history_provider = read_default_codex_history_provider_for_switch();
     let codex_home = codex_account::get_codex_home();
     let state = codex_local_access::activate_local_access_for_dir(&codex_home).await?;
-    let next_history_provider = read_default_codex_history_provider_for_switch();
     let api_service_speed = codex_speed::get_api_service_app_speed_config()?.speed;
     codex_speed::write_official_app_speed(api_service_speed.clone())?;
 
@@ -1298,6 +1203,7 @@ async fn apply_codex_local_access_to_default_profile(
         None,
         Some(false),
         None,
+        None,
     ) {
         logger::log_warn(&format!("更新 Codex 默认实例为 API 服务模式失败: {}", e));
     } else {
@@ -1308,11 +1214,6 @@ async fn apply_codex_local_access_to_default_profile(
     }
 
     let user_config = config::get_user_config();
-    repair_codex_session_visibility_after_provider_change(
-        previous_history_provider,
-        next_history_provider,
-        &user_config,
-    );
 
     logger::log_info("API 服务启动模式下跳过 OpenCode / OpenClaw OAuth 同步");
 
@@ -1321,8 +1222,7 @@ async fn apply_codex_local_access_to_default_profile(
         if process::is_codex_running() {
             logger::log_info("检测到 Codex 正在运行，将按默认实例 PID 逻辑重启");
         }
-        match crate::commands::codex_instance::codex_start_instance("__default__".to_string()).await
-        {
+        match crate::commands::codex_instance::codex_start_default_with_prepared_profile().await {
             Ok(_) => {}
             Err(e) => {
                 logger::log_warn(&format!("Codex 启动失败: {}", e));
@@ -1362,28 +1262,24 @@ pub async fn codex_local_access_activate(app: AppHandle) -> Result<CodexLocalAcc
 
 #[tauri::command]
 pub async fn codex_local_access_test() -> Result<CodexLocalAccessTestResult, String> {
-    codex_local_access::test_local_access_with_cli().await
+    codex_local_access::test_local_access_with_dialog().await
 }
 
-#[cfg(test)]
-mod tests {
-    use super::codex_history_provider_changed;
+#[tauri::command]
+pub async fn codex_local_access_chat_test(
+    model_id: String,
+    messages: Vec<CodexLocalAccessChatMessage>,
+) -> Result<CodexLocalAccessChatResult, String> {
+    codex_local_access::chat_local_access_with_dialog(model_id, messages).await
+}
 
-    #[test]
-    fn codex_history_provider_changed_only_when_both_known_and_different() {
-        assert!(codex_history_provider_changed(
-            Some("openai"),
-            Some("codex_local_access")
-        ));
-        assert!(codex_history_provider_changed(
-            Some("codex_local_access"),
-            Some("openai")
-        ));
-        assert!(!codex_history_provider_changed(
-            Some("codex_local_access"),
-            Some("codex_local_access")
-        ));
-        assert!(!codex_history_provider_changed(None, Some("openai")));
-        assert!(!codex_history_provider_changed(Some("openai"), None));
-    }
+#[tauri::command]
+pub async fn codex_local_access_chat_test_stream(
+    app: AppHandle,
+    session_id: String,
+    model_id: String,
+    messages: Vec<CodexLocalAccessChatMessage>,
+) -> Result<(), String> {
+    codex_local_access::stream_chat_local_access_with_dialog(app, session_id, model_id, messages)
+        .await
 }

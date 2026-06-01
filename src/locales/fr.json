@@ -447,7 +447,9 @@
         }
       },
       "appSpeed": "Vitesse",
-      "appSpeedDesc": "Écrit la vitesse choisie avant de lancer Codex officiel"
+      "appSpeedDesc": "Écrit la vitesse choisie avant de lancer Codex officiel",
+      "autoSyncThreads": "Sync auto sessions",
+      "autoSyncThreadsDesc": "Désactivé, les sessions des instances restent isolées. Activé, le lancement ou la fermeture d'une instance fusionne automatiquement les sessions locales, uniquement lorsque toutes les instances Codex sont arrêtées."
     },
     "quota": {
       "unbound": "Compte non lié",
@@ -1656,6 +1658,22 @@
         "hourly": "5h",
         "weekly": "Hebdomadaire"
       },
+      "syncAllRecords": {
+        "action": "Synchroniser les enregistrements de toutes les instances",
+        "autoAction": "Synchroniser automatiquement les enregistrements de toutes les instances",
+        "autoDisabled": "La synchronisation automatique des enregistrements de toutes les instances est désactivée",
+        "autoEnabled": "La synchronisation automatique des enregistrements de toutes les instances est activée",
+        "autoTooltip": "Synchroniser automatiquement les enregistrements de toutes les instances",
+        "autoDesc": "Désactivé, les enregistrements des multiples instances restent isolés. Activé, le démarrage ou la fermeture d’une instance fusionne automatiquement les enregistrements locaux uniquement après l’arrêt de toutes les instances Codex.",
+        "closeFirst": "Fermez toutes les instances Codex avant de synchroniser les enregistrements afin d’éviter qu’une instance en cours d’exécution ne réécrive d’anciens enregistrements.",
+        "confirmMessage": "Les enregistrements de sessions locales seront entièrement synchronisés entre toutes les instances Codex. Les sessions ayant le même ID seront fusionnées au niveau des événements, et les fichiers clés de destination ainsi que les anciens fichiers de session seront sauvegardés avant l’écriture. Continuer ?",
+        "needTwo": "Au moins deux instances sont nécessaires pour synchroniser les enregistrements",
+        "settingsSection": "Paramètres de synchronisation",
+        "settingsSubtitle": "Gérer la synchronisation des enregistrements entre plusieurs instances Codex",
+        "settingsTitle": "Paramètres des enregistrements d’instance",
+        "title": "Synchroniser les enregistrements de toutes les instances",
+        "tooltip": "Synchroniser les enregistrements de toutes les instances"
+      },
       "restartStrategy": {
         "safe": {
           "principle": "Envoie un signal SIGTERM à tous les processus Codex, demandant à l'application de sauvegarder et de s'arrêter, puis lance l'instance cible (arrêt forcé si nécessaire).",
@@ -1786,19 +1804,18 @@
       "entryAction": "Ajouter au service API",
       "testAction": "Tester",
       "testDialogTitle": "Tester le service API",
-      "testDialogDesc": "Envoie une vraie requête via Codex CLI pour vérifier le service local, la clé et la réponse amont.",
+      "testDialogDesc": "Lance une vraie conversation façon playground via le service API actuel pour vérifier le modèle, le routage des comptes et la réponse amont.",
       "testProgressTitle": "Test du service en cours",
       "testProgressDesc": "Envoi d’une vraie requête au service API local. Patientez.",
       "testOutputTitle": "Résultat renvoyé",
       "testResultTitle": "Résultat de la vérification",
-      "testSuccess": "Vérification réussie : service local, clé et réponse amont sont corrects ({{model}}, {{latency}}). Si Codex renvoie encore 502, vérifiez la Base URL, l’API Key ou l’environnement d’exécution Codex.",
+      "testSuccess": "Vérification réussie : le service local, la clé et la réponse amont sont corrects ({{model}}, {{latency}}). Si le client échoue encore, vérifiez la Base URL, l’API Key ou les paramètres du proxy.",
       "testFailureStage": "Étape localisée",
       "testFailureCause": "Cause de l’échec",
       "testFailureSuggestion": "Correction suggérée",
       "testFailureStatus": "Statut HTTP",
       "testFailureModel": "Modèle testé",
       "testFailureDetail": "Détails du diagnostic",
-      "testFailureCliOutput": "Sortie CLI",
       "testFailureGatewayOutput": "Réponse passerelle",
       "testTimeout": "La vérification par requête réelle a expiré. Vérifiez le service local, le proxy ou le réseau amont.",
       "testUnavailable": "L’URL actuelle du service API est indisponible",
@@ -1908,7 +1925,7 @@
         "empty": "Aucune statistique de quota pour l’instant"
       },
       "oauthBinding": {
-        "desc": "Facultatif. Seuls les comptes OAuth avec une indication de période d’abonnement peuvent être sélectionnés ; les périodes expirées sont acceptées. Sans liaison, le service API conserve le flux API Key existant ; une fois lié, la session utilise le compte OAuth et le Provider utilise la configuration du service API.",
+        "desc": "Facultatif. Seuls les comptes OAuth avec refresh_token peuvent être sélectionnés. Sans liaison, le service API conserve le flux API Key existant ; une fois lié, la session utilise le compte OAuth et le Provider utilise la configuration du service API.",
         "currentService": "Service API : {{name}}"
       },
       "customRoutingEdit": "Modifier le routage personnalisé",
@@ -1993,7 +2010,27 @@
       "debugLogsEnableConfirmAction": "Activer",
       "debugLogsDisableConfirmTitle": "Désactiver les journaux debug",
       "debugLogsDisableConfirmMessage": "Une fois désactivé, le service API cesse de produire les journaux debug, ce qui réduit le bruit et la charge. Vous pourrez les réactiver pour diagnostiquer la passerelle, le proxy ou le streaming. Désactiver ?",
-      "debugLogsDisableConfirmAction": "Désactiver"
+      "debugLogsDisableConfirmAction": "Désactiver",
+      "clientBaseUrlHostLabel": "Adresse client",
+      "clientBaseUrlHostDesc": "Affecte uniquement la Base URL écrite dans Codex Provider et copiée aux clients ; l’adresse d’écoute du service ne change pas.",
+      "clientBaseUrlHostSaveSuccess": "Adresse client mise à jour",
+      "accountPoolHealth": {
+        "title": "Pool de comptes",
+        "allAvailable": "Tout OK {{count}}",
+        "availableRatio": "Valide {{available}}/{{total}}",
+        "issueSummary": "Erreur {{abnormal}} · Pause {{cooldown}}",
+        "detail": "OK {{available}}/{{total}}, erreur {{abnormal}}, pause {{cooldown}}, manquant {{missing}}, auth {{authError}}, quota {{quotaLimited}}"
+      },
+      "testChatModel": "Modèle",
+      "testChatClear": "Effacer",
+      "testChatEmpty": "Envoyez un message pour démarrer une vraie conversation via le service API actuel.",
+      "testChatLatency": "{{latency}} écoulé",
+      "testChatSending": "Requête au service API",
+      "testChatInputPlaceholder": "Message de test, Entrée pour envoyer",
+      "testChatSend": "Envoyer",
+      "testChatInputRequired": "Saisissez un message de test",
+      "testChatModelRequired": "Choisissez un ID de modèle",
+      "testChatEmptyResponse": "Réponse vide"
     },
     "local": {
       "desc": "Importer le compte connecté depuis ~/.codex/auth.json",
@@ -2404,13 +2441,13 @@
         "action": "Lier OAuth",
         "actionShort": "Lier",
         "title": "Lier un compte OAuth",
-        "desc": "Facultatif. Seuls les comptes OAuth avec une indication de période d’abonnement peuvent être sélectionnés ; les périodes expirées sont acceptées. Sans liaison, ce compte bascule avec le flux API Key existant ; une fois lié, la session utilise le compte OAuth et le Provider utilise la configuration de ce compte API Key.",
+        "desc": "Facultatif. Seuls les comptes OAuth avec refresh_token peuvent être sélectionnés. Sans liaison, ce compte bascule avec le flux API Key existant ; une fois lié, la session utilise le compte OAuth et le Provider utilise la configuration de ce compte API Key.",
         "currentAccount": "Compte API Key : {{name}}",
         "selectLabel": "Choisir un compte OAuth",
         "empty": "Aucun compte OAuth. Ajoutez d’abord un compte autorisé OAuth.",
-        "emptyEligible": "Aucun compte OAuth avec période d’abonnement. Actualisez le quota ou ajoutez d’abord un compte OAuth éligible.",
+        "emptyEligible": "Aucun compte OAuth avec refresh_token. Relancez l’autorisation OAuth ou ajoutez d’abord un compte OAuth éligible.",
         "validationRequired": "Choisissez un compte OAuth",
-        "validationSubscriptionRequired": "Seuls les comptes OAuth avec période d’abonnement peuvent être liés",
+        "validationSubscriptionRequired": "Seuls les comptes OAuth avec refresh_token peuvent être liés",
         "saveSuccess": "Lien OAuth mis à jour",
         "saveFailed": "Échec du lien OAuth : {{error}}",
         "switchRequiresBinding": "Liez d’abord un compte OAuth",
