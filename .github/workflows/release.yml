@@ -68,6 +68,20 @@ jobs:
       - name: Sync versions
         run: npm run sync-version
 
+      - name: Disable updater artifacts for release bundles
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const configPath = 'src-tauri/tauri.conf.json';
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+          config.bundle = config.bundle || {};
+          config.bundle.createUpdaterArtifacts = false;
+
+          fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+          NODE
+
       - name: Read app version
         id: app_version
         shell: bash
@@ -163,7 +177,7 @@ jobs:
           releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }} --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          args: ${{ matrix.args }}
 
   rebuild-latest-json:
     name: Rebuild merged latest.json
