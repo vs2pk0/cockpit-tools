@@ -5,6 +5,7 @@ import type {
   CodexLocalAccessCredentialMode,
   CodexLocalAccessCustomCredential,
   CodexLocalAccessCustomRoutingRule,
+  CodexLocalAccessAccountModelRule,
   CodexLocalAccessClientBaseUrlHost,
   CodexLocalAccessGatewayMode,
   CodexLocalAccessImageGenerationMode,
@@ -100,6 +101,14 @@ export async function updateCodexLocalAccessCustomRouting(
   rules: CodexLocalAccessCustomRoutingRule[],
 ): Promise<CodexLocalAccessState> {
   return await invoke("codex_local_access_update_custom_routing", { rules });
+}
+
+export async function updateCodexLocalAccessAccountModelRules(
+  rules: CodexLocalAccessAccountModelRule[],
+): Promise<CodexLocalAccessState> {
+  return await invoke("codex_local_access_update_account_model_rules", {
+    rules,
+  });
 }
 
 export async function updateCodexLocalAccessModelRules(

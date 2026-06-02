@@ -25,7 +25,6 @@ import {
   Power,
   RefreshCw,
   Search,
-  Settings,
   Trash2,
   X,
 } from 'lucide-react';
@@ -132,6 +131,15 @@ interface RuntimeConfigDraft {
   codexCliPath: string;
   nodePath: string;
 }
+
+const CODEX_WAKEUP_OFFICIAL_RUNTIME: CodexWakeupBatchResult['runtime'] = {
+  available: true,
+  source: 'official_chat',
+  message: 'official_chat',
+  required_runtime_paths: [],
+  checked_at: 0,
+  install_hints: [],
+};
 
 interface WakeupQuotaBadge {
   key: 'primary' | 'secondary';
@@ -1006,7 +1014,6 @@ export function CodexWakeupContent({
   const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
   const [showRuntimeGuideModal, setShowRuntimeGuideModal] = useState(false);
   const [runtimeGuideRefreshing, setRuntimeGuideRefreshing] = useState(false);
-  const [runtimeGuideAutoShown, setRuntimeGuideAutoShown] = useState(false);
   const [runtimeConfigDraft, setRuntimeConfigDraft] = useState<RuntimeConfigDraft>(() =>
     createRuntimeConfigDraft(runtime),
   );
@@ -1015,7 +1022,7 @@ export function CodexWakeupContent({
   const showCodexCliInput = true;
   const showNodeInput = true;
   const showRuntimeConfigCard = true;
-  const runtimeGuideNeedInstall = Boolean(runtime && !runtime.available);
+  const runtimeGuideNeedInstall = false;
   const runtimeGuideTitle = runtimeGuideNeedInstall
     ? t('codex.wakeup.installTitle')
     : t('codex.wakeup.runtimeConfigTitle');
@@ -1087,20 +1094,6 @@ export function CodexWakeupContent({
       }
     }
   }, [error, executionSession, showRuntimeGuideModal, showTaskModal, showTestModal, setTaskModalError, setTestModalError]);
-
-  useEffect(() => {
-    if (loading || runtime === null) {
-      return;
-    }
-    if (runtime.available) {
-      setRuntimeGuideAutoShown(false);
-      return;
-    }
-    if (!runtimeGuideAutoShown) {
-      setShowRuntimeGuideModal(true);
-      setRuntimeGuideAutoShown(true);
-    }
-  }, [loading, runtime, runtimeGuideAutoShown]);
 
   useEffect(() => {
     if (!runtime || runtimeConfigDirty) {
@@ -1239,7 +1232,10 @@ export function CodexWakeupContent({
         triggerType === 'test'
           ? t('codex.wakeup.testTitle')
           : taskName || t('codex.wakeup.resultsTitle'),
-      runtime: runtime,
+      runtime: {
+        ...CODEX_WAKEUP_OFFICIAL_RUNTIME,
+        checked_at: Date.now(),
+      },
       startedAt: Date.now(),
       durationMs: undefined,
       total: accountIds.length,
@@ -1267,7 +1263,7 @@ export function CodexWakeupContent({
         };
       }),
     }),
-    [accountMap, runtime, t, wakeupAccountMetaMap],
+    [accountMap, t, wakeupAccountMetaMap],
   );
 
   const buildExecutionSessionFromHistory = useCallback(
@@ -1280,15 +1276,10 @@ export function CodexWakeupContent({
         (batch.triggerType === 'test'
           ? t('codex.wakeup.testTitle')
           : t('codex.wakeup.resultsTitle')),
-      runtime: batch.cliPath
-        ? {
-            available: true,
-            binary_path: batch.cliPath,
-            checked_at: batch.timestamp,
-            required_runtime_paths: [],
-            install_hints: [],
-          }
-        : runtime,
+      runtime: {
+        ...CODEX_WAKEUP_OFFICIAL_RUNTIME,
+        checked_at: batch.timestamp,
+      },
       startedAt: batch.timestamp,
       durationMs: batch.durationMs,
       total: batch.total,
@@ -1316,7 +1307,7 @@ export function CodexWakeupContent({
         durationMs: item.duration_ms,
       })),
     }),
-    [runtime, t],
+    [t],
   );
 
   const buildTaskPreviewSession = useCallback(
@@ -1325,7 +1316,10 @@ export function CodexWakeupContent({
       taskId: task.id,
       triggerType: 'scheduled',
       title: task.name,
-      runtime: runtime,
+      runtime: {
+        ...CODEX_WAKEUP_OFFICIAL_RUNTIME,
+        checked_at: Date.now(),
+      },
       startedAt: 0,
       durationMs: undefined,
       total: task.account_ids.length,
@@ -1354,7 +1348,7 @@ export function CodexWakeupContent({
         };
       }),
     }),
-    [accountMap, runtime, t, wakeupAccountMetaMap],
+    [accountMap, t, wakeupAccountMetaMap],
   );
 
   const openTaskExecutionDetails = useCallback(
@@ -1933,15 +1927,11 @@ export function CodexWakeupContent({
   );
 
   const openNewTaskModal = useCallback(async () => {
-    if (runtime && !runtime.available) {
-      openRuntimeGuideModal();
-      return;
-    }
     setTaskDraft(createEmptyTaskDraftWithRememberedModel());
     setTaskModalError(null);
     setTaskAccountFilters(createEmptyAccountPickerFilters());
     setShowTaskModal(true);
-  }, [createEmptyTaskDraftWithRememberedModel, openRuntimeGuideModal, runtime]);
+  }, [createEmptyTaskDraftWithRememberedModel]);
 
   const openEditTaskModal = useCallback((task: CodexWakeupTask) => {
     setTaskDraft(buildTaskDraft(task, state.model_presets));
@@ -1951,17 +1941,13 @@ export function CodexWakeupContent({
   }, [state.model_presets]);
 
   const openTestModal = useCallback(async () => {
-    if (runtime && !runtime.available) {
-      openRuntimeGuideModal();
-      return;
-    }
     setTestModalError(null);
     setTestAccountFilters(createEmptyAccountPickerFilters());
     setTestModelPresetId(resolvedModelSelection.modelPresetId);
     setTestModel(resolvedModelSelection.model);
     setTestModelReasoningEffort(resolvedModelSelection.modelReasoningEffort);
     setShowTestModal(true);
-  }, [openRuntimeGuideModal, resolvedModelSelection, runtime]);
+  }, [resolvedModelSelection]);
 
   const closeTaskModal = useCallback(() => {
     if (saving) return;
@@ -2458,17 +2444,6 @@ export function CodexWakeupContent({
             {historyBatches.length > 0
               ? `${t('codex.wakeup.historyTitle')} (${historyBatches.length})`
               : t('codex.wakeup.historyTitle')}
-          </button>
-          <button className="btn btn-secondary" onClick={() => void refreshRuntime().catch(() => undefined)}>
-            <RefreshCw size={16} /> {t('codex.wakeup.refreshRuntime')}
-          </button>
-          <button
-            className="btn btn-secondary icon-only"
-            onClick={openRuntimeGuideModal}
-            title={t('codex.wakeup.runtimeConfigTitle')}
-            aria-label={t('codex.wakeup.runtimeConfigTitle')}
-          >
-            <Settings size={14} />
           </button>
         </div>
       </div>
@@ -3533,23 +3508,16 @@ export function CodexWakeupContent({
               </div>
 
               <div className="codex-wakeup-results-runtime-meta">
-                <span>{t('codex.wakeup.runtimeCardTitle')}</span>
+                <span>{t('codex.wakeup.officialChatRuntimeTitle')}</span>
                 <strong className="codex-wakeup-runtime-path">
-                  {executionSession.runtime?.binary_path || t('codex.wakeup.runtimeUnknownPath')}
+                  {t('codex.wakeup.officialChatRuntimePath')}
                 </strong>
-                {(executionSession.runtime?.version ||
-                  executionSession.runtime?.source ||
-                  executionSession.runtime?.message) && (
-                  <span>
-                    {[
-                      executionSession.runtime?.version,
-                      executionSession.runtime?.source,
-                      executionSession.runtime?.message,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
-                )}
+                <span>
+                  {[
+                    t('codex.wakeup.officialChatRuntimeSource'),
+                    t('codex.wakeup.officialChatRuntimeMessage'),
+                  ].join(' · ')}
+                </span>
               </div>
 
               {executionSession.runtime && !executionSession.runtime.available && (

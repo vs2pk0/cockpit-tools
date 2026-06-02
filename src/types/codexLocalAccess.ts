@@ -49,6 +49,11 @@ export interface CodexLocalAccessCustomCredential {
   updatedAt: number;
 }
 
+export interface CodexLocalAccessAccountModelRule {
+  accountId: string;
+  excludedModels: string[];
+}
+
 export interface CodexLocalAccessModelAlias {
   sourceModel: string;
   alias: string;
@@ -124,6 +129,7 @@ export interface CodexLocalAccessCollection {
   customBaseUrl?: string | null;
   customApiKey?: string | null;
   customRoutingRules: CodexLocalAccessCustomRoutingRule[];
+  accountModelRules: CodexLocalAccessAccountModelRule[];
   modelAliases: CodexLocalAccessModelAlias[];
   modelPricings: CodexLocalAccessModelPricing[];
   debugLogs: boolean;

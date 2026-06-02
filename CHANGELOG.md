@@ -7,6 +7,13 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [0.24.11-vs2pk0.1] - 2026-06-02
+
+### Changed
+- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `30491dcb`**: this build includes upstream `v0.24.11` account-level disabled model rules for Codex API Service, direct official Codex wakeup chat, launch credential visibility repair, config.toml preservation fixes, and Windows Antigravity credential import updates.
+- **Preserved local fork CPA and custom-service enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime download/import, account JSON sync, CPA account filters, model-list fetching, config editing, version update/import, stop confirmation, and Cockpit-owned CPA process detection remain available.
+
+---
 ## [0.24.10-vs2pk0.1] - 2026-06-01
 
 ### Added
@@ -62,6 +69,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Backup
 - **Refreshed the modified-file backup set for this fork build**: files that differ from upstream are intended to be mirrored under `/Users/dalong/Documents/cockpit-tools.backup` with their repository-relative paths.
+---
+---
+## [0.24.11] - 2026-06-01
+
+### Added
+- **Codex API Service account pools now support account-level disabled model rules**: each account can configure blocked models, apply rules in bulk, and have Legacy, WebSocket, and Sidecar routing avoid accounts that cannot serve the requested model.
+- **Codex wakeup tasks now use direct official Codex chat**: wakeup runs through the selected OAuth account without requiring Codex CLI or a running local API Service, follows the saved upstream proxy and timeout settings, parses official streaming responses, and shows the execution result as official direct chat.
+
+### Changed
+- **Codex API Service account-pool controls are visually more consistent**: the Codex API/Cockpit API copy, scheduling options, checkboxes, form control heights, and typography now use a more aligned layout.
+- **Codex OAuth binding now accepts any OAuth account with `refresh_token`**: binding filters no longer require the account to pass the normal-account validity shortcut, and the binding description matches the actual eligibility rule.
+- **Codex launches now repair session visibility when the launch credential changes**: default and managed instance launches run session visibility repair before startup when a credential switch is involved.
+
+### Fixed
+- **Codex config.toml managed rewrites now preserve more user configuration**: API account switching no longer rebuilds the entire model provider table, API Service takeover restore keeps current plugin settings, and repeated blank lines are collapsed when writing the active config.
+- **Windows Antigravity local account import now reads the current system credential path**: local import uses Windows Credential Manager `gemini:antigravity` credentials and reuses the refresh-token import flow, while non-Windows platforms keep the state database path.
+
 ---
 ## [0.24.10] - 2026-05-31
 

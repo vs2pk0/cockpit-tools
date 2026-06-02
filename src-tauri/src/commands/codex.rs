@@ -3,10 +3,11 @@ use crate::models::codex::{
     CodexQuota, CodexTokens,
 };
 use crate::models::codex_local_access::{
-    CodexLocalAccessChatMessage, CodexLocalAccessChatResult, CodexLocalAccessClientBaseUrlHost,
-    CodexLocalAccessCredentialMode, CodexLocalAccessCustomCredential,
-    CodexLocalAccessCustomRoutingRule, CodexLocalAccessGatewayMode, CodexLocalAccessModelAlias,
-    CodexLocalAccessModelPricing, CodexLocalAccessPortCleanupResult, CodexLocalAccessRequestKind,
+    CodexLocalAccessAccountModelRule, CodexLocalAccessChatMessage, CodexLocalAccessChatResult,
+    CodexLocalAccessClientBaseUrlHost, CodexLocalAccessCredentialMode,
+    CodexLocalAccessCustomCredential, CodexLocalAccessCustomRoutingRule,
+    CodexLocalAccessGatewayMode, CodexLocalAccessModelAlias, CodexLocalAccessModelPricing,
+    CodexLocalAccessPortCleanupResult, CodexLocalAccessRequestKind,
     CodexLocalAccessRoutingStrategy, CodexLocalAccessScope, CodexLocalAccessState,
     CodexLocalAccessTestResult, CodexLocalAccessTimeoutPreset, CodexLocalAccessTimeouts,
     CodexLocalAccessUsageEventPage,
@@ -1012,6 +1013,13 @@ pub async fn codex_local_access_update_custom_routing(
     rules: Vec<CodexLocalAccessCustomRoutingRule>,
 ) -> Result<CodexLocalAccessState, String> {
     codex_local_access::update_local_access_custom_routing(rules).await
+}
+
+#[tauri::command]
+pub async fn codex_local_access_update_account_model_rules(
+    rules: Vec<CodexLocalAccessAccountModelRule>,
+) -> Result<CodexLocalAccessState, String> {
+    codex_local_access::update_local_access_account_model_rules(rules).await
 }
 
 #[tauri::command]
