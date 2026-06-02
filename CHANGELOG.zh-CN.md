@@ -7,6 +7,13 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
 ---
+## [0.24.12] - 2026-06-02
+
+### 修复
+- **Codex 账号自定义顺序在更新后会继续保留**：自定义排序现在会写入应用数据目录，并使用远端账号 ID、组织 ID、邮箱等稳定标识保存顺序；旧版本地 `localStorage` 顺序会自动迁移，避免版本更新或账号重建后需要重新手动排序。
+- **Release workflow 现在只生成安装包资产**：远端 GitHub Actions 打包会关闭 updater artifacts，避免无效 updater 签名密钥导致 macOS/Windows Release 构建失败。
+
+---
 ## [0.24.11-vs2pk0.1] - 2026-06-02
 
 ### 变更

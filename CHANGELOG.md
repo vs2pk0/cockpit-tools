@@ -7,6 +7,13 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [0.24.12] - 2026-06-02
+
+### Fixed
+- **Codex account custom order now survives app updates**: custom sorting is persisted in the app data directory and stored with stable account keys derived from remote account ID, organization ID, email, and local fallbacks; legacy `localStorage` order is migrated automatically so users do not need to reorder accounts after updates or account rebuilds.
+- **Release workflow now builds installer assets only**: GitHub Actions release builds disable updater artifacts so invalid updater signing secrets no longer fail macOS/Windows release packaging.
+
+---
 ## [0.24.11-vs2pk0.1] - 2026-06-02
 
 ### Changed
