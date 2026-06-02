@@ -83,6 +83,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Codex launches now repair session visibility when the launch credential changes**: default and managed instance launches run session visibility repair before startup when a credential switch is involved.
 
 ### Fixed
+- **Codex account custom order now survives app updates**: custom sorting is now persisted in the app data directory and stored with stable account keys derived from remote account ID, organization ID, email, and local fallbacks; legacy `localStorage` order is migrated automatically so users do not need to reorder accounts after updates or account rebuilds.
 - **Codex config.toml managed rewrites now preserve more user configuration**: API account switching no longer rebuilds the entire model provider table, API Service takeover restore keeps current plugin settings, and repeated blank lines are collapsed when writing the active config.
 - **Windows Antigravity local account import now reads the current system credential path**: local import uses Windows Credential Manager `gemini:antigravity` credentials and reuses the refresh-token import flow, while non-Windows platforms keep the state database path.
 
