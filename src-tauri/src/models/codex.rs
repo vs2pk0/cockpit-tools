@@ -107,6 +107,8 @@ pub struct CodexAccount {
     #[serde(default)]
     pub app_speed: CodexAppSpeed,
     pub tokens: CodexTokens,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_expired_at: Option<String>,
     #[serde(default)]
     pub token_generation: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -308,6 +310,7 @@ impl CodexAccount {
             bound_phone: None,
             app_speed: CodexAppSpeed::Standard,
             tokens,
+            token_expired_at: None,
             token_generation: 0,
             token_updated_at: Some(now),
             token_source_mode: default_token_source_mode(),

@@ -57,6 +57,7 @@ const CODEX_AUTH_PROJECTION_FILE_NAME: &str = ".cockpit_codex_auth.json";
 const CODEX_AUTH_PROJECTION_WRITER: &str = "cockpit";
 const CPA_DIR_NAME: &str = ".cli-proxy-api";
 const CPA_EXPORT_FILE_PREFIX: &str = "codex_accounts_cpa";
+const CODEX_ACCOUNT_PREFERENCES_FILE_NAME: &str = "codex_account_preferences.json";
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -67,6 +68,12 @@ struct CodexManagedAuthProjection {
     email: String,
     token_generation: u64,
     written_at: i64,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct CodexAccountPreferences {
+    #[serde(default)]
+    custom_sort_order: Vec<String>,
 }
 
 fn is_auth_mode_apikey(value: Option<&str>) -> bool {
@@ -343,6 +350,7 @@ fn apply_api_key_fields(
         access_token: String::new(),
         refresh_token: None,
     };
+    account.token_expired_at = None;
     account.user_id = None;
     account.subscription_active_until = None;
     account.account_id = None;
@@ -1064,6 +1072,17 @@ fn get_accounts_storage_path() -> PathBuf {
     data_dir.join("codex_accounts.json")
 }
 
+fn get_account_preferences_path() -> PathBuf {
+    let data_dir = account::get_data_dir().unwrap_or_else(|_| {
+        dirs::home_dir()
+            .expect("无法获取用户目录")
+            .join(".antigravity_cockpit")
+    });
+    fs::create_dir_all(&data_dir).ok();
+    migrate_codex_data_if_needed(&data_dir);
+    data_dir.join(CODEX_ACCOUNT_PREFERENCES_FILE_NAME)
+}
+
 /// 获取账号详情存储目录（统一使用 ~/.antigravity_cockpit/codex_accounts/）
 fn get_accounts_dir() -> PathBuf {
     let data_dir = account::get_data_dir().unwrap_or_else(|_| {
@@ -1644,6 +1663,90 @@ pub fn save_account_index(index: &CodexAccountIndex) -> Result<(), String> {
     Ok(())
 }
 
+fn normalize_custom_sort_order_item(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn load_account_preferences() -> CodexAccountPreferences {
+    let path = get_account_preferences_path();
+    let content = match fs::read_to_string(&path) {
+        Ok(content) if !content.trim().is_empty() => content,
+        Ok(_) => return CodexAccountPreferences::default(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return CodexAccountPreferences::default();
+        }
+        Err(error) => {
+            logger::log_warn(&format!(
+                "[Codex Account Preferences] 读取失败，使用默认偏好: path={}, error={}",
+                path.display(),
+                error
+            ));
+            return CodexAccountPreferences::default();
+        }
+    };
+
+    match serde_json::from_str::<CodexAccountPreferences>(&content) {
+        Ok(mut preferences) => {
+            preferences.custom_sort_order = preferences
+                .custom_sort_order
+                .into_iter()
+                .filter_map(|item| normalize_custom_sort_order_item(&item))
+                .collect();
+            preferences
+        }
+        Err(error) => {
+            match crate::modules::atomic_write::quarantine_file(&path, "invalid-json") {
+                Ok(Some(backup_path)) => logger::log_warn(&format!(
+                    "[Codex Account Preferences] 解析失败，已隔离并使用默认偏好: path={}, backup={}, error={}",
+                    path.display(),
+                    backup_path.display(),
+                    error
+                )),
+                Ok(None) => logger::log_warn(&format!(
+                    "[Codex Account Preferences] 解析失败，文件已不存在，使用默认偏好: path={}, error={}",
+                    path.display(),
+                    error
+                )),
+                Err(backup_error) => logger::log_warn(&format!(
+                    "[Codex Account Preferences] 解析失败，隔离失败，使用默认偏好: path={}, parse_error={}, backup_error={}",
+                    path.display(),
+                    error,
+                    backup_error
+                )),
+            }
+            CodexAccountPreferences::default()
+        }
+    }
+}
+
+fn save_account_preferences(preferences: &CodexAccountPreferences) -> Result<(), String> {
+    let path = get_account_preferences_path();
+    let content =
+        serde_json::to_string_pretty(preferences).map_err(|e| format!("序列化账号偏好失败: {}", e))?;
+    write_string_atomic(&path, &content).map_err(|e| format!("写入账号偏好失败: {}", e))
+}
+
+pub fn load_custom_sort_order() -> Vec<String> {
+    load_account_preferences().custom_sort_order
+}
+
+pub fn save_custom_sort_order(order: Vec<String>) -> Result<Vec<String>, String> {
+    let mut seen = HashSet::new();
+    let custom_sort_order = order
+        .into_iter()
+        .filter_map(|item| normalize_custom_sort_order_item(&item))
+        .filter(|item| seen.insert(item.clone()))
+        .collect::<Vec<_>>();
+    let preferences = CodexAccountPreferences { custom_sort_order };
+    save_account_preferences(&preferences)?;
+    Ok(preferences.custom_sort_order)
+}
+
 fn repair_account_index_from_details(reason: &str) -> Option<CodexAccountIndex> {
     let index_path = get_accounts_storage_path();
     let accounts_dir = get_accounts_dir();
@@ -1758,6 +1861,50 @@ fn read_json_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> 
     normalize_optional_ref(Some(raw))
 }
 
+fn read_json_scalar_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| normalize_optional_json_scalar(value.get(*key)))
+}
+
+fn first_json_scalar_string(value: &serde_json::Value, paths: &[&[&str]]) -> Option<String> {
+    paths.iter().find_map(|path| {
+        let mut current = value;
+        for key in *path {
+            current = current.get(*key)?;
+        }
+        normalize_optional_json_scalar(Some(current))
+    })
+}
+
+fn read_token_expired_at_metadata(value: &serde_json::Value) -> Option<String> {
+    read_json_scalar_string(
+        value,
+        &[
+            "token_expired_at",
+            "tokenExpiredAt",
+            "token_expires_at",
+            "tokenExpiresAt",
+            "expired",
+            "expired_at",
+            "expiredAt",
+            "expires_at",
+            "expiresAt",
+        ],
+    )
+    .or_else(|| {
+        first_json_scalar_string(
+            value,
+            &[
+                &["tokens", "token_expired_at"],
+                &["tokens", "tokenExpiredAt"],
+                &["tokens", "expired"],
+                &["tokens", "expired_at"],
+                &["tokens", "expires_at"],
+            ],
+        )
+    })
+}
+
 fn read_json_i64(value: &serde_json::Value, keys: &[&str]) -> Option<i64> {
     keys.iter().find_map(|key| {
         let item = value.get(*key)?;
@@ -1814,6 +1961,9 @@ fn apply_compat_account_metadata(
         &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
     )
     .or_else(|| account.bound_phone.clone());
+    account.token_expired_at = read_token_expired_at_metadata(value)
+        .or_else(|| account.token_expired_at.clone())
+        .or_else(|| infer_token_expired_at_from_tokens(&account.tokens));
     account.auth_file_plan_type =
         read_json_string(value, &["auth_file_plan_type", "authFilePlanType"])
             .or_else(|| account.auth_file_plan_type.clone());
@@ -1988,7 +2138,8 @@ fn load_account_with_summary(
 
     let content = fs::read_to_string(&path)
         .map_err(|error| format!("读取账号详情失败 ({}): {}", path.display(), error))?;
-    if let Ok(account) = serde_json::from_str::<CodexAccount>(&content) {
+    if let Ok(mut account) = serde_json::from_str::<CodexAccount>(&content) {
+        ensure_account_token_expired_at(&mut account);
         return Ok(Some(account));
     }
 
@@ -2263,6 +2414,7 @@ fn upsert_account_with_hints(
         tokens = retain_existing_refresh_token_if_missing(tokens, Some(&acc));
         acc.tokens = tokens;
         mark_token_chain_updated(&mut acc);
+        acc.token_expired_at = infer_token_expired_at_from_tokens(&acc.tokens);
         acc.auth_mode = CodexAuthMode::OAuth;
         acc.openai_api_key = None;
         acc.api_base_url = None;
@@ -2282,6 +2434,7 @@ fn upsert_account_with_hints(
         tokens = retain_existing_refresh_token_if_missing(tokens, None);
         let mut acc = CodexAccount::new(existing_id.clone(), email.clone(), tokens);
         mark_token_chain_updated(&mut acc);
+        acc.token_expired_at = infer_token_expired_at_from_tokens(&acc.tokens);
         acc.auth_mode = CodexAuthMode::OAuth;
         acc.openai_api_key = None;
         acc.api_base_url = None;
@@ -3930,8 +4083,16 @@ fn import_account_struct(account: CodexAccount) -> Result<CodexAccount, String> 
 
     let imported_auth_file_plan_type =
         normalize_auth_file_plan_type(account.auth_file_plan_type.as_deref());
+    let imported_token_expired_at = account.token_expired_at.clone();
     let mut imported = upsert_account(account.tokens)?;
-    if apply_auth_file_plan_type(&mut imported, imported_auth_file_plan_type) {
+    if imported_token_expired_at.is_some() {
+        imported.token_expired_at = imported_token_expired_at;
+    } else {
+        ensure_account_token_expired_at(&mut imported);
+    }
+    if apply_auth_file_plan_type(&mut imported, imported_auth_file_plan_type)
+        || imported.token_expired_at.is_some()
+    {
         save_account(&imported)?;
     }
     Ok(imported)
@@ -3948,7 +4109,7 @@ fn upsert_account_from_auth_tokens(tokens: CodexAuthTokens) -> Result<CodexAccou
     if normalize_optional_ref(Some(&tokens.id_token)).is_none()
         && decode_jwt_payload_value(&tokens.access_token).is_some()
     {
-        return upsert_account_from_access_token(tokens.access_token, None);
+        return upsert_account_from_access_token(tokens.access_token, None, None);
     }
 
     upsert_account_with_hints(tokens, account_id_hint, None)
@@ -3959,14 +4120,17 @@ enum CodexJsonImportCandidate {
         tokens: CodexTokens,
         account_id_hint: Option<String>,
         account_note: Option<String>,
+        token_expired_at: Option<String>,
     },
     AccessToken {
         access_token: String,
         account_note: Option<String>,
+        token_expired_at: Option<String>,
     },
     RefreshToken {
         refresh_token: String,
         account_note: Option<String>,
+        token_expired_at: Option<String>,
     },
 }
 
@@ -4077,6 +4241,8 @@ fn extract_codex_session_candidate_from_value(
         account_id_hint,
         account_note: extract_account_note_from_value(value)
             .or_else(|| extract_account_note_from_value(&session)),
+        token_expired_at: read_token_expired_at_metadata(value)
+            .or_else(|| read_token_expired_at_metadata(&session)),
     })
 }
 
@@ -4130,6 +4296,7 @@ fn extract_codex_import_candidate_from_value(
             tokens,
             account_id_hint,
             account_note: extract_account_note_from_value(value),
+            token_expired_at: read_token_expired_at_metadata(value),
         });
     }
 
@@ -4137,6 +4304,7 @@ fn extract_codex_import_candidate_from_value(
         return Some(CodexJsonImportCandidate::RefreshToken {
             refresh_token,
             account_note: extract_account_note_from_value(value),
+            token_expired_at: read_token_expired_at_metadata(value),
         });
     }
 
@@ -4144,6 +4312,7 @@ fn extract_codex_import_candidate_from_value(
         CodexJsonImportCandidate::AccessToken {
             access_token,
             account_note: extract_account_note_from_value(value),
+            token_expired_at: read_token_expired_at_metadata(value),
         }
     })
 }
@@ -4151,11 +4320,15 @@ fn extract_codex_import_candidate_from_value(
 async fn upsert_account_from_refresh_token(
     refresh_token: String,
     account_note: Option<String>,
+    token_expired_at: Option<String>,
 ) -> Result<CodexAccount, String> {
     let tokens = codex_oauth::refresh_access_token(&refresh_token).await?;
     let mut account = upsert_account(tokens)?;
-    if account_note.is_some() {
+    if account_note.is_some() || token_expired_at.is_some() {
         account.account_note = account_note;
+        account.token_expired_at = token_expired_at
+            .or_else(|| account.token_expired_at.clone())
+            .or_else(|| infer_token_expired_at_from_tokens(&account.tokens));
         save_account(&account)?;
     }
     Ok(account)
@@ -4164,6 +4337,7 @@ async fn upsert_account_from_refresh_token(
 fn upsert_account_from_access_token(
     access_token: String,
     account_note: Option<String>,
+    token_expired_at: Option<String>,
 ) -> Result<CodexAccount, String> {
     let access_token =
         normalize_optional_value(Some(access_token)).ok_or("accessToken 不能为空")?;
@@ -4216,6 +4390,9 @@ fn upsert_account_from_access_token(
         if account_note.is_some() {
             acc.account_note = account_note;
         }
+        acc.token_expired_at = token_expired_at
+            .clone()
+            .or_else(|| infer_token_expired_at_from_tokens(&acc.tokens));
         acc.update_last_used();
         acc
     } else {
@@ -4235,6 +4412,9 @@ fn upsert_account_from_access_token(
         acc.account_id = account_id.clone();
         acc.organization_id = organization_id.clone();
         acc.account_note = account_note;
+        acc.token_expired_at = token_expired_at
+            .clone()
+            .or_else(|| infer_token_expired_at_from_tokens(&acc.tokens));
 
         index.accounts.retain(|item| item.id != existing_id);
         index.accounts.push(CodexAccountSummary {
@@ -4284,10 +4464,14 @@ async fn import_codex_candidate(
             tokens,
             account_id_hint,
             account_note,
+            token_expired_at,
         } => {
             let mut account = upsert_account_with_hints(tokens, account_id_hint, None)?;
-            if account_note.is_some() {
+            if account_note.is_some() || token_expired_at.is_some() {
                 account.account_note = account_note;
+                account.token_expired_at = token_expired_at
+                    .or_else(|| account.token_expired_at.clone())
+                    .or_else(|| infer_token_expired_at_from_tokens(&account.tokens));
                 save_account(&account)?;
             }
             Ok(account)
@@ -4295,11 +4479,13 @@ async fn import_codex_candidate(
         CodexJsonImportCandidate::AccessToken {
             access_token,
             account_note,
-        } => upsert_account_from_access_token(access_token, account_note),
+            token_expired_at,
+        } => upsert_account_from_access_token(access_token, account_note, token_expired_at),
         CodexJsonImportCandidate::RefreshToken {
             refresh_token,
             account_note,
-        } => upsert_account_from_refresh_token(refresh_token, account_note).await,
+            token_expired_at,
+        } => upsert_account_from_refresh_token(refresh_token, account_note, token_expired_at).await,
     }
 }
 
@@ -4524,7 +4710,13 @@ pub async fn import_from_json(json_content: &str) -> Result<Vec<CodexAccount>, S
         }
 
         if let Some(tokens) = auth_file.tokens {
-            let account = upsert_account_from_auth_tokens(tokens)?;
+            let mut account = upsert_account_from_auth_tokens(tokens)?;
+            if let Some(value) = raw_value.as_ref() {
+                if let Some(token_expired_at) = read_token_expired_at_metadata(value) {
+                    account.token_expired_at = Some(token_expired_at);
+                    save_account(&account)?;
+                }
+            }
             return Ok(vec![account]);
         }
 
@@ -4666,6 +4858,23 @@ fn format_timestamp_rfc3339(timestamp: i64) -> Option<String> {
         .map(|datetime| datetime.to_rfc3339())
 }
 
+fn infer_token_expired_at_from_tokens(tokens: &CodexTokens) -> Option<String> {
+    decode_jwt_payload_value(&tokens.access_token)
+        .and_then(|payload| payload.get("exp").and_then(|value| value.as_i64()))
+        .and_then(format_timestamp_rfc3339)
+        .or_else(|| {
+            decode_jwt_payload_value(&tokens.id_token)
+                .and_then(|payload| payload.get("exp").and_then(|value| value.as_i64()))
+                .and_then(format_timestamp_rfc3339)
+        })
+}
+
+fn ensure_account_token_expired_at(account: &mut CodexAccount) {
+    if normalize_optional_ref(account.token_expired_at.as_deref()).is_none() {
+        account.token_expired_at = infer_token_expired_at_from_tokens(&account.tokens);
+    }
+}
+
 fn format_cpa_last_refresh(account: &CodexAccount) -> String {
     account
         .token_updated_at
@@ -4683,14 +4892,8 @@ fn resolve_cpa_account_id(account: &CodexAccount) -> Option<String> {
 }
 
 fn resolve_cpa_expired(account: &CodexAccount) -> String {
-    decode_jwt_payload_value(&account.tokens.access_token)
-        .and_then(|payload| payload.get("exp").and_then(|value| value.as_i64()))
-        .and_then(format_timestamp_rfc3339)
-        .or_else(|| {
-            decode_jwt_payload_value(&account.tokens.id_token)
-                .and_then(|payload| payload.get("exp").and_then(|value| value.as_i64()))
-                .and_then(format_timestamp_rfc3339)
-        })
+    normalize_optional_ref(account.token_expired_at.as_deref())
+        .or_else(|| infer_token_expired_at_from_tokens(&account.tokens))
         .unwrap_or_default()
 }
 
@@ -5742,6 +5945,7 @@ mod tests {
                 tokens,
                 account_id_hint,
                 account_note,
+                ..
             } => {
                 assert_eq!(tokens.id_token, tokens.access_token);
                 assert_eq!(tokens.refresh_token.as_deref(), Some("encrypted-session"));
@@ -5819,6 +6023,7 @@ mod tests {
             CodexJsonImportCandidate::AccessToken {
                 access_token,
                 account_note,
+                ..
             } => {
                 assert_eq!(account_note.as_deref(), Some("imported from sub2api"));
                 assert!(decode_jwt_payload_value(&access_token).is_some());
@@ -5872,6 +6077,7 @@ mod tests {
         let account = upsert_account_from_access_token(
             access_token.clone(),
             Some("imported from accessToken".to_string()),
+            None,
         )
         .expect("upsert access token account");
 
@@ -5985,7 +6191,8 @@ mod tests {
         }));
 
         let account =
-            upsert_account_from_access_token(access_token.clone(), None).expect("upsert AT only");
+            upsert_account_from_access_token(access_token.clone(), None, None)
+                .expect("upsert AT only");
 
         assert_eq!(account.id, existing.id);
         assert_eq!(account.tokens.access_token, access_token);

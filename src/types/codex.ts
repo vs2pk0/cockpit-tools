@@ -37,6 +37,7 @@ export interface CodexAccount {
   bound_phone?: string;
   app_speed?: CodexAppSpeed;
   tokens: CodexTokens;
+  token_expired_at?: string;
   token_generation?: number;
   token_updated_at?: number;
   token_source_mode?: string;
@@ -627,7 +628,7 @@ export function parseCodexSubscriptionDate(value?: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function formatCodexSubscriptionDate(date: Date): string {
+export function formatCodexDateUtcPlus8(date: Date): string {
   const shifted = new Date(date.getTime() + 8 * HOUR_IN_MS);
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())} ${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}`;
@@ -667,7 +668,7 @@ export function getCodexSubscriptionPresentation(
 
   const timestampMs = date.getTime();
   const diffMs = timestampMs - Date.now();
-  const detailText = formatCodexSubscriptionDate(date);
+  const detailText = formatCodexDateUtcPlus8(date);
 
   if (diffMs <= 0) {
     const valueText = t("codex.subscription.expired");

@@ -23,6 +23,14 @@ export async function getCurrentCodexAccount(): Promise<CodexAccount | null> {
   return await invoke('get_current_codex_account');
 }
 
+export async function getCodexCustomSortOrder(): Promise<string[]> {
+  return await invoke('get_codex_custom_sort_order');
+}
+
+export async function saveCodexCustomSortOrder(order: string[]): Promise<string[]> {
+  return await invoke('save_codex_custom_sort_order', { order });
+}
+
 /** 获取当前 Codex config.toml 路径 */
 export async function getCodexConfigTomlPath(): Promise<string> {
   return await invoke('get_codex_config_toml_path');

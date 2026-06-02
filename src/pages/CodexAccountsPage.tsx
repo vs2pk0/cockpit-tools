@@ -96,6 +96,8 @@ import {
   isCodexApiKeyAccount,
   isCodexNewApiAccount,
   isCodexTeamLikePlan,
+  formatCodexDateUtcPlus8,
+  parseCodexSubscriptionDate,
   type CodexApiProviderMode,
   type CodexQuotaErrorInfo,
 } from "../types/codex";
@@ -288,6 +290,8 @@ const CODEX_LOCAL_ACCESS_ADDRESS_KIND_KEY =
 const CODEX_LOCAL_ACCESS_GATEWAY_GUIDE_DISMISSED_KEY =
   "agtools.codex.api_service.gateway_guide.dismissed.v1";
 const CODEX_CUSTOM_SORT_ORDER_KEY =
+  "agtools.codex.accounts.custom_sort_order.v2";
+const CODEX_LEGACY_CUSTOM_SORT_ORDER_KEY =
   "agtools.codex.accounts.custom_sort_order.v1";
 const CODEX_SORT_PREFERENCE_KEY =
   "agtools.codex.accounts.sort_preference.v1";
@@ -592,7 +596,9 @@ function getCockpitApiStatsRecord(
 
 function readCodexCustomSortOrder(): string[] {
   try {
-    const raw = localStorage.getItem(CODEX_CUSTOM_SORT_ORDER_KEY);
+    const raw =
+      localStorage.getItem(CODEX_CUSTOM_SORT_ORDER_KEY) ||
+      localStorage.getItem(CODEX_LEGACY_CUSTOM_SORT_ORDER_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -611,9 +617,123 @@ function writeCodexCustomSortOrder(accountIds: string[]): void {
       CODEX_CUSTOM_SORT_ORDER_KEY,
       JSON.stringify(accountIds),
     );
+    localStorage.removeItem(CODEX_LEGACY_CUSTOM_SORT_ORDER_KEY);
   } catch {
     // ignore persistence failures
   }
+}
+
+function normalizeCodexCustomSortToken(value?: string | null): string {
+  return (value || "").trim();
+}
+
+function normalizeCodexCustomSortTokenPart(value?: string | null): string {
+  return normalizeCodexCustomSortToken(value).toLowerCase();
+}
+
+function pushCodexCustomSortToken(
+  tokens: string[],
+  seen: Set<string>,
+  token: string,
+): void {
+  const normalized = normalizeCodexCustomSortToken(token);
+  if (!normalized || seen.has(normalized)) return;
+  seen.add(normalized);
+  tokens.push(normalized);
+}
+
+function buildCodexAccountCustomSortTokens(account: CodexAccount): string[] {
+  const tokens: string[] = [];
+  const seen = new Set<string>();
+  const metadata = getCodexAuthMetadata(account);
+  const remoteAccountId = normalizeCodexCustomSortTokenPart(
+    account.account_id || metadata.chatgptAccountId,
+  );
+  const organizationId = normalizeCodexCustomSortTokenPart(
+    account.organization_id,
+  );
+  const userId = normalizeCodexCustomSortTokenPart(
+    account.user_id || metadata.userId,
+  );
+  const email = normalizeCodexCustomSortTokenPart(account.email);
+
+  if (remoteAccountId) {
+    pushCodexCustomSortToken(
+      tokens,
+      seen,
+      organizationId
+        ? `remote:${remoteAccountId}:org:${organizationId}`
+        : `remote:${remoteAccountId}`,
+    );
+  }
+  if (userId && organizationId) {
+    pushCodexCustomSortToken(tokens, seen, `user:${userId}:org:${organizationId}`);
+  }
+  if (isCodexApiKeyAccount(account)) {
+    const providerId = normalizeCodexCustomSortTokenPart(
+      account.api_provider_id || account.api_provider_name,
+    );
+    const baseUrl = normalizeCodexCustomSortTokenPart(
+      normalizeHttpBaseUrl(account.api_base_url || "") || "",
+    );
+    if (providerId || baseUrl || email) {
+      pushCodexCustomSortToken(
+        tokens,
+        seen,
+        `api:${providerId || "default"}:${baseUrl || "openai"}:${email}`,
+      );
+    }
+  }
+  if (email) {
+    pushCodexCustomSortToken(tokens, seen, `email:${email}`);
+  }
+  pushCodexCustomSortToken(tokens, seen, `id:${account.id}`);
+  pushCodexCustomSortToken(tokens, seen, account.id);
+
+  return tokens;
+}
+
+function getCodexAccountCustomSortKey(account: CodexAccount): string {
+  return buildCodexAccountCustomSortTokens(account)[0] || `id:${account.id}`;
+}
+
+function reconcileCodexCustomSortOrder(
+  order: string[],
+  accountList: CodexAccount[],
+): string[] {
+  const tokenToPrimary = new Map<string, string>();
+  const appendTokenMapping = (token: string, primary: string) => {
+    const normalized = normalizeCodexCustomSortToken(token);
+    if (!normalized || tokenToPrimary.has(normalized)) return;
+    tokenToPrimary.set(normalized, primary);
+  };
+
+  accountList.forEach((account) => {
+    const primary = getCodexAccountCustomSortKey(account);
+    appendTokenMapping(account.id, primary);
+    buildCodexAccountCustomSortTokens(account).forEach((token) =>
+      appendTokenMapping(token, primary),
+    );
+  });
+
+  const next: string[] = [];
+  const seen = new Set<string>();
+  const append = (rawToken: string) => {
+    const normalized = normalizeCodexCustomSortToken(rawToken);
+    if (!normalized) return;
+    const resolved =
+      tokenToPrimary.get(normalized) ||
+      tokenToPrimary.get(`id:${normalized}`) ||
+      normalized;
+    if (seen.has(resolved)) return;
+    seen.add(resolved);
+    next.push(resolved);
+  };
+
+  order.forEach(append);
+  accountList.forEach((account) => append(getCodexAccountCustomSortKey(account)));
+
+  return next;
 }
 
 interface CodexOverviewGeneralConfig {
@@ -2705,6 +2825,8 @@ export function CodexAccountsPage() {
   const [customSortOrder, setCustomSortOrder] = useState<string[]>(
     readCodexCustomSortOrder,
   );
+  const [customSortPreferenceLoaded, setCustomSortPreferenceLoaded] =
+    useState(false);
   const [showCustomSortModal, setShowCustomSortModal] = useState(false);
   const [draggedCustomSortAccountId, setDraggedCustomSortAccountId] = useState<
     string | null
@@ -2990,27 +3112,54 @@ export function CodexAccountsPage() {
   }, [accounts]);
 
   useEffect(() => {
-    const accountIds = accounts.map((account) => account.id);
-    const accountIdSet = new Set(accountIds);
-    setCustomSortOrder((prev) => {
-      const next = prev.filter((accountId) => accountIdSet.has(accountId));
-      const seen = new Set(next);
-      for (const accountId of accountIds) {
-        if (!seen.has(accountId)) {
-          next.push(accountId);
-          seen.add(accountId);
+    let cancelled = false;
+    const loadCustomSortOrder = async () => {
+      try {
+        const storedOrder = await codexService.getCodexCustomSortOrder();
+        if (cancelled) return;
+        setCustomSortOrder((prev) =>
+          reconcileCodexCustomSortOrder(
+            storedOrder.length > 0 ? storedOrder : prev,
+            accounts,
+          ),
+        );
+      } catch (error) {
+        console.warn("[CodexSort] 加载自定义排序偏好失败", error);
+        if (!cancelled) {
+          setCustomSortOrder((prev) =>
+            reconcileCodexCustomSortOrder(prev, accounts),
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setCustomSortPreferenceLoaded(true);
         }
       }
-      const unchanged =
-        next.length === prev.length &&
-        next.every((accountId, index) => accountId === prev[index]);
-      return unchanged ? prev : next;
-    });
-  }, [accounts]);
+    };
+    void loadCustomSortOrder();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
+    if (!customSortPreferenceLoaded) return;
+    setCustomSortOrder((prev) => {
+      const next = reconcileCodexCustomSortOrder(prev, accounts);
+      const unchanged =
+        next.length === prev.length &&
+        next.every((token, index) => token === prev[index]);
+      return unchanged ? prev : next;
+    });
+  }, [accounts, customSortPreferenceLoaded]);
+
+  useEffect(() => {
+    if (!customSortPreferenceLoaded) return;
     writeCodexCustomSortOrder(customSortOrder);
-  }, [customSortOrder]);
+    void codexService.saveCodexCustomSortOrder(customSortOrder).catch((error) => {
+      console.warn("[CodexSort] 保存自定义排序偏好失败", error);
+    });
+  }, [customSortOrder, customSortPreferenceLoaded]);
 
   useEffect(() => {
     if (!showCustomSortModal || !draggedCustomSortAccountId) return;
@@ -4960,6 +5109,22 @@ export function CodexAccountsPage() {
     [t],
   );
 
+  const resolveTokenExpiryPresentation = useCallback(
+    (account: CodexAccount) => {
+      const date = parseCodexSubscriptionDate(account.token_expired_at);
+      if (!date) return null;
+      const detailText = formatCodexDateUtcPlus8(date);
+      return {
+        detailText,
+        titleText: t("codex.tokenExpiry.titleWithDate", {
+          date: detailText,
+          defaultValue: "Token 过期时间：{{date}}",
+        }),
+      };
+    },
+    [t],
+  );
+
   const resolveSingleExportBaseName = useCallback(
     (account: CodexAccount) => {
       const display = (
@@ -6454,8 +6619,8 @@ export function CodexAccountsPage() {
   // ─── Filtering & Sorting ────────────────────────────────────────────
   const customSortOrderIndex = useMemo(() => {
     const map = new Map<string, number>();
-    customSortOrder.forEach((accountId, index) => {
-      map.set(accountId, index);
+    customSortOrder.forEach((token, index) => {
+      map.set(token, index);
     });
     return map;
   }, [customSortOrder]);
@@ -6467,9 +6632,11 @@ export function CodexAccountsPage() {
     (a: CodexAccount, b: CodexAccount) => {
       if (sortBy === "custom") {
         const aIndex =
-          customSortOrderIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+          customSortOrderIndex.get(getCodexAccountCustomSortKey(a)) ??
+          Number.MAX_SAFE_INTEGER;
         const bIndex =
-          customSortOrderIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+          customSortOrderIndex.get(getCodexAccountCustomSortKey(b)) ??
+          Number.MAX_SAFE_INTEGER;
         if (aIndex !== bIndex) {
           return aIndex - bIndex;
         }
@@ -6636,17 +6803,22 @@ export function CodexAccountsPage() {
   );
   const isCustomSortActive = sortBy === "custom";
   const customSortAccounts = useMemo(() => {
-    const accountMap = new Map(
-      accounts.map((account) => [account.id, account]),
-    );
+    const accountMap = new Map<string, CodexAccount>();
+    accounts.forEach((account) => {
+      buildCodexAccountCustomSortTokens(account).forEach((token) => {
+        if (!accountMap.has(token)) {
+          accountMap.set(token, account);
+        }
+      });
+    });
     const result: CodexAccount[] = [];
     const seen = new Set<string>();
 
-    customSortOrder.forEach((accountId) => {
-      const account = accountMap.get(accountId);
-      if (!account || seen.has(accountId)) return;
+    customSortOrder.forEach((token) => {
+      const account = accountMap.get(token);
+      if (!account || seen.has(account.id)) return;
       result.push(account);
-      seen.add(accountId);
+      seen.add(account.id);
     });
 
     accounts.forEach((account) => {
@@ -6661,6 +6833,10 @@ export function CodexAccountsPage() {
     () => customSortAccounts.map((account) => account.id),
     [customSortAccounts],
   );
+  const customSortAccountKeys = useMemo(
+    () => customSortAccounts.map(getCodexAccountCustomSortKey),
+    [customSortAccounts],
+  );
   const moveCustomSortAccount = useCallback(
     (accountId: string, direction: "up" | "down") => {
       const currentIndex = customSortAccountIds.indexOf(accountId);
@@ -6668,12 +6844,12 @@ export function CodexAccountsPage() {
       const targetIndex =
         direction === "up" ? currentIndex - 1 : currentIndex + 1;
       if (targetIndex < 0 || targetIndex >= customSortAccountIds.length) return;
-      const next = [...customSortAccountIds];
+      const next = [...customSortAccountKeys];
       const [moved] = next.splice(currentIndex, 1);
       next.splice(targetIndex, 0, moved);
       setCustomSortOrder(next);
     },
-    [customSortAccountIds],
+    [customSortAccountIds, customSortAccountKeys],
   );
   const stopCustomSortDragging = useCallback(() => {
     setDraggedCustomSortAccountId(null);
@@ -6702,15 +6878,15 @@ export function CodexAccountsPage() {
       const toIndex = customSortAccountIds.indexOf(targetAccountId);
       if (fromIndex < 0 || toIndex < 0) return;
       setCustomSortDropTargetId(targetAccountId);
-      const next = [...customSortAccountIds];
+      const next = [...customSortAccountKeys];
       const [moved] = next.splice(fromIndex, 1);
       next.splice(toIndex, 0, moved);
       setCustomSortOrder(next);
     },
-    [customSortAccountIds, draggedCustomSortAccountId],
+    [customSortAccountIds, customSortAccountKeys, draggedCustomSortAccountId],
   );
   const resetCustomSortOrder = useCallback(() => {
-    setCustomSortOrder(accounts.map((account) => account.id));
+    setCustomSortOrder(accounts.map(getCodexAccountCustomSortKey));
   }, [accounts]);
   const handleSortByChange = useCallback(
     (value: string) => {
@@ -7075,6 +7251,7 @@ export function CodexAccountsPage() {
       const moreTagCount = Math.max(0, accountTags.length - visibleTags.length);
       const isInLocalAccess = localAccessAccountIdSet.has(account.id);
       const subscriptionInfo = resolveSubscriptionPresentation(account);
+      const tokenExpiryInfo = resolveTokenExpiryPresentation(account);
       const isSubscriptionInfoMissing = subscriptionInfo.bucket === "missing";
       const showSubscriptionRefreshAction =
         !isApiKeyAccount &&
@@ -7310,6 +7487,17 @@ export function CodexAccountsPage() {
                   {subscriptionInfo.timestampMs != null && (
                     <span className="codex-subscription-footer-date">
                       {subscriptionInfo.detailText}
+                    </span>
+                  )}
+                  {tokenExpiryInfo && (
+                    <span
+                      className="codex-token-expiry-footer-date"
+                      title={tokenExpiryInfo.titleText}
+                    >
+                      {t("codex.tokenExpiry.inlineLabel", {
+                        date: tokenExpiryInfo.detailText,
+                        defaultValue: "Token {{date}}",
+                      })}
                     </span>
                   )}
                   {showSubscriptionRefreshAction && (
@@ -8411,6 +8599,7 @@ export function CodexAccountsPage() {
       const apiBaseUrlLine = `${t("codex.api.baseUrl", "Base URL")}：${apiBaseUrlText}`;
       const isInLocalAccess = localAccessAccountIdSet.has(account.id);
       const subscriptionInfo = resolveSubscriptionPresentation(account);
+      const tokenExpiryInfo = resolveTokenExpiryPresentation(account);
       const showSubscriptionRefreshAction =
         !isApiKeyAccount &&
         (subscriptionInfo.bucket === "missing" ||
@@ -8597,6 +8786,17 @@ export function CodexAccountsPage() {
                 {subscriptionInfo.timestampMs != null && (
                   <span className="codex-subscription-date">
                     {subscriptionInfo.detailText}
+                  </span>
+                )}
+                {tokenExpiryInfo && (
+                  <span
+                    className="codex-token-expiry-footer-date"
+                    title={tokenExpiryInfo.titleText}
+                  >
+                    {t("codex.tokenExpiry.inlineLabel", {
+                      date: tokenExpiryInfo.detailText,
+                      defaultValue: "Token {{date}}",
+                    })}
                   </span>
                 )}
               </div>

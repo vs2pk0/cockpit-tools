@@ -59,6 +59,16 @@ pub fn get_current_codex_account() -> Result<Option<CodexAccount>, String> {
 }
 
 #[tauri::command]
+pub fn get_codex_custom_sort_order() -> Result<Vec<String>, String> {
+    Ok(codex_account::load_custom_sort_order())
+}
+
+#[tauri::command]
+pub fn save_codex_custom_sort_order(order: Vec<String>) -> Result<Vec<String>, String> {
+    codex_account::save_custom_sort_order(order)
+}
+
+#[tauri::command]
 pub fn get_codex_config_toml_path() -> Result<String, String> {
     let path = codex_account::get_codex_home().join("config.toml");
     Ok(path.to_string_lossy().to_string())
