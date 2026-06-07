@@ -25,6 +25,7 @@ import (
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/usage"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/sjson"
 )
 
 // ProviderExecutor defines the contract required by Manager to execute provider calls.
@@ -1581,7 +1582,8 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			lastErr = errPrepare
 			continue
 		}
-		streamResult, errStream := m.executeStreamWithModelPool(execCtx, executor, auth, provider, req, opts, routeModel, models, pooled)
+		execReq := sanitizeDownstreamWebsocketFallbackRequest(execCtx, auth, req)
+		streamResult, errStream := m.executeStreamWithModelPool(execCtx, executor, auth, provider, execReq, opts, routeModel, models, pooled)
 		if errStream != nil {
 			if errCtx := execCtx.Err(); errCtx != nil {
 				return nil, errCtx
@@ -1597,6 +1599,18 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 		}
 		return streamResult, nil
 	}
+}
+
+func sanitizeDownstreamWebsocketFallbackRequest(ctx context.Context, auth *Auth, req cliproxyexecutor.Request) cliproxyexecutor.Request {
+	if !cliproxyexecutor.DownstreamWebsocket(ctx) || authWebsocketsEnabled(auth) || len(req.Payload) == 0 {
+		return req
+	}
+	updated, errDelete := sjson.DeleteBytes(req.Payload, "generate")
+	if errDelete != nil {
+		return req
+	}
+	req.Payload = updated
+	return req
 }
 
 func ensureRequestedModelMetadata(opts cliproxyexecutor.Options, requestedModel string) cliproxyexecutor.Options {
@@ -1731,8 +1745,13 @@ func (m *Manager) prepareRequestAuth(ctx context.Context, executor ProviderExecu
 func contextWithRequestedModelAlias(ctx context.Context, opts cliproxyexecutor.Options, fallback string) context.Context {
 	alias := requestedModelAliasFromOptions(opts, fallback)
 	ctx = coreusage.WithRequestedModelAlias(ctx, alias)
-	if effort := reasoningEffortFromOptions(opts); effort != "" {
+	effort := reasoningEffortFromOptions(opts)
+	if effort != "" {
 		ctx = coreusage.WithReasoningEffort(ctx, effort)
+	}
+	serviceTier := serviceTierFromOptions(opts)
+	if serviceTier != "" {
+		ctx = coreusage.WithServiceTier(ctx, serviceTier)
 	}
 	return ctx
 }
@@ -1767,6 +1786,24 @@ func reasoningEffortFromOptions(opts cliproxyexecutor.Options) string {
 		return ""
 	}
 	raw, ok := opts.Metadata[cliproxyexecutor.ReasoningEffortMetadataKey]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch value := raw.(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case []byte:
+		return strings.TrimSpace(string(value))
+	default:
+		return ""
+	}
+}
+
+func serviceTierFromOptions(opts cliproxyexecutor.Options) string {
+	if len(opts.Metadata) == 0 {
+		return ""
+	}
+	raw, ok := opts.Metadata[cliproxyexecutor.ServiceTierMetadataKey]
 	if !ok || raw == nil {
 		return ""
 	}
@@ -2977,6 +3014,52 @@ func (m *Manager) routeAwareSelectionRequired(auth *Auth, routeModel string) boo
 	return m.selectionModelKeyForAuth(auth, routeModel) != canonicalModelKey(routeModel)
 }
 
+func scopedAccountIDSetFromContext(ctx context.Context) map[string]struct{} {
+	if ctx == nil {
+		return nil
+	}
+	ginCtx, ok := ctx.Value("gin").(interface{ Get(string) (any, bool) })
+	if !ok || ginCtx == nil {
+		return nil
+	}
+	rawMetadata, ok := ginCtx.Get("accessMetadata")
+	if !ok {
+		return nil
+	}
+	var accountIDs string
+	switch v := rawMetadata.(type) {
+	case map[string]string:
+		accountIDs = strings.TrimSpace(v["account_ids"])
+	case map[string]any:
+		accountIDs = contextStringValue(v["account_ids"])
+	}
+	if accountIDs == "" {
+		return nil
+	}
+	out := make(map[string]struct{})
+	for _, item := range strings.Split(accountIDs, ",") {
+		accountID := strings.TrimSpace(item)
+		if accountID != "" {
+			out[accountID] = struct{}{}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func authAllowedByScope(auth *Auth, scopedAccountIDs map[string]struct{}) bool {
+	if len(scopedAccountIDs) == 0 {
+		return true
+	}
+	if auth == nil {
+		return false
+	}
+	_, ok := scopedAccountIDs[auth.ID]
+	return ok
+}
+
 func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, error) {
 	if m.HomeEnabled() {
 		auth, exec, _, err := m.pickNextViaHome(ctx, model, opts, tried)
@@ -2985,6 +3068,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
+	scopedAccountIDs := scopedAccountIDSetFromContext(ctx)
 
 	m.mu.RLock()
 	executor, okExecutor := m.executors[provider]
@@ -3004,6 +3088,9 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 	registryRef := registry.GetGlobalRegistry()
 	for _, candidate := range m.auths {
 		if candidate.Provider != provider || candidate.Disabled {
+			continue
+		}
+		if !authAllowedByScope(candidate, scopedAccountIDs) {
 			continue
 		}
 		if pinnedAuthID != "" && candidate.ID != pinnedAuthID {
@@ -3058,6 +3145,9 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 	}
 
 	if !m.useSchedulerFastPath() {
+		return m.pickNextLegacy(ctx, provider, model, opts, tried)
+	}
+	if len(scopedAccountIDSetFromContext(ctx)) > 0 {
 		return m.pickNextLegacy(ctx, provider, model, opts, tried)
 	}
 	if strings.TrimSpace(model) != "" {
@@ -3120,6 +3210,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	disallowFreeAuth := disallowFreeAuthFromMetadata(opts.Metadata)
+	scopedAccountIDs := scopedAccountIDSetFromContext(ctx)
 
 	providerSet := make(map[string]struct{}, len(providers))
 	for _, provider := range providers {
@@ -3146,6 +3237,9 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 	registryRef := registry.GetGlobalRegistry()
 	for _, candidate := range m.auths {
 		if candidate == nil || candidate.Disabled {
+			continue
+		}
+		if !authAllowedByScope(candidate, scopedAccountIDs) {
 			continue
 		}
 		if pinnedAuthID != "" && candidate.ID != pinnedAuthID {
@@ -3215,6 +3309,9 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 	}
 
 	if !m.useSchedulerFastPath() {
+		return m.pickNextMixedLegacy(ctx, providers, model, opts, tried)
+	}
+	if len(scopedAccountIDSetFromContext(ctx)) > 0 {
 		return m.pickNextMixedLegacy(ctx, providers, model, opts, tried)
 	}
 
@@ -3331,12 +3428,38 @@ func shouldReturnLastErrorOnPickFailure(homeMode bool, lastErr error, errPick er
 	return isHomeRequestRetryExceededError(errPick)
 }
 
+func homeAuthAlreadyTried(tried map[string]struct{}, authID string) bool {
+	authID = strings.TrimSpace(authID)
+	if authID == "" || len(tried) == 0 {
+		return false
+	}
+	_, ok := tried[authID]
+	return ok
+}
+
+func repeatedHomeAuthError() *Error {
+	return &Error{
+		Code:       homeRequestRetryExceededErrorCode,
+		Message:    "home returned a previously tried auth",
+		HTTPStatus: http.StatusServiceUnavailable,
+	}
+}
+
 type homeAuthDispatchResponse struct {
 	Model      string `json:"model"`
 	Provider   string `json:"provider"`
 	AuthIndex  string `json:"auth_index"`
 	UserAPIKey string `json:"user_api_key"`
 	Auth       Auth   `json:"auth"`
+}
+
+type homeAuthDispatcher interface {
+	HeartbeatOK() bool
+	RPopAuth(ctx context.Context, requestedModel string, sessionID string, headers http.Header, count int) ([]byte, error)
+}
+
+var currentHomeDispatcher = func() homeAuthDispatcher {
+	return home.Current()
 }
 
 func setHomeUserAPIKeyOnGinContext(ctx context.Context, apiKey string) {
@@ -3538,7 +3661,7 @@ func (m *Manager) pickNextViaHome(ctx context.Context, model string, opts clipro
 		}
 	}
 
-	client := home.Current()
+	client := currentHomeDispatcher()
 	if client == nil || !client.HeartbeatOK() {
 		return nil, nil, "", &Error{Code: "home_unavailable", Message: "home control center unavailable", HTTPStatus: http.StatusServiceUnavailable}
 	}
@@ -3592,6 +3715,9 @@ func (m *Manager) pickNextViaHome(ctx context.Context, model string, opts clipro
 	}
 	if strings.TrimSpace(auth.ID) == "" {
 		return nil, nil, "", &Error{Code: "invalid_auth", Message: "home returned auth without id", HTTPStatus: http.StatusBadGateway}
+	}
+	if homeAuthAlreadyTried(tried, auth.ID) {
+		return nil, nil, "", repeatedHomeAuthError()
 	}
 	providerKey := strings.ToLower(strings.TrimSpace(auth.Provider))
 	if providerKey == "" {

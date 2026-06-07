@@ -71,6 +71,7 @@ export interface CodexLocalAccessApiKey {
   id: string;
   label: string;
   key: string;
+  accountIds?: string[];
   modelPrefix?: string | null;
   allowedModels: string[];
   excludedModels: string[];

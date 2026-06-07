@@ -20,6 +20,13 @@ pub struct CodexLaunchCredentialChange {
     pub to: String,
 }
 
+#[derive(Debug, Clone)]
+struct CodexLaunchProviderChange {
+    from_provider: String,
+    to_provider: String,
+    credential_change: Option<CodexLaunchCredentialChange>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexInstanceProfileView {
@@ -115,6 +122,18 @@ async fn inject_bound_account_to_profile(
         return Ok(());
     }
 
+    if let Some(provider_gateway_account_id) =
+        modules::codex_instance::parse_provider_gateway_bind_account_id(bind_account_id)
+    {
+        modules::codex_local_access::activate_provider_gateway_for_dir(
+            profile_dir,
+            &provider_gateway_account_id,
+        )
+        .await?;
+        return Ok(());
+    }
+
+    modules::codex_local_access::cleanup_provider_gateway_profile_model_overrides(profile_dir)?;
     modules::codex_instance::inject_account_to_profile(profile_dir, bind_account_id).await
 }
 
@@ -242,17 +261,19 @@ fn sync_codex_threads_across_idle_instances(context: &str) {
 
 fn repair_session_visibility_before_launch(
     context: &str,
-    launch_credential_change: &Option<CodexLaunchCredentialChange>,
+    launch_provider_change: &Option<CodexLaunchProviderChange>,
 ) -> Result<(), String> {
-    if launch_credential_change.is_none() {
+    let Some(change) = launch_provider_change else {
         return Ok(());
-    }
+    };
 
     let started = Instant::now();
     let summary = modules::codex_session_visibility::repair_session_visibility_across_instances()?;
     modules::logger::log_info(&format!(
-        "[Codex Session Visibility] {}: repaired before launch, mutated_instances={}, rollout_files={}, sqlite_rows={}, elapsed_ms={}",
+        "[Codex Session Visibility] {}: repaired before launch, from_provider={}, to_provider={}, mutated_instances={}, rollout_files={}, sqlite_rows={}, elapsed_ms={}",
         context,
+        change.from_provider,
+        change.to_provider,
         summary.mutated_instance_count,
         summary.changed_rollout_file_count,
         summary.updated_sqlite_row_count,
@@ -261,15 +282,39 @@ fn repair_session_visibility_before_launch(
     Ok(())
 }
 
-fn read_launch_credential_kind_for_dir(data_dir: &Path) -> Option<String> {
+async fn apply_bound_account_to_initialized_profile(
+    profile_dir: &Path,
+    bind_account_id: Option<&str>,
+    context: &str,
+) -> Result<Option<CodexLaunchCredentialChange>, String> {
+    if !is_profile_initialized(&profile_dir.to_string_lossy()) {
+        return Ok(None);
+    }
+
+    let previous_provider = read_launch_provider_for_dir(profile_dir);
+    if let Some(account_id) = bind_account_id {
+        inject_bound_account_to_profile(profile_dir, account_id).await?;
+    } else {
+        modules::codex_local_access::cleanup_provider_gateway_profile_model_overrides(profile_dir)?;
+    }
+    let launch_provider_change =
+        build_launch_credential_change(previous_provider, read_launch_provider_for_dir(profile_dir));
+    repair_session_visibility_before_launch(context, &launch_provider_change)?;
+    Ok(launch_provider_change.and_then(|change| change.credential_change))
+}
+
+fn sanitize_codex_config_before_launch(data_dir: &Path) -> Result<(), String> {
+    modules::logger::log_info(&format!(
+        "[Codex Config] sanitize before launch: data_dir={}",
+        data_dir.display()
+    ));
+    modules::codex_config_format::sanitize_codex_config_toml_file(&data_dir.join("config.toml"))
+        .map(|_| ())
+}
+
+fn read_launch_provider_for_dir(data_dir: &Path) -> Option<String> {
     match modules::codex_session_visibility::read_history_visibility_provider_for_dir(data_dir) {
-        Ok(provider) => {
-            if provider == "openai" {
-                Some("account".to_string())
-            } else {
-                Some("api".to_string())
-            }
-        }
+        Ok(provider) => Some(provider),
         Err(error) => {
             modules::logger::log_warn(&format!(
                 "[Codex Instance] 读取实例 provider 类型失败，跳过会话可见性弹框判断 ({}): {}",
@@ -281,17 +326,84 @@ fn read_launch_credential_kind_for_dir(data_dir: &Path) -> Option<String> {
     }
 }
 
+fn launch_credential_kind_for_provider(provider: &str) -> String {
+    if provider == "openai" {
+        "account".to_string()
+    } else {
+        "api".to_string()
+    }
+}
+
 fn build_launch_credential_change(
     before: Option<String>,
     after: Option<String>,
-) -> Option<CodexLaunchCredentialChange> {
+) -> Option<CodexLaunchProviderChange> {
     let (Some(from), Some(to)) = (before, after) else {
         return None;
     };
     if from == to {
         return None;
     }
-    Some(CodexLaunchCredentialChange { from, to })
+    let from_kind = launch_credential_kind_for_provider(&from);
+    let to_kind = launch_credential_kind_for_provider(&to);
+    let credential_change = if from_kind == to_kind {
+        None
+    } else {
+        Some(CodexLaunchCredentialChange {
+            from: from_kind,
+            to: to_kind,
+        })
+    };
+    Some(CodexLaunchProviderChange {
+        from_provider: from,
+        to_provider: to,
+        credential_change,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_launch_credential_change_detects_account_to_api_provider_change() {
+        let change = build_launch_credential_change(
+            Some("openai".to_string()),
+            Some("codex_local_access".to_string()),
+        )
+        .expect("provider change should trigger session repair");
+
+        assert_eq!(change.from_provider, "openai");
+        assert_eq!(change.to_provider, "codex_local_access");
+        let credential_change = change
+            .credential_change
+            .expect("account to api should be surfaced to the UI");
+        assert_eq!(credential_change.from, "account");
+        assert_eq!(credential_change.to, "api");
+    }
+
+    #[test]
+    fn build_launch_credential_change_detects_api_to_api_provider_change() {
+        let change = build_launch_credential_change(
+            Some("codex_local_access".to_string()),
+            Some("provider_gateway_apikey_fun".to_string()),
+        )
+        .expect("api provider change should trigger session repair");
+
+        assert_eq!(change.from_provider, "codex_local_access");
+        assert_eq!(change.to_provider, "provider_gateway_apikey_fun");
+        assert!(change.credential_change.is_none());
+    }
+
+    #[test]
+    fn build_launch_credential_change_ignores_same_provider() {
+        let change = build_launch_credential_change(
+            Some("provider_gateway_apikey_fun".to_string()),
+            Some("provider_gateway_apikey_fun".to_string()),
+        );
+
+        assert!(change.is_none());
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -318,6 +430,7 @@ fn powershell_quote(value: &str) -> String {
 }
 
 fn build_launch_command(context: &CodexLaunchContext) -> Result<String, String> {
+    sanitize_codex_config_before_launch(Path::new(&context.user_data_dir))?;
     let runtime = modules::codex_wakeup::resolve_cli_runtime()?;
     let parsed_args = modules::process::parse_extra_args(&context.extra_args);
 
@@ -435,7 +548,7 @@ pub async fn codex_list_instances() -> Result<Vec<CodexInstanceProfileView>, Str
 
     let default_pid = modules::process::resolve_codex_pid_from_entries(
         default_settings.last_pid,
-        None,
+        Some(default_dir.to_string_lossy().as_ref()),
         &process_entries,
     );
     let default_running = default_pid.is_some();
@@ -586,6 +699,8 @@ pub async fn codex_update_instance(
     app_speed: Option<CodexAppSpeed>,
     auto_sync_threads: Option<bool>,
 ) -> Result<CodexInstanceProfileView, String> {
+    let should_apply_bind_account =
+        bind_account_id.is_some() || follow_local_account.is_some();
     if instance_id == DEFAULT_INSTANCE_ID {
         let default_dir = modules::codex_instance::get_default_codex_home()?;
         let mut updated = modules::codex_instance::update_default_settings(
@@ -599,19 +714,31 @@ pub async fn codex_update_instance(
             updated = modules::codex_instance::update_default_app_speed(speed.clone())?;
             modules::codex_speed::write_app_speed_for_dir(&default_dir, speed)?;
         }
-        let running = updated
-            .last_pid
-            .map(modules::process::is_pid_running)
-            .unwrap_or(false);
+        let resolved_pid = modules::process::resolve_codex_pid(
+            updated.last_pid,
+            Some(default_dir.to_string_lossy().as_ref()),
+        );
+        let running = resolved_pid.is_some();
         let default_bind_account_id = resolve_default_account_id(&updated);
+        let launch_credential_change = if should_apply_bind_account {
+            apply_bound_account_to_initialized_profile(
+                &default_dir,
+                default_bind_account_id.as_deref(),
+                "update-default-bind-account",
+            )
+            .await?
+        } else {
+            None
+        };
         let _ = working_dir;
         return Ok(default_instance_view(
             &default_dir,
             &updated,
             default_bind_account_id,
             running,
-            updated.last_pid,
-        ));
+            resolved_pid,
+        )
+        .with_launch_credential_change(launch_credential_change));
     }
 
     let wants_bind = bind_account_id
@@ -630,6 +757,7 @@ pub async fn codex_update_instance(
         }
     }
 
+    let should_apply_instance_bind_account = bind_account_id.is_some();
     let selected_app_speed = app_speed.clone();
     let instance =
         modules::codex_instance::update_instance(modules::codex_instance::UpdateInstanceParams {
@@ -650,11 +778,18 @@ pub async fn codex_update_instance(
         .map(modules::process::is_pid_running)
         .unwrap_or(false);
     let initialized = is_profile_initialized(&instance.user_data_dir);
-    Ok(CodexInstanceProfileView::from_profile(
-        instance,
-        running,
-        initialized,
-    ))
+    let launch_credential_change = if should_apply_instance_bind_account {
+        apply_bound_account_to_initialized_profile(
+            Path::new(&instance.user_data_dir),
+            instance.bind_account_id.as_deref(),
+            "update-instance-bind-account",
+        )
+        .await?
+    } else {
+        None
+    };
+    Ok(CodexInstanceProfileView::from_profile(instance, running, initialized)
+        .with_launch_credential_change(launch_credential_change))
 }
 
 #[tauri::command]
@@ -672,7 +807,7 @@ async fn codex_start_instance_internal(
     let flow_started = Instant::now();
     if instance_id == DEFAULT_INSTANCE_ID {
         let default_dir = modules::codex_instance::get_default_codex_home()?;
-        let previous_credential_kind = read_launch_credential_kind_for_dir(&default_dir);
+        let previous_provider = read_launch_provider_for_dir(&default_dir);
         let default_settings = modules::codex_instance::load_default_settings()?;
         let default_bind_account_id = resolve_default_account_id(&default_settings);
         if default_settings.launch_mode != InstanceLaunchMode::Cli {
@@ -710,12 +845,19 @@ async fn codex_start_instance_internal(
             } else {
                 inject_bound_account_to_profile(&default_dir, account_id).await?;
             }
+        } else {
+            modules::codex_local_access::cleanup_provider_gateway_profile_model_overrides(
+                &default_dir,
+            )?;
         }
-        let launch_credential_change = build_launch_credential_change(
-            previous_credential_kind,
-            read_launch_credential_kind_for_dir(&default_dir),
+        let launch_provider_change = build_launch_credential_change(
+            previous_provider,
+            read_launch_provider_for_dir(&default_dir),
         );
-        repair_session_visibility_before_launch("before-start-default", &launch_credential_change)?;
+        repair_session_visibility_before_launch("before-start-default", &launch_provider_change)?;
+        let launch_credential_change = launch_provider_change
+            .as_ref()
+            .and_then(|change| change.credential_change.clone());
         if skip_default_bind_account_injection {
             modules::logger::log_info(
                 "[Codex Thread Sync] before-start-default: skipped on prepared-profile fast path",
@@ -723,6 +865,7 @@ async fn codex_start_instance_internal(
         } else {
             sync_codex_threads_across_idle_instances("before-start-default");
         }
+        sanitize_codex_config_before_launch(&default_dir)?;
 
         if default_settings.launch_mode == InstanceLaunchMode::Cli {
             let context = resolve_instance_launch_context(DEFAULT_INSTANCE_ID)?;
@@ -751,6 +894,7 @@ async fn codex_start_instance_internal(
             launch_started.elapsed().as_millis(),
             flow_started.elapsed().as_millis()
         ));
+        modules::codex_model_injector::inject_for_codex_home_later(default_dir.clone());
         let updated = modules::codex_instance::update_default_pid(Some(pid))?;
         let running = modules::process::is_pid_running(pid);
         return Ok(default_instance_view(
@@ -772,7 +916,7 @@ async fn codex_start_instance_internal(
 
     modules::codex_instance::ensure_instance_shared_skills(Path::new(&instance.user_data_dir))?;
     let instance_dir = Path::new(&instance.user_data_dir);
-    let previous_credential_kind = read_launch_credential_kind_for_dir(instance_dir);
+    let previous_provider = read_launch_provider_for_dir(instance_dir);
 
     if let Some(pid) =
         modules::process::resolve_codex_pid(instance.last_pid, Some(&instance.user_data_dir))
@@ -783,14 +927,22 @@ async fn codex_start_instance_internal(
 
     if let Some(ref account_id) = instance.bind_account_id {
         inject_bound_account_to_profile(instance_dir, account_id).await?;
+    } else {
+        modules::codex_local_access::cleanup_provider_gateway_profile_model_overrides(
+            instance_dir,
+        )?;
     }
-    let launch_credential_change = build_launch_credential_change(
-        previous_credential_kind,
-        read_launch_credential_kind_for_dir(instance_dir),
+    let launch_provider_change = build_launch_credential_change(
+        previous_provider,
+        read_launch_provider_for_dir(instance_dir),
     );
     modules::codex_speed::write_app_speed_for_dir(instance_dir, instance.app_speed.clone())?;
-    repair_session_visibility_before_launch("before-start-instance", &launch_credential_change)?;
+    repair_session_visibility_before_launch("before-start-instance", &launch_provider_change)?;
+    let launch_credential_change = launch_provider_change
+        .as_ref()
+        .and_then(|change| change.credential_change.clone());
     sync_codex_threads_across_idle_instances("before-start-instance");
+    sanitize_codex_config_before_launch(instance_dir)?;
 
     if instance.launch_mode == InstanceLaunchMode::Cli {
         let context = resolve_instance_launch_context(&instance.id)?;
@@ -806,6 +958,9 @@ async fn codex_start_instance_internal(
     modules::process::ensure_codex_launch_path_configured()?;
     let extra_args = modules::process::parse_extra_args(&instance.extra_args);
     let pid = modules::process::start_codex_with_args(&instance.user_data_dir, &extra_args)?;
+    modules::codex_model_injector::inject_for_codex_home_later(PathBuf::from(
+        &instance.user_data_dir,
+    ));
     let updated = modules::codex_instance::update_instance_after_start(&instance.id, pid)?;
     let running = modules::process::is_pid_running(pid);
     let initialized = is_profile_initialized(&updated.user_data_dir);
@@ -890,8 +1045,12 @@ pub async fn codex_open_instance_window(instance_id: String) -> Result<(), Strin
         if default_settings.launch_mode == InstanceLaunchMode::Cli {
             return Err("CLI 模式实例不支持窗口定位，请改用终端执行。".to_string());
         }
-        modules::process::focus_codex_instance(default_settings.last_pid, None)
-            .map_err(|err| format!("定位 Codex 默认实例窗口失败: {}", err))?;
+        let default_dir = modules::codex_instance::get_default_codex_home()?;
+        modules::process::focus_codex_instance(
+            default_settings.last_pid,
+            Some(default_dir.to_string_lossy().as_ref()),
+        )
+        .map_err(|err| format!("定位 Codex 默认实例窗口失败: {}", err))?;
         return Ok(());
     }
 

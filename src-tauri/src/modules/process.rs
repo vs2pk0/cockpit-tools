@@ -2704,23 +2704,57 @@ fn detect_codex_store_app_user_model_id() -> Option<String> {
 }
 
 #[cfg(target_os = "windows")]
-fn launch_codex_via_store_app_user_model_id(app_user_model_id: &str) -> Result<(), String> {
+fn powershell_single_quoted_array(values: &[String]) -> String {
+    if values.is_empty() {
+        return "@()".to_string();
+    }
+    format!(
+        "@({})",
+        values
+            .iter()
+            .map(|value| format!("'{}'", escape_powershell_single_quoted(value)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn launch_codex_via_store_app_user_model_id(
+    app_user_model_id: &str,
+    codex_home: Option<&str>,
+    app_user_data_dir: Option<&str>,
+    extra_args: &[String],
+) -> Result<(), String> {
     let app_user_model_id = app_user_model_id.trim();
     if app_user_model_id.is_empty() {
         return Err("Codex AppUserModelId 为空".to_string());
     }
 
     let escaped = escape_powershell_single_quoted(app_user_model_id);
-    let env_lines = managed_proxy_env_pairs()
+    let mut env_pairs = managed_proxy_env_pairs();
+    if let Some(codex_home) = codex_home.map(str::trim).filter(|value| !value.is_empty()) {
+        env_pairs.push(("CODEX_HOME", codex_home.to_string()));
+    }
+    if let Some(app_user_data_dir) = app_user_data_dir
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        env_pairs.push((
+            "CODEX_ELECTRON_USER_DATA_PATH",
+            app_user_data_dir.to_string(),
+        ));
+    }
+    let env_lines = env_pairs
         .into_iter()
         .map(|(key, value)| format!("$env:{}='{}'", key, escape_powershell_single_quoted(&value)))
         .collect::<Vec<_>>()
         .join("\n");
+    let argument_list = powershell_single_quoted_array(extra_args);
     let script = format!(
         r#"{env_lines}
 $appId='{escaped}';
 $target='shell:AppsFolder\' + $appId
-Start-Process -FilePath $target -ErrorAction Stop | Out-Null"#
+Start-Process -FilePath $target -ArgumentList {argument_list} -ErrorAction Stop | Out-Null"#
     );
 
     let output = powershell_output(&["-Command", &script])
@@ -2730,6 +2764,56 @@ Start-Process -FilePath $target -ErrorAction Stop | Out-Null"#
         let stderr_head = stderr.trim().chars().take(400).collect::<String>();
         return Err(format!(
             "系统入口启动失败: status={}, stderr={}",
+            output.status,
+            if stderr_head.is_empty() {
+                "<empty>".to_string()
+            } else {
+                stderr_head
+            }
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn launch_codex_via_powershell_exec_path(
+    launch_path: &std::path::Path,
+    codex_home: &str,
+    app_user_data_dir: &std::path::Path,
+    extra_args: &[String],
+) -> Result<(), String> {
+    let launch_path = launch_path.to_string_lossy();
+    let launch_path = launch_path.trim();
+    if launch_path.is_empty() {
+        return Err("Codex 启动路径为空".to_string());
+    }
+
+    let mut env_pairs = managed_proxy_env_pairs();
+    env_pairs.push(("CODEX_HOME", codex_home.to_string()));
+    env_pairs.push((
+        "CODEX_ELECTRON_USER_DATA_PATH",
+        app_user_data_dir.to_string_lossy().to_string(),
+    ));
+    let env_lines = env_pairs
+        .into_iter()
+        .map(|(key, value)| format!("$env:{}='{}'", key, escape_powershell_single_quoted(&value)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let argument_list = powershell_single_quoted_array(extra_args);
+    let script = format!(
+        r#"{env_lines}
+$exe='{exe}';
+Start-Process -FilePath $exe -ArgumentList {argument_list} -ErrorAction Stop | Out-Null"#,
+        exe = escape_powershell_single_quoted(launch_path),
+    );
+
+    let output = powershell_output(&["-Command", &script])
+        .map_err(|e| format!("PowerShell 启动 Codex 失败: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr_head = stderr.trim().chars().take(400).collect::<String>();
+        return Err(format!(
+            "PowerShell 启动 Codex 失败: status={}, stderr={}",
             output.status,
             if stderr_head.is_empty() {
                 "<empty>".to_string()
@@ -2764,6 +2848,12 @@ fn detect_codex_exec_path() -> Option<std::path::PathBuf> {
     }
 
     None
+}
+
+fn detect_and_save_codex_launch_path() -> Option<std::path::PathBuf> {
+    let detected = detect_codex_exec_path()?;
+    update_app_path_in_config("codex", &detected);
+    Some(detected)
 }
 
 fn detect_opencode_exec_path() -> Option<std::path::PathBuf> {
@@ -3137,7 +3227,14 @@ fn resolve_codex_launch_path() -> Result<std::path::PathBuf, String> {
         if let Some(exec) = resolve_macos_exec_path(&custom, "Codex") {
             return Ok(exec);
         }
+        if let Some(detected) = detect_and_save_codex_launch_path() {
+            return Ok(detected);
+        }
         return Err(app_path_missing_error("codex"));
+    }
+
+    if let Some(detected) = detect_and_save_codex_launch_path() {
+        return Ok(detected);
     }
 
     Err(app_path_missing_error("codex"))
@@ -3149,12 +3246,15 @@ fn resolve_codex_launch_path() -> Result<std::path::PathBuf, String> {
         if let Some(exec) = resolve_macos_exec_path(&custom, "Codex") {
             return Ok(exec);
         }
+        if let Some(detected) = detect_and_save_codex_launch_path() {
+            return Ok(detected);
+        }
         return Err(app_path_missing_error("codex"));
     }
 
     #[cfg(target_os = "windows")]
     {
-        if let Some(detected) = detect_codex_exec_path() {
+        if let Some(detected) = detect_and_save_codex_launch_path() {
             return Ok(detected);
         }
     }
@@ -7529,6 +7629,11 @@ pub fn start_codex_with_args(codex_home: &str, extra_args: &[String]) -> Result<
                 args.push(arg.to_string());
             }
         }
+        if !crate::modules::codex_model_injector::has_remote_debugging_arg(&args) {
+            args.push(crate::modules::codex_model_injector::remote_debugging_arg(
+                codex_home_trimmed,
+            ));
+        }
 
         // 使用 open -a 启动，避免 macOS Responsible Process 归因
         // 注意：CODEX_HOME 环境变量无法通过 open -a 传递，
@@ -7637,19 +7742,87 @@ pub fn start_codex_with_args(codex_home: &str, extra_args: &[String]) -> Result<
                 cmd.arg(trimmed);
             }
         }
+        if !crate::modules::codex_model_injector::has_remote_debugging_arg(extra_args) {
+            cmd.arg(crate::modules::codex_model_injector::remote_debugging_arg(
+                codex_home_trimmed,
+            ));
+        }
         cmd.arg(format!(
             "--user-data-dir={}",
             app_user_data_dir.to_string_lossy()
         ));
 
-        let child =
-            spawn_command_with_trace(&mut cmd).map_err(|e| format!("启动 Codex 失败: {}", e))?;
+        let child = match spawn_command_with_trace(&mut cmd) {
+            Ok(child) => Some(child),
+            Err(err) => {
+                let launch_path_text = launch_path.to_string_lossy().to_ascii_lowercase();
+                if err.kind() == std::io::ErrorKind::PermissionDenied
+                    && launch_path_text.contains("\\windowsapps\\")
+                {
+                    let mut store_args = extra_args
+                        .iter()
+                        .map(|item| item.trim().to_string())
+                        .filter(|item| !item.is_empty())
+                        .collect::<Vec<_>>();
+                    if !crate::modules::codex_model_injector::has_remote_debugging_arg(extra_args) {
+                        store_args.push(
+                            crate::modules::codex_model_injector::remote_debugging_arg(
+                                codex_home_trimmed,
+                            ),
+                        );
+                    }
+                    store_args.push(format!(
+                        "--user-data-dir={}",
+                        app_user_data_dir.to_string_lossy()
+                    ));
+                    match launch_codex_via_powershell_exec_path(
+                        &launch_path,
+                        codex_home_trimmed,
+                        &app_user_data_dir,
+                        &store_args,
+                    ) {
+                        Ok(()) => {
+                            crate::modules::logger::log_warn(&format!(
+                                "[Codex Start] WindowsApps direct launch denied, PowerShell exec fallback succeeded: launch_path={} error={}",
+                                launch_path.to_string_lossy(),
+                                err
+                            ));
+                        }
+                        Err(ps_err) => {
+                            let app_user_model_id =
+                                detect_codex_store_app_user_model_id().ok_or_else(|| {
+                                    format!(
+                                        "启动 Codex 失败: {}; PowerShell fallback 失败: {}; 且未检测到 Codex Store AppUserModelID",
+                                        err, ps_err
+                                    )
+                                })?;
+                            crate::modules::logger::log_warn(&format!(
+                                "[Codex Start] WindowsApps direct launch denied, PowerShell exec fallback failed, fallback to Store AppUserModelID: app_id={} launch_path={} error={} powershell_error={}",
+                                app_user_model_id,
+                                launch_path.to_string_lossy(),
+                                err,
+                                ps_err
+                            ));
+                            launch_codex_via_store_app_user_model_id(
+                                &app_user_model_id,
+                                Some(codex_home_trimmed),
+                                Some(app_user_data_dir.to_string_lossy().as_ref()),
+                                &store_args,
+                            )?;
+                        }
+                    }
+                    None
+                } else {
+                    return Err(format!("启动 Codex 失败: {}", err));
+                }
+            }
+        };
         crate::modules::logger::log_info(&format!(
             "[Codex Start] Windows managed instance using --user-data-dir and CODEX_ELECTRON_USER_DATA_PATH; launch_path={} codex_home={} app_user_data_dir={} pid={}",
             launch_path.to_string_lossy(),
             summarize_text_for_process_log(codex_home_trimmed, 96),
             app_user_data_dir.to_string_lossy(),
-            child.id()
+            child.as_ref().map(|item| item.id().to_string()).unwrap_or_else(|| "store-app".to_string())
         ));
 
         let probe_started = Instant::now();
@@ -7660,11 +7833,21 @@ pub fn start_codex_with_args(codex_home: &str, extra_args: &[String]) -> Result<
             }
             thread::sleep(Duration::from_millis(250));
         }
-        crate::modules::logger::log_warn(&format!(
-            "[Codex Start] Windows 实例启动后 15s 内未匹配到实例 PID，回退 spawn pid={}",
-            child.id()
-        ));
-        Ok(child.id())
+        if let Some(child) = child {
+            crate::modules::logger::log_warn(&format!(
+                "[Codex Start] Windows 实例启动后 15s 内未匹配到实例 PID，回退 spawn pid={}",
+                child.id()
+            ));
+            Ok(child.id())
+        } else if let Some(pid) = resolve_codex_pid(None, None) {
+            crate::modules::logger::log_warn(&format!(
+                "[Codex Start] Windows Store fallback 启动后未匹配到 CODEX_HOME，回退 Codex pid={}",
+                pid
+            ));
+            Ok(pid)
+        } else {
+            Err("启动 Codex 失败: Store fallback 已调用但 15s 内未检测到 Codex 进程".to_string())
+        }
     }
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
@@ -7674,7 +7857,10 @@ pub fn start_codex_with_args(codex_home: &str, extra_args: &[String]) -> Result<
     }
 }
 
-/// 启动 Codex 默认实例（不注入 CODEX_HOME，支持附加参数，支持 macOS / Windows）
+/// 启动当前 Cockpit 环境的 Codex 默认实例。
+///
+/// 默认实例也必须显式注入当前环境的 CODEX_HOME，并使用独立 Electron user-data-dir。
+/// 否则安装版与 dev 版同时运行时，无法可靠区分各自的默认实例。
 pub fn start_codex_default(extra_args: &[String]) -> Result<u32, String> {
     start_codex_default_internal(extra_args, false)
 }
@@ -7687,205 +7873,14 @@ fn start_codex_default_internal(
     extra_args: &[String],
     fast_after_close: bool,
 ) -> Result<u32, String> {
-    #[cfg(not(target_os = "windows"))]
     let _ = fast_after_close;
-
-    #[cfg(target_os = "macos")]
-    {
-        let app_root = resolve_macos_app_root_from_config("codex").or_else(|| {
-            resolve_codex_launch_path()
-                .ok()
-                .and_then(|p| resolve_macos_app_root_from_launch_path(&p))
-        });
-        let app_root = app_root.ok_or_else(|| app_path_missing_error("codex"))?;
-
-        let mut args: Vec<String> = Vec::new();
-        for arg in extra_args {
-            let trimmed = arg.trim();
-            if !trimmed.is_empty() {
-                args.push(trimmed.to_string());
-            }
-        }
-
-        // 使用 open -n -a 启动默认实例，避免复用已运行的其他 Codex 实例
-        let open_pid = spawn_open_app_with_options(&app_root, &args, true)
-            .map_err(|e| format!("启动 Codex 失败: {}", e))?;
-        crate::modules::logger::log_info("Codex 启动命令已发送（open -n -a）");
-        // 轮询获取真实 PID
-        let probe_started = Instant::now();
-        let timeout = Duration::from_secs(6);
-        while probe_started.elapsed() < timeout {
-            if let Some(resolved_pid) = resolve_codex_pid(None, None) {
-                return Ok(resolved_pid);
-            }
-            thread::sleep(Duration::from_millis(200));
-        }
-        crate::modules::logger::log_warn(&format!(
-            "[Codex Start] 启动后 6s 内未匹配到默认实例 PID，回退 open pid={}",
-            open_pid
-        ));
-        return Ok(open_pid);
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-
-        let launch_path_for_probe = resolve_codex_launch_path().ok();
-        let before_probe_started = Instant::now();
-        let before_pids: HashSet<u32> = if fast_after_close {
-            launch_path_for_probe
-                .as_ref()
-                .map(|path| {
-                    collect_codex_main_process_pids_from_sysinfo_fast(
-                        path.to_string_lossy().as_ref(),
-                    )
-                    .into_iter()
-                    .collect()
-                })
-                .unwrap_or_default()
-        } else {
-            collect_codex_process_entries()
-                .into_iter()
-                .map(|(pid, _)| pid)
-                .collect()
-        };
-        crate::modules::logger::log_info(&format!(
-            "[Codex Start] before pid probe mode={}, count={}, elapsed_ms={}",
-            if fast_after_close { "fast" } else { "full" },
-            before_pids.len(),
-            before_probe_started.elapsed().as_millis()
-        ));
-        let app_user_model_id = detect_codex_store_app_user_model_id();
-        if let Some(app_user_model_id) = app_user_model_id {
-            crate::modules::logger::log_info(&format!(
-                "[Codex Start] 启动策略候选=system-store-entry app_id={}",
-                app_user_model_id
-            ));
-            match launch_codex_via_store_app_user_model_id(&app_user_model_id) {
-                Ok(()) => {
-                    crate::modules::logger::log_info(&format!(
-                        "[Codex Start] 已通过系统入口启动 Codex: {}",
-                        app_user_model_id
-                    ));
-                    let timeout = Duration::from_secs(15);
-                    if fast_after_close {
-                        if let Some(launch_path) = launch_path_for_probe.as_ref() {
-                            if let Some(pid) = wait_for_codex_default_start_pid_fast(
-                                launch_path.to_string_lossy().as_ref(),
-                                &before_pids,
-                                timeout,
-                            ) {
-                                crate::modules::logger::log_info(&format!(
-                                    "[Codex Start] fast store-entry pid matched app_id={} pid={}",
-                                    app_user_model_id, pid
-                                ));
-                                return Ok(pid);
-                            }
-                        } else {
-                            crate::modules::logger::log_warn(
-                                "[Codex Start] fast pid probe skipped because launch path is unavailable",
-                            );
-                        }
-                    } else {
-                        let probe_started = Instant::now();
-                        while probe_started.elapsed() < timeout {
-                            let entries = collect_codex_process_entries();
-                            let mut new_pids: Vec<u32> = entries
-                                .iter()
-                                .map(|(pid, _)| *pid)
-                                .filter(|pid| !before_pids.contains(pid))
-                                .collect();
-                            if let Some(pid) = pick_preferred_pid(new_pids.clone()) {
-                                crate::modules::logger::log_info(&format!(
-                                    "[Codex Start] 启动策略=system-store-entry app_id={} pid={}",
-                                    app_user_model_id, pid
-                                ));
-                                return Ok(pid);
-                            }
-                            if before_pids.is_empty() {
-                                new_pids = entries.iter().map(|(pid, _)| *pid).collect();
-                                if let Some(pid) = pick_preferred_pid(new_pids) {
-                                    crate::modules::logger::log_info(&format!(
-                                    "[Codex Start] 启动策略=system-store-entry app_id={} pid={}",
-                                    app_user_model_id, pid
-                                ));
-                                    return Ok(pid);
-                                }
-                            }
-                            thread::sleep(Duration::from_millis(250));
-                        }
-                        if before_pids.is_empty() {
-                            if let Some(pid) = resolve_codex_pid(None, None) {
-                                crate::modules::logger::log_info(&format!(
-                                    "[Codex Start] 启动策略=system-store-entry app_id={} pid={}",
-                                    app_user_model_id, pid
-                                ));
-                                return Ok(pid);
-                            }
-                        } else {
-                            crate::modules::logger::log_warn(&format!(
-                            "[Codex Start] system-store-entry only reused existing instance, before_pids={}",
-                            summarize_pid_list_for_log(&before_pids.iter().copied().collect::<Vec<u32>>())
-                        ));
-                        }
-                    }
-                    crate::modules::logger::log_warn(
-                        "[Codex Start] 系统入口已调用，但 15s 内未探测到 Codex 主进程，准备回退可执行路径",
-                    );
-                }
-                Err(err) => {
-                    crate::modules::logger::log_warn(&format!(
-                        "[Codex Start] 系统入口启动失败，准备回退可执行路径: {}",
-                        err
-                    ));
-                }
-            }
-        } else {
-            crate::modules::logger::log_warn(
-                "[Codex Start] 未探测到 Codex AppUserModelId，准备回退可执行路径",
-            );
-        }
-
-        let launch_path = resolve_codex_launch_path()?;
-        crate::modules::logger::log_info(&format!(
-            "[Codex Start] 启动策略=exe-path launch_path={}",
-            launch_path.to_string_lossy()
-        ));
-        let mut cmd = Command::new(&launch_path);
-        apply_managed_proxy_env_to_command(&mut cmd);
-        if should_detach_child() {
-            cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
-            cmd.stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-        }
-        // Codex 是 GUI 应用，不设置 CREATE_NO_WINDOW，否则会导致其内部 spawn CLI 子进程失败
-        for arg in extra_args {
-            let trimmed = arg.trim();
-            if !trimmed.is_empty() {
-                cmd.arg(trimmed);
-            }
-        }
-
-        let child =
-            spawn_command_with_trace(&mut cmd).map_err(|e| format!("启动 Codex 失败: {}", e))?;
-        crate::modules::logger::log_info(&format!(
-            "[Codex Start] 启动策略=exe-path launch_path={} pid={}",
-            launch_path.to_string_lossy(),
-            child.id()
-        ));
-        return Ok(child.id());
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        let _ = extra_args;
-        Err("Codex 启动仅支持 macOS 和 Windows".to_string())
-    }
+    let default_home = crate::modules::codex_account::get_codex_home()
+        .to_string_lossy()
+        .to_string();
+    start_codex_with_args(&default_home, extra_args)
 }
 
-/// 关闭 Codex 默认实例。默认实例没有 CODEX_HOME 环境变量时按默认 ~/.codex 处理。
+/// 关闭当前 Cockpit 环境的 Codex 默认实例。
 pub fn close_codex_default_fast_by_pid(
     last_pid: Option<u32>,
     timeout_secs: u64,
@@ -7895,6 +7890,16 @@ pub fn close_codex_default_fast_by_pid(
         let Some(pid) = last_pid.filter(|pid| *pid != 0 && is_pid_running(*pid)) else {
             return Ok(false);
         };
+        let default_home = crate::modules::codex_account::get_codex_home()
+            .to_string_lossy()
+            .to_string();
+        if resolve_codex_pid(Some(pid), Some(&default_home)) != Some(pid) {
+            crate::modules::logger::log_warn(&format!(
+                "[Codex Close] fast default close skipped, last_pid={} does not belong to current CODEX_HOME",
+                pid
+            ));
+            return Ok(false);
+        }
         let launch_path = match resolve_codex_launch_path() {
             Ok(path) => path,
             Err(err) => {
@@ -8099,11 +8104,6 @@ pub fn close_codex_instances(codex_homes: &[String], timeout_secs: u64) -> Resul
             return Ok(());
         }
 
-        let default_home = normalize_path_for_compare(
-            &crate::modules::codex_account::get_codex_home()
-                .to_string_lossy()
-                .to_string(),
-        );
         let entries = collect_codex_process_entries();
         let mut pids: Vec<u32> = entries
             .iter()
@@ -8111,8 +8111,7 @@ pub fn close_codex_instances(codex_homes: &[String], timeout_secs: u64) -> Resul
                 let resolved_home = home
                     .as_ref()
                     .map(|value| normalize_path_for_compare(value))
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or_else(|| default_home.clone());
+                    .filter(|value| !value.is_empty())?;
                 if !resolved_home.is_empty() && target_homes.contains(&resolved_home) {
                     Some(*pid)
                 } else {
@@ -8210,27 +8209,37 @@ pub fn close_codex_instances(codex_homes: &[String], timeout_secs: u64) -> Resul
             }
         }
 
-        let default_app_dir = get_default_codex_windows_app_user_data_dir()
-            .map(|value| normalize_path_for_compare(&value))
-            .filter(|value| !value.is_empty());
-
         if target_app_dirs.is_empty() && !includes_default {
             crate::modules::logger::log_info("未提供可关闭的 Codex 实例目录");
             return Ok(());
         }
 
-        let matches_target =
-            |dir: Option<&String>, target_app_dirs: &HashSet<String>, includes_default: bool| {
-                match dir {
-                    Some(value) => {
-                        let normalized = normalize_path_for_compare(value);
-                        (!normalized.is_empty() && target_app_dirs.contains(&normalized))
+        let current_default_app_dir = if includes_default {
+            get_managed_codex_windows_app_user_data_dir(
+                crate::modules::codex_account::get_codex_home()
+                    .to_string_lossy()
+                    .as_ref(),
+            )
+            .map(|value| normalize_path_for_compare(&value))
+            .filter(|value| !value.is_empty())
+        } else {
+            None
+        };
+
+        let matches_target = |dir: Option<&String>,
+                              target_app_dirs: &HashSet<String>,
+                              includes_default: bool| {
+            match dir {
+                Some(value) => {
+                    let normalized = normalize_path_for_compare(value);
+                    !normalized.is_empty()
+                        && (target_app_dirs.contains(&normalized)
                             || (includes_default
-                                && default_app_dir.as_deref() == Some(normalized.as_str()))
-                    }
-                    None => includes_default,
+                                && current_default_app_dir.as_deref() == Some(normalized.as_str())))
                 }
-            };
+                None => false,
+            }
+        };
 
         let entries = collect_codex_process_entries();
         let mut pids: Vec<u32> = entries
@@ -8239,18 +8248,6 @@ pub fn close_codex_instances(codex_homes: &[String], timeout_secs: u64) -> Resul
                 matches_target(dir.as_ref(), &target_app_dirs, includes_default).then_some(*pid)
             })
             .collect();
-        if pids.is_empty() && includes_default {
-            pids = entries
-                .iter()
-                .filter_map(|(pid, dir)| dir.is_none().then_some(*pid))
-                .collect();
-            if !pids.is_empty() {
-                crate::modules::logger::log_warn(&format!(
-                    "[Codex Close] default instance fallback matched main GUI pids without user-data-dir: {}",
-                    summarize_pid_list_for_log(&pids)
-                ));
-            }
-        }
         pids.sort();
         pids.dedup();
         if pids.is_empty() {

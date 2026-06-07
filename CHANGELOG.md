@@ -7,76 +7,66 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
-## [0.24.12] - 2026-06-02
-
-### Fixed
-- **Codex account custom order now survives app updates**: custom sorting is persisted in the app data directory and stored with stable account keys derived from remote account ID, organization ID, email, and local fallbacks; legacy `localStorage` order is migrated automatically so users do not need to reorder accounts after updates or account rebuilds.
-- **Release workflow now builds installer assets only**: GitHub Actions release builds disable updater artifacts so invalid updater signing secrets no longer fail macOS/Windows release packaging.
-
----
-## [0.24.11-vs2pk0.1] - 2026-06-02
+## [0.25.1-vs2pk0.1] - 2026-06-07
 
 ### Changed
-- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `30491dcb`**: this build includes upstream `v0.24.11` account-level disabled model rules for Codex API Service, direct official Codex wakeup chat, launch credential visibility repair, config.toml preservation fixes, and Windows Antigravity credential import updates.
-- **Preserved local fork CPA and custom-service enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime download/import, account JSON sync, CPA account filters, model-list fetching, config editing, version update/import, stop confirmation, and Cockpit-owned CPA process detection remain available.
+- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `28cae0d2`**: this build includes upstream `v0.25.1` model-provider switching fixes, provider protocol persistence, Windows launch repair, WebDAV backup sync, and model catalog patching improvements.
+- **Preserved local fork CPA, custom-service, account order, and bound-phone enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime management, account JSON sync, phone export/filtering, configurable plan badges, and stable custom ordering remain available.
 
 ---
-## [0.24.10-vs2pk0.1] - 2026-06-01
+## [0.25.1] - 2026-06-06
+
+### Changed
+- **Codex model-provider switching is more reliable**: switching between model providers, API Key accounts, and regular accounts now applies to the active Codex configuration sooner and repairs history visibility when needed, reducing cases where conversations disappear after switching.
+- **Codex model providers now preserve the user's previous model choice**: switching back from a third-party model provider to a regular account restores the earlier official model selection instead of leaving the previous provider model behind.
+
+### Fixed
+- **Fixed Codex launch issues for some Windows installations**: Codex now starts more reliably from Windows Store or protected install locations while keeping the intended instance directory, launch arguments, and environment settings.
+- **Fixed third-party models being treated as unavailable by the local gateway**: models already listed in a provider catalog, such as `deepseek-v4-pro`, no longer fail with an incorrect “not available for this API Key” message.
+- **Fixed provider protocol choices not being fully saved with API Key accounts**: adding, editing, or quick-switching providers now keeps the selected Responses-native or Chat Completions mode so future launches match the UI configuration.
+- **Fixed provider models sometimes not appearing in Codex quickly enough**: when the model catalog is written slightly later than the Codex page loads, Cockpit now waits and patches the model list more reliably.
+
+---
+## [0.25.0] - 2026-06-06
 
 ### Added
-- **Codex account cards now show subscription expiry in UTC+8**: the existing expiry footer keeps its status tone and uses the account expiry timestamp adjusted by +8 hours.
-- **Codex account cards now support bound phone numbers**: the card tag/action opens a phone binding dialog, saves the phone on the account, and masks it with the page privacy toggle.
+- **Codex model providers now support a full provider-management workflow**: the Codex model provider page adds multiple API Keys per provider, searchable API Key and instance pickers, provider search/filter/sort, bulk selection and deletion, provider service panels, OAuth binding, and quick enable actions that align with the account page card interactions.
+- **Codex third-party API Key quota detection now supports `new-api` and `sub2api` providers**: Cockpit detects supported quota endpoints, caches the detected provider type, keeps previous quota data visible, follows the existing quota refresh strategy, and renders provider-specific core metrics across account cards, dashboard cards, model provider cards, service panels, and the macOS menu bar.
+- **Codex provider protocol selection is now explicit**: provider setup defaults to Responses-native mode except for known Chat Completions providers, exposes a styled protocol selector with inline help, and only uses the local gateway for Chat Completions providers.
+- **WebDAV backup synchronization**: Settings now includes WebDAV backup sync configuration, service wiring, locale coverage, and data-transfer support for synchronizing Cockpit backup data. Thanks @xdd666t.
+- **Codex wakeup and session-repair improvements from community PRs**: wakeup requests now include the official `StartCascadeRequest.source` field, and Codex visibility repair reconciles `session_index.jsonl` before repair. Thanks @Slone123c and @andrew05060414.
 
 ### Changed
-- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `afaa0b5d`**: this build includes upstream `v0.24.10` Codex API Service chat testing, account-pool health, multi-instance session sync, wakeup confirmation, per-account refresh intervals, and packaging fixes.
-- **Preserved local fork CPA and custom-service enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime download/import, account JSON sync, CPA account filters, model-list fetching, config editing, version update/import, stop confirmation, and Cockpit-owned CPA process detection remain available.
-
-### Backup
-- **Refreshed the modified-file backup set for this upstream sync**: files that differ from upstream are intended to be mirrored under `/Users/dalong/Documents/cockpit-tools.backup` with their repository-relative paths.
-
----
-## [0.24.9-vs2pk0.1] - 2026-05-27
-
-### Changed
-- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `866f5266`**: this build includes upstream `v0.24.9` with CLIProxyAPI xAI support, OpenAI-compatible image/video sidecar endpoints, Codex client model catalog generation, Home relay cluster discovery, stream result classification, and configurable timeout/retry controls.
-- **Preserved local fork CPA and custom-service enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime download/import, account JSON sync, CPA account filters, model-list fetching, config editing, version update/import, stop confirmation, and Cockpit-owned CPA process detection remain available.
-
-### Backup
-- **Refreshed the modified-file backup set for this upstream sync**: files that differ from upstream are intended to be mirrored under `/Users/dalong/Documents/cockpit-tools.backup` with their repository-relative paths.
-
----
-## [0.24.8-vs2pk0.1] - 2026-05-25
-
-### Changed
-- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `a62cd334`**: this build includes upstream `v0.24.8` gateway mode switching, debug logs, loopback proxy bypasses, sidecar streaming stability, and gateway-mode fields in request logs.
-- **Preserved local fork CPA and custom-service enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime download/import, account JSON sync, CPA account filters, model-list fetching, config editing, version update/import, stop confirmation, and Cockpit-owned CPA process detection remain available.
-
-### Backup
-- **Refreshed the modified-file backup set for this upstream sync**: files that differ from upstream are intended to be mirrored under `/Users/dalong/Documents/cockpit-tools.backup` with their repository-relative paths.
-
----
-## [0.24.7-vs2pk0.1] - 2026-05-24
-
-### Changed
-- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `2b3043d4`**: this build includes upstream `v0.24.7` with the bundled CLIProxyAPI sidecar, model pricing statistics, request diagnostics, Codex profile takeover backups, manual subscription refreshes, and Antigravity 2.0 credential handling.
-- **Preserved local fork CPA and custom-service enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime download/import, account JSON sync, CPA account filters, model-list fetching, config editing, version update/import, and stop confirmation remain available.
+- **Codex model providers can now connect Chat Completions models such as `deepseek-v4-pro`**: Responses-native providers stay in direct mode, while Chat Completions providers use the local gateway for protocol conversion and only show gateway-related model catalog and image-input controls when that protocol is selected.
+- **Codex model provider cards and service panels now reuse the account-page quota presentation**: provider cards keep cached quota data visible, expose manual refresh controls, render `new-api` and `sub2api` fields with provider-specific layouts, and keep provider details in one scrollable service panel.
+- **Codex OAuth login is more stable on Linux**: OAuth callback handling avoids duplicate completion and improves the Linux login flow.
 
 ### Fixed
-- **CPA service stop now cleans up every CPA process owned by this app**: stop, save config, and restore default config scan the default CPA port, the current configured port, and `cli-proxy-api` processes tied to Cockpit Tools' CPA runtime/config paths; state detection now only counts Cockpit-owned CPA processes so an external CLIProxyAPI listener on `8317` no longer makes the UI reappear as running.
-
-### Backup
-- **Refreshed the modified-file backup set for this upstream sync**: files that differ from upstream are intended to be mirrored under `/Users/dalong/Documents/cockpit-tools.backup` with their repository-relative paths.
+- **Codex provider OAuth binding now takes effect when enabling a model provider**: model provider OAuth binding is synchronized to the actual API Key account used for launch, matching the account page behavior.
+- **Codex wakeup through the official Language Server no longer fails because of a missing request source**: wakeup requests now inject the official `StartCascadeRequest.source` field expected by the upstream service. Thanks @Slone123c.
+- **Codex session visibility repair now reconciles `session_index.jsonl` before repairing visibility**: the repair flow updates the session index so hidden or stale sessions can be repaired more reliably. Thanks @andrew05060414.
 
 ---
-## [0.24.4-vs2pk0.3] - 2026-05-23
+## [0.24.12] - 2026-06-03
+
+### Added
+- **Codex API Service now more closely follows official Codex client traffic behavior**: sidecar requests use stronger client fingerprinting, reasoning/signature replay support, sanitized request signing, and expanded Responses/WebSocket handling; the maintained Legacy/WebSocket gateway also fills Codex client metadata and turn metadata while dropping invalid reasoning signatures, so account-pool requests look more consistent with official client flows.
+- **Codex wakeup tasks now support execution modes**: each Codex wakeup task can run directly or require confirmation with a configurable timeout before execution. Thanks @Ac-spider.
 
 ### Changed
-- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `039c89a2`**: this build includes the upstream `v0.24.4` Codex API Service page, named API keys, image-generation gateway support, request logs, and Antigravity IDE path fixes.
-- **Preserved local fork Codex enhancements during the upstream merge**: configurable Codex plan badge styles, Codex API Service custom credential mode, account sort preference persistence, and the Codex local access grid layout fix remain available after the sync.
+- **Codex API Service errors now preserve fuller diagnostics**: local API Service tests, request logs, and upstream failures keep more complete error details so operators can distinguish auth failures, quota failures, proxy issues, and upstream response problems.
+- **Codex API Service account-pool health now avoids marking quota-refresh-only failures as abnormal accounts**: non-auth quota refresh failures no longer have the same effect as 401-style authentication failures, reducing unnecessary account exclusion.
+- **Codex API Service gateway compatibility is kept across Legacy, Sidecar, and WebSocket paths**: routing, usage capture, image handling, reasoning output, and stream completion behavior are aligned across the maintained gateways instead of favoring a single path.
+- **Account-level refresh settings now match platform-level refresh controls**: account overrides use the same preset set as platform defaults and support custom minute values without offering inconsistent 30/60 minute presets. Thanks @Ac-spider.
+- **Windows Antigravity Desktop version detection is more reliable**: executable metadata probing passes the target path through the process environment, adds uninstall-registry `DisplayVersion` fallback, and reuses cached version information before choosing the Desktop auth mode. Thanks @insane66613.
 
-### Backup
-- **Refreshed the modified-file backup set for this fork build**: files that differ from upstream are intended to be mirrored under `/Users/dalong/Documents/cockpit-tools.backup` with their repository-relative paths.
----
+### Fixed
+- **Codex API Service auth projection no longer writes invalid OAuth auth files for API Key bindings**: API Key accounts bound to OAuth snapshots without `id_token` now keep the API Key auth shape instead of producing an invalid OAuth `auth.json`. Thanks @luoyanglang.
+- **External import Deep Links no longer treat the executable name as an import argument**: single-instance and startup import handling skips `argv0`, avoiding misleading diagnostics and failed WSL import handling. Thanks @Disaster-Terminator.
+- **Dashboard Antigravity quota cards now display grouped quota data before canonical-model fallback**: accounts whose quota only maps through display groups no longer appear as having no data. Thanks @Hao-Wu.
+- **Codex wakeup execution-mode controls now use the standard form styling**: the execution-mode selector keeps the same height, padding, border, focus state, and typography as the rest of the wakeup task form.
+- **Codex launch paths are re-detected after updates when the saved path becomes stale**: if the stored Codex launch path no longer resolves, the launch flow detects the current install location and writes it back to configuration, reducing manual path repair after app updates.
+
 ---
 ## [0.24.11] - 2026-06-01
 
@@ -90,7 +80,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Codex launches now repair session visibility when the launch credential changes**: default and managed instance launches run session visibility repair before startup when a credential switch is involved.
 
 ### Fixed
-- **Codex account custom order now survives app updates**: custom sorting is now persisted in the app data directory and stored with stable account keys derived from remote account ID, organization ID, email, and local fallbacks; legacy `localStorage` order is migrated automatically so users do not need to reorder accounts after updates or account rebuilds.
 - **Codex config.toml managed rewrites now preserve more user configuration**: API account switching no longer rebuilds the entire model provider table, API Service takeover restore keeps current plugin settings, and repeated blank lines are collapsed when writing the active config.
 - **Windows Antigravity local account import now reads the current system credential path**: local import uses Windows Credential Manager `gemini:antigravity` credentials and reuses the refresh-token import flow, while non-Windows platforms keep the state database path.
 
@@ -2141,7 +2130,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Automatic Plan recognition (Basic, Plus, Team, Enterprise).
   - Independent account list and card view.
 - **Rebranding**: Project officially renamed to **Cockpit Tools**.
-- **Sponsor & Feedback**: Added "Sponsor" and "Feedback" sections in Settings -> About for better community engagement.
 
 ### Changed
 - **UI Overhaul**: Redesigned dashboard cards for extreme compactness and symmetry.

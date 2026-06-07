@@ -61,6 +61,7 @@ import {
   type CodexQuotaPoolItem,
 } from '../utils/codexQuotaPool';
 import { isCodexLocalAccessEligibleAccount } from '../utils/codexLocalAccessAccounts';
+import { isBlockingCodexQuotaError } from '../utils/codexQuotaError';
 import { AccountTagFilterDropdown } from './AccountTagFilterDropdown';
 import {
   CodexPlanBadge,
@@ -1024,14 +1025,14 @@ export function CodexLocalAccessModal({
   const tierCounts = useMemo(() => {
     const counts = { all: localAccessAccounts.length, VALID: 0, FREE: 0, API_KEY: 0, PLUS: 0, PRO: 0, TEAM: 0, ENTERPRISE: 0, ERROR: 0, CPA: 0 };
     localAccessAccounts.forEach((account) => {
-      if (!account.quota_error) {
+      if (!isBlockingCodexQuotaError(account.quota_error)) {
         counts.VALID += 1;
       }
       const tier = getCodexPlanFilterKey(account);
       if (tier in counts) {
         counts[tier as keyof typeof counts] += 1;
       }
-      if (account.quota_error) {
+      if (isBlockingCodexQuotaError(account.quota_error)) {
         counts.ERROR += 1;
       }
       if (isCpaAccount(account)) {
@@ -1154,16 +1155,21 @@ export function CodexLocalAccessModal({
         }
       }
 
-      if (requireValidAccounts && account.quota_error) {
+      if (
+        requireValidAccounts &&
+        isBlockingCodexQuotaError(account.quota_error)
+      ) {
         return false;
       }
 
       if (selectedTypes.size > 0) {
         const planKey = getCodexPlanFilterKey(account);
         const matchesType = Array.from(selectedTypes).some((type) => {
-          if (type === 'ERROR') return Boolean(account.quota_error);
           if (type === 'CPA') {
             return isCpaAccount(account);
+          }
+          if (type === 'ERROR') {
+            return isBlockingCodexQuotaError(account.quota_error);
           }
           return type === planKey;
         });
@@ -1445,14 +1451,14 @@ export function CodexLocalAccessModal({
   const customRoutingTierCounts = useMemo(() => {
     const counts = { all: customRoutingAccounts.length, VALID: 0, FREE: 0, PLUS: 0, PRO: 0, TEAM: 0, ENTERPRISE: 0, ERROR: 0 };
     customRoutingAccounts.forEach((account) => {
-      if (!account.quota_error) {
+      if (!isBlockingCodexQuotaError(account.quota_error)) {
         counts.VALID += 1;
       }
       const tier = getCodexPlanFilterKey(account);
       if (tier in counts) {
         counts[tier as keyof typeof counts] += 1;
       }
-      if (account.quota_error) {
+      if (isBlockingCodexQuotaError(account.quota_error)) {
         counts.ERROR += 1;
       }
     });
@@ -1557,14 +1563,19 @@ export function CodexLocalAccessModal({
         }
       }
 
-      if (requireValidAccounts && account.quota_error) {
+      if (
+        requireValidAccounts &&
+        isBlockingCodexQuotaError(account.quota_error)
+      ) {
         return false;
       }
 
       if (selectedTypes.size > 0) {
         const planKey = getCodexPlanFilterKey(account);
         const matchesType = Array.from(selectedTypes).some((type) => {
-          if (type === 'ERROR') return Boolean(account.quota_error);
+          if (type === 'ERROR') {
+            return isBlockingCodexQuotaError(account.quota_error);
+          }
           return type === planKey;
         });
         if (!matchesType) {
