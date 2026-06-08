@@ -30,6 +30,19 @@ interface WebdavFeedback {
   text: string;
 }
 
+interface GroupedWebdavBackup {
+  id: string;
+  display_name: string;
+  zip_file?: WebdavBackupFileEntry;
+  json_file?: WebdavBackupFileEntry;
+  modified_at: string | null;
+  size_bytes: number;
+}
+
+function getBackupBaseName(fileName: string): string {
+  return fileName.replace(/\.json$|\.zip$/, '');
+}
+
 function normalizeError(error: unknown): string {
   const msg = String(error).replace(/^Error:\s*/, '');
   // 针对坚果云等 WebDAV 服务的祖先目录不存在报错进行友好提示
@@ -84,13 +97,47 @@ export function SettingsWebdavSyncSection() {
   const { t } = useTranslation();
 
   const [settings, setSettings] = useState<WebdavSyncSettings | null>(null);
-  const [enabled, setEnabled] = useState(false);
   const [url, setUrl] = useState('https://dav.jianguoyun.com/dav/');
   const [username, setUsername] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [clearPassword, setClearPassword] = useState(false);
   const [remoteDir, setRemoteDir] = useState('cockpit-tools');
+  const [retentionInput, setRetentionInput] = useState('15');
   const [remoteFiles, setRemoteFiles] = useState<WebdavBackupFileEntry[]>([]);
+  const [showAllRemote, setShowAllRemote] = useState(false);
+
+  const groupedRemoteFiles = useMemo(() => {
+    const groups: Record<string, GroupedWebdavBackup> = {};
+    for (const file of remoteFiles) {
+      const id = getBackupBaseName(file.file_name);
+      if (!groups[id]) {
+        groups[id] = {
+          id,
+          display_name: file.file_name,
+          modified_at: file.modified_at,
+          size_bytes: 0,
+        };
+      }
+      const group = groups[id];
+      if (file.file_kind === 'zip') {
+        group.zip_file = file;
+        group.display_name = file.file_name;
+      } else {
+        group.json_file = file;
+      }
+      if (file.modified_at && (!group.modified_at || new Date(file.modified_at) > new Date(group.modified_at))) {
+        group.modified_at = file.modified_at;
+      }
+      group.size_bytes += file.size_bytes;
+    }
+    return Object.values(groups).sort((a, b) => {
+      const timeA = a.modified_at ? new Date(a.modified_at).getTime() : 0;
+      const timeB = b.modified_at ? new Date(b.modified_at).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, [remoteFiles]);
+
+  const visibleGroups = showAllRemote ? groupedRemoteFiles : groupedRemoteFiles.slice(0, 3);
   const [feedback, setFeedback] = useState<WebdavFeedback | null>(null);
   const [isRemoteExpanded, setIsRemoteExpanded] = useState(false);
   const isRemoteExpandedRef = useRef(isRemoteExpanded);
@@ -108,10 +155,10 @@ export function SettingsWebdavSyncSection() {
 
   const applySettings = useCallback((next: WebdavSyncSettings) => {
     setSettings(next);
-    setEnabled(next.enabled);
     setUrl(next.url);
     setUsername(next.username);
     setRemoteDir(next.remote_dir);
+    setRetentionInput(String(next.retention_days));
     setPasswordInput('');
     setClearPassword(false);
   }, []);
@@ -169,17 +216,24 @@ export function SettingsWebdavSyncSection() {
   }, [loadSettings]);
 
   const persistSettings = useCallback(async () => {
+    let parsedRetention = parseInt(retentionInput, 10);
+    if (!Number.isInteger(parsedRetention) || parsedRetention < 1 || parsedRetention > 365) {
+      parsedRetention = Math.max(1, Math.min(365, parsedRetention || 15));
+      setRetentionInput(String(parsedRetention));
+    }
+
     const next = await saveWebdavSyncSettings({
-      enabled,
+      enabled: true,
       url,
       username,
       password: passwordInput.trim() ? passwordInput : null,
       clearPassword,
       remoteDir,
+      retentionDays: parsedRetention,
     });
     applySettings(next);
     return next;
-  }, [applySettings, clearPassword, enabled, passwordInput, remoteDir, url, username]);
+  }, [applySettings, clearPassword, passwordInput, remoteDir, retentionInput, url, username]);
 
   const handleTestAndSave = useCallback(async () => {
     setTesting(true);
@@ -291,15 +345,16 @@ export function SettingsWebdavSyncSection() {
   }, [loadRemoteFiles]);
 
   const handleRestore = useCallback(
-    async (file: WebdavBackupFileEntry) => {
-      if (file.file_kind !== 'json') return;
+    async (group: GroupedWebdavBackup) => {
+      const fileToRestore = group.zip_file ?? group.json_file;
+      if (!fileToRestore) return;
       if (!window.confirm(t('settings.webdav.restoreConfirm', {
-        name: file.file_name,
+        name: fileToRestore.file_name,
         defaultValue: '确认从远端备份 {{name}} 恢复数据？',
       }))) {
         return;
       }
-      setRestoringFile(file.file_name);
+      setRestoringFile(group.id);
       setFeedback({
         tone: 'loading',
         text: t('settings.webdav.feedback.restoring', {
@@ -307,7 +362,7 @@ export function SettingsWebdavSyncSection() {
         }),
       });
       try {
-        const content = await readWebdavBackupFile(file.file_name);
+        const content = await readWebdavBackupFile(fileToRestore.file_name);
         const result = await importDataTransferJson(content, {
           includeAccounts: true,
           includeConfig: true,
@@ -333,16 +388,21 @@ export function SettingsWebdavSyncSection() {
   );
 
   const handleDelete = useCallback(
-    async (file: WebdavBackupFileEntry) => {
+    async (group: GroupedWebdavBackup) => {
       if (!window.confirm(t('settings.webdav.deleteConfirm', {
-        name: file.file_name,
+        name: group.display_name,
         defaultValue: '确认删除远端备份 {{name}}？',
       }))) {
         return;
       }
-      setDeletingFile(file.file_name);
+      setDeletingFile(group.id);
       try {
-        await deleteWebdavBackupFile(file.file_name);
+        if (group.zip_file) {
+          await deleteWebdavBackupFile(group.zip_file.file_name);
+        }
+        if (group.json_file) {
+          await deleteWebdavBackupFile(group.json_file.file_name);
+        }
         await loadRemoteFiles();
         setFeedback({
           tone: 'success',
@@ -377,15 +437,15 @@ export function SettingsWebdavSyncSection() {
       const files = await listWebdavBackupFiles();
       setRemoteFiles(files);
 
-      const latestJson = files
-        .filter((f) => f.file_kind === 'json')
+      const latestBackup = files
+        .filter((f) => f.file_kind === 'json' || f.file_kind === 'zip')
         .sort((a, b) => {
           const timeA = a.modified_at ? new Date(a.modified_at).getTime() : 0;
           const timeB = b.modified_at ? new Date(b.modified_at).getTime() : 0;
           return timeB - timeA;
         })[0];
 
-      if (!latestJson) {
+      if (!latestBackup) {
         setFeedback({
           tone: 'error',
           text: t('settings.webdav.feedback.noRemoteBackup', {
@@ -396,7 +456,7 @@ export function SettingsWebdavSyncSection() {
       }
 
       if (!window.confirm(t('settings.webdav.syncLatestConfirm', {
-        name: latestJson.file_name,
+        name: latestBackup.file_name,
         defaultValue: '确认拉取最新的远端备份 {{name}} 并同步到本地？此操作将覆盖本地现有数据。',
       }))) {
         setFeedback(null);
@@ -410,7 +470,7 @@ export function SettingsWebdavSyncSection() {
         }),
       });
 
-      const content = await readWebdavBackupFile(latestJson.file_name);
+      const content = await readWebdavBackupFile(latestBackup.file_name);
       const result = await importDataTransferJson(content, {
         includeAccounts: true,
         includeConfig: true,
@@ -464,32 +524,13 @@ export function SettingsWebdavSyncSection() {
       <div className="settings-group">
         <div className="settings-row">
           <div className="row-label">
-            <div className="row-title">{t('settings.webdav.enabledTitle', 'WebDAV 备份同步')}</div>
-            <div className="row-desc">
-              {t('settings.webdav.enabledDesc', '默认使用坚果云，也可改为任意 WebDAV 服务。')}
-            </div>
-          </div>
-          <div className="row-control">
-            <label className="switch" aria-label={t('settings.webdav.enabledTitle', 'WebDAV 备份同步')}>
-              <input
-                type="checkbox"
-                checked={enabled}
-                disabled={settingsLoading || busy}
-                onChange={(event) => setEnabled(event.target.checked)}
-              />
-              <span className="slider" />
-            </label>
-          </div>
-        </div>
-
-        <div className="settings-row">
-          <div className="row-label">
             <div className="row-title">{t('settings.webdav.urlTitle', '服务地址')}</div>
             <div className="row-desc">{t('settings.webdav.urlDesc', '坚果云默认地址：https://dav.jianguoyun.com/dav/')}</div>
           </div>
-          <div className="row-control row-control--grow">
+          <div className="row-control row-control--grow" style={{ maxWidth: '240px' }}>
             <input
               className="settings-select settings-select--input-mode settings-webdav-input"
+              style={{ width: '100%' }}
               value={url}
               disabled={settingsLoading || busy}
               onChange={(event) => setUrl(event.target.value)}
@@ -497,51 +538,82 @@ export function SettingsWebdavSyncSection() {
           </div>
         </div>
 
-        <div className="settings-row">
-          <div className="row-label">
-            <div className="row-title">{t('settings.webdav.usernameTitle', '账号')}</div>
-            <div className="row-desc">{t('settings.webdav.usernameDesc', '坚果云使用账号邮箱。')}</div>
+        <div className="settings-webdav-grid-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid var(--border-light)' }}>
+          <div className="settings-row" style={{ borderBottom: 'none', paddingRight: '24px' }}>
+            <div className="row-label" style={{ minWidth: 'auto' }}>
+              <div className="row-title">{t('settings.webdav.usernameTitle', '账号')}</div>
+              <div className="row-desc">{t('settings.webdav.usernameDesc', '坚果云使用账号邮箱。')}</div>
+            </div>
+            <div className="row-control row-control--grow" style={{ maxWidth: '240px' }}>
+              <input
+                className="settings-select settings-select--input-mode settings-webdav-input"
+                style={{ width: '100%' }}
+                value={username}
+                disabled={settingsLoading || busy}
+                placeholder={t('settings.webdav.usernamePlaceholder', '邮箱或用户名')}
+                onChange={(event) => setUsername(event.target.value)}
+              />
+            </div>
           </div>
-          <div className="row-control row-control--grow">
-            <input
-              className="settings-select settings-select--input-mode settings-webdav-input"
-              value={username}
-              disabled={settingsLoading || busy}
-              placeholder={t('settings.webdav.usernamePlaceholder', '邮箱或用户名')}
-              onChange={(event) => setUsername(event.target.value)}
-            />
+          <div className="settings-row" style={{ borderBottom: 'none', paddingLeft: '24px', borderLeft: '1px solid var(--border-light)' }}>
+            <div className="row-label" style={{ minWidth: 'auto' }}>
+              <div className="row-title">{t('settings.webdav.remoteDirTitle', '远端目录')}</div>
+              <div className="row-desc">{t('settings.webdav.remoteDirDesc', '只管理该目录下的 Cockpit 备份文件。')}</div>
+            </div>
+            <div className="row-control row-control--grow" style={{ maxWidth: '240px' }}>
+              <input
+                className="settings-select settings-select--input-mode settings-webdav-input"
+                style={{ width: '100%' }}
+                value={remoteDir}
+                disabled={settingsLoading || busy}
+                onChange={(event) => setRemoteDir(event.target.value)}
+              />
+            </div>
           </div>
         </div>
 
-        <div className="settings-row">
-          <div className="row-label">
-            <div className="row-title">{t('settings.webdav.passwordTitle', '应用密码')}</div>
-            <div className="row-desc">{t('settings.webdav.passwordDesc', '保存到本地配置；留空会保留已保存密码。')}</div>
+        <div className="settings-webdav-grid-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid var(--border-light)' }}>
+          <div className="settings-row" style={{ borderBottom: 'none', paddingRight: '24px' }}>
+            <div className="row-label" style={{ minWidth: 'auto' }}>
+              <div className="row-title">{t('settings.webdav.passwordTitle', '应用密码')}</div>
+              <div className="row-desc">{t('settings.webdav.passwordDesc', '保存到本地配置；留空会保留已保存密码。')}</div>
+            </div>
+            <div className="row-control row-control--grow settings-webdav-password-control" style={{ maxWidth: '240px' }}>
+              <input
+                type="password"
+                className="settings-select settings-select--input-mode settings-webdav-input"
+                style={{ width: '100%' }}
+                value={passwordInput}
+                disabled={settingsLoading || busy}
+                placeholder={passwordPlaceholder}
+                onChange={(event) => setPasswordInput(event.target.value)}
+              />
+            </div>
           </div>
-          <div className="row-control row-control--grow settings-webdav-password-control">
-            <input
-              type="password"
-              className="settings-select settings-select--input-mode settings-webdav-input"
-              value={passwordInput}
-              disabled={settingsLoading || busy}
-              placeholder={passwordPlaceholder}
-              onChange={(event) => setPasswordInput(event.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="settings-row">
-          <div className="row-label">
-            <div className="row-title">{t('settings.webdav.remoteDirTitle', '远端目录')}</div>
-            <div className="row-desc">{t('settings.webdav.remoteDirDesc', '只管理该目录下的 Cockpit 备份文件。')}</div>
-          </div>
-          <div className="row-control row-control--grow">
-            <input
-              className="settings-select settings-select--input-mode settings-webdav-input"
-              value={remoteDir}
-              disabled={settingsLoading || busy}
-              onChange={(event) => setRemoteDir(event.target.value)}
-            />
+          <div className="settings-row" style={{ borderBottom: 'none', paddingLeft: '24px', borderLeft: '1px solid var(--border-light)' }}>
+            <div className="row-label" style={{ minWidth: 'auto' }}>
+              <div className="row-title">{t('settings.webdav.retentionTitle', '云端保留天数')}</div>
+              <div className="row-desc">{t('settings.webdav.retentionDesc', '云端超过天数的备份会在下次同步时自动清理。')}</div>
+            </div>
+            <div className="row-control row-control--grow" style={{ maxWidth: '240px' }}>
+              <div className="settings-inline-input settings-backup-retention-input" style={{ width: '100%' }}>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  className="settings-select settings-select--input-mode settings-select--with-unit settings-webdav-input"
+                  style={{ width: '100%' }}
+                  value={retentionInput}
+                  disabled={settingsLoading || busy}
+                  onChange={(event) =>
+                    setRetentionInput(event.target.value.replace(/[^\d]/g, ''))
+                  }
+                />
+                <span className="settings-input-unit">
+                  {t('settings.webdav.retentionUnit', '天')}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -568,7 +640,7 @@ export function SettingsWebdavSyncSection() {
             </button>
             <button
               className="btn btn-primary"
-              disabled={settingsLoading || busy || !enabled}
+              disabled={settingsLoading || busy || !hasUsableSavedCredential}
               onClick={() => void handleUploadNow()}
             >
               {uploading ? <RefreshCw size={16} className="loading-spinner" /> : <Upload size={16} />}
@@ -576,7 +648,7 @@ export function SettingsWebdavSyncSection() {
             </button>
             <button
               className="btn btn-secondary"
-              disabled={settingsLoading || busy || !enabled}
+              disabled={settingsLoading || busy || !hasUsableSavedCredential}
               onClick={() => void handleSyncConfigLatest()}
             >
               {syncingLatest ? <RefreshCw size={16} className="loading-spinner" /> : <RefreshCw size={16} />}
@@ -625,36 +697,37 @@ export function SettingsWebdavSyncSection() {
               <div className="settings-backup-empty">
                 <div className="settings-backup-empty-title">{t('common.loading', '加载中...')}</div>
               </div>
-            ) : remoteFiles.length === 0 ? (
+            ) : groupedRemoteFiles.length === 0 ? (
               <div className="settings-backup-empty">
                 <div className="settings-backup-empty-title">{t('settings.webdav.emptyTitle', '暂无远端备份')}</div>
                 <div className="settings-backup-empty-desc">{t('settings.webdav.emptyDesc', '保存设置后可以生成并上传一份备份。')}</div>
               </div>
             ) : (
               <div className="settings-backup-list">
-                {remoteFiles.map((file) => {
-                  const isRestoring = restoringFile === file.file_name;
-                  const isDeleting = deletingFile === file.file_name;
+                {visibleGroups.map((group) => {
+                  const isRestoring = restoringFile === group.id;
+                  const isDeleting = deletingFile === group.id;
                   return (
-                    <div className="settings-backup-item" key={file.file_name}>
+                    <div className="settings-backup-item" key={group.id}>
                       <div className="settings-backup-item-head">
                         <div>
-                          <div className="settings-backup-item-name">{file.file_name}</div>
+                          <div className="settings-backup-item-name">{group.display_name}</div>
                           <div className="settings-backup-item-tags">
-                            <span className="settings-backup-tag">{file.file_kind.toUpperCase()}</span>
+                            {group.zip_file && <span className="settings-backup-tag" style={{ marginRight: '4px' }}>ZIP</span>}
+                            {group.json_file && <span className="settings-backup-tag">JSON</span>}
                           </div>
                         </div>
                       </div>
                       <div className="settings-backup-item-meta">
                         <span>
                           {t('settings.transfer.backup.fileTime', {
-                            time: formatRemoteTime(file.modified_at, t('settings.webdav.unknownTime', '未知')),
+                            time: formatRemoteTime(group.modified_at, t('settings.webdav.unknownTime', '未知')),
                             defaultValue: '时间：{{time}}',
                           })}
                         </span>
                         <span>
                           {t('settings.transfer.backup.fileSize', {
-                            size: formatFileSize(file.size_bytes),
+                            size: formatFileSize(group.size_bytes),
                             defaultValue: '大小：{{size}}',
                           })}
                         </span>
@@ -662,8 +735,8 @@ export function SettingsWebdavSyncSection() {
                       <div className="settings-backup-item-actions">
                         <button
                           className="btn btn-secondary"
-                          disabled={busy || file.file_kind !== 'json'}
-                          onClick={() => void handleRestore(file)}
+                          disabled={busy}
+                          onClick={() => void handleRestore(group)}
                         >
                           {isRestoring ? <RefreshCw size={16} className="loading-spinner" /> : <Download size={16} />}
                           {t('settings.webdav.restoreAction', '恢复')}
@@ -671,7 +744,7 @@ export function SettingsWebdavSyncSection() {
                         <button
                           className="btn btn-secondary"
                           disabled={busy}
-                          onClick={() => void handleDelete(file)}
+                          onClick={() => void handleDelete(group)}
                         >
                           {isDeleting ? <RefreshCw size={16} className="loading-spinner" /> : <Trash2 size={16} />}
                           {t('settings.transfer.backup.deleteAction', '删除')}
@@ -680,6 +753,22 @@ export function SettingsWebdavSyncSection() {
                     </div>
                   );
                 })}
+                {groupedRemoteFiles.length > 3 && (
+                  <div style={{ display: 'flex', justifyContent: 'center', marginTop: '12px', marginBottom: '16px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setShowAllRemote((prev) => !prev)}
+                    >
+                      {showAllRemote
+                        ? t('settings.webdav.collapseAll', '收起远端备份')
+                        : t('settings.webdav.expandAll', {
+                            count: groupedRemoteFiles.length - 3,
+                            defaultValue: '展开全部远端备份 (还有 {{count}} 个)',
+                          })}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

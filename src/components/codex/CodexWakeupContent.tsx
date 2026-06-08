@@ -54,11 +54,18 @@ import {
   MultiSelectFilterDropdown,
   type MultiSelectFilterOption,
 } from '../MultiSelectFilterDropdown';
+import { PaginationControls } from '../PaginationControls';
+import {
+  buildPaginationPageSizeStorageKey,
+  usePagination,
+} from '../../hooks/usePagination';
 import {
   isPrivacyModeEnabledByDefault,
   maskSensitiveValue,
   PRIVACY_MODE_CHANGED_EVENT,
 } from '../../utils/privacy';
+
+const WAKEUP_ACCOUNT_PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
 
 interface CodexWakeupGeneralConfig {
   language?: string;
@@ -1556,6 +1563,26 @@ export function CodexWakeupContent({
     () => filterWakeupAccounts(testAccountFilters),
     [filterWakeupAccounts, testAccountFilters],
   );
+  const taskAccountPagination = usePagination({
+    items: filteredTaskAccounts,
+    storageKey: buildPaginationPageSizeStorageKey('CodexWakeupTaskAccounts'),
+    pageSizeOptions: WAKEUP_ACCOUNT_PAGE_SIZE_OPTIONS,
+    defaultPageSize: 50,
+  });
+  const testAccountPagination = usePagination({
+    items: filteredTestAccounts,
+    storageKey: buildPaginationPageSizeStorageKey('CodexWakeupTestAccounts'),
+    pageSizeOptions: WAKEUP_ACCOUNT_PAGE_SIZE_OPTIONS,
+    defaultPageSize: 50,
+  });
+
+  useEffect(() => {
+    taskAccountPagination.setCurrentPage(1);
+  }, [taskAccountFilters, taskAccountPagination.setCurrentPage]);
+
+  useEffect(() => {
+    testAccountPagination.setCurrentPage(1);
+  }, [testAccountFilters, testAccountPagination.setCurrentPage]);
   const allFilteredTaskSelected = useMemo(
     () =>
       filteredTaskAccounts.length > 0 &&
@@ -2907,7 +2934,7 @@ export function CodexWakeupContent({
                   </div>
                 ) : (
                   <div className="wakeup-chip-list codex-wakeup-account-list">
-                    {filteredTaskAccounts.map((account) => {
+                    {taskAccountPagination.pageItems.map((account) => {
                     const checked = taskDraft.accountIds.includes(account.id);
                     return renderWakeupAccountOption(account, checked, () =>
                       setTaskDraft((current) => ({
@@ -2919,6 +2946,22 @@ export function CodexWakeupContent({
                     );
                   })}
                   </div>
+                )}
+                {filteredTaskAccounts.length > 0 && (
+                  <PaginationControls
+                    totalItems={taskAccountPagination.totalItems}
+                    currentPage={taskAccountPagination.currentPage}
+                    totalPages={taskAccountPagination.totalPages}
+                    pageSize={taskAccountPagination.pageSize}
+                    pageSizeOptions={taskAccountPagination.pageSizeOptions}
+                    rangeStart={taskAccountPagination.rangeStart}
+                    rangeEnd={taskAccountPagination.rangeEnd}
+                    canGoPrevious={taskAccountPagination.canGoPrevious}
+                    canGoNext={taskAccountPagination.canGoNext}
+                    onPageSizeChange={taskAccountPagination.setPageSize}
+                    onPreviousPage={taskAccountPagination.goToPreviousPage}
+                    onNextPage={taskAccountPagination.goToNextPage}
+                  />
                 )}
               </div>
 
@@ -3279,7 +3322,7 @@ export function CodexWakeupContent({
                   </div>
                 ) : (
                   <div className="wakeup-chip-list codex-wakeup-account-list">
-                    {filteredTestAccounts.map((account) => {
+                    {testAccountPagination.pageItems.map((account) => {
                     const checked = testAccountIds.includes(account.id);
                     return renderWakeupAccountOption(account, checked, () =>
                       setTestAccountIds((current) =>
@@ -3290,6 +3333,22 @@ export function CodexWakeupContent({
                     );
                   })}
                   </div>
+                )}
+                {filteredTestAccounts.length > 0 && (
+                  <PaginationControls
+                    totalItems={testAccountPagination.totalItems}
+                    currentPage={testAccountPagination.currentPage}
+                    totalPages={testAccountPagination.totalPages}
+                    pageSize={testAccountPagination.pageSize}
+                    pageSizeOptions={testAccountPagination.pageSizeOptions}
+                    rangeStart={testAccountPagination.rangeStart}
+                    rangeEnd={testAccountPagination.rangeEnd}
+                    canGoPrevious={testAccountPagination.canGoPrevious}
+                    canGoNext={testAccountPagination.canGoNext}
+                    onPageSizeChange={testAccountPagination.setPageSize}
+                    onPreviousPage={testAccountPagination.goToPreviousPage}
+                    onNextPage={testAccountPagination.goToNextPage}
+                  />
                 )}
               </div>
               <div className="wakeup-form-group">

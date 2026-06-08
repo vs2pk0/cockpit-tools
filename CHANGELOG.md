@@ -7,11 +7,59 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
-## [0.25.1-vs2pk0.1] - 2026-06-07
+## [0.25.4-vs2pk0.1] - 2026-06-08
 
 ### Changed
-- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `28cae0d2`**: this build includes upstream `v0.25.1` model-provider switching fixes, provider protocol persistence, Windows launch repair, WebDAV backup sync, and model catalog patching improvements.
-- **Preserved local fork CPA, custom-service, account order, and bound-phone enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime management, account JSON sync, phone export/filtering, configurable plan badges, and stable custom ordering remain available.
+- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `458be09e`**: this build includes upstream `v0.25.4` API Service large-account performance work, APIKEY.FUN dark-mode presentation, WebDAV retention configuration, provider-gateway fixes, and backup restore safety improvements.
+- **Preserved local fork CPA, custom-service, stable ordering, and bound-phone enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime management, account JSON sync, phone export/filtering, configurable plan badges, and custom account ordering remain available.
+
+---
+## [0.25.4] - 2026-06-08
+
+### Added
+- **WebDAV and local backup retention days can now be configured independently**: WebDAV backup cleanup can use its own retention policy instead of sharing the local backup retention setting.
+
+### Changed
+- **Codex API Service account-pool changes now return without waiting for a gateway reload**: saving API Service members and removing deleted accounts from the pool update local state first and trigger a single background gateway reload, keeping the add/delete flows responsive on large account sets.
+- **Large Codex account pickers now paginate their results**: the API Service member picker and Codex wakeup account pickers show paged account lists, reducing UI work when more than 1,000 accounts are present.
+- **Codex account-page large-list work is more focused**: API Service member saving reuses the current account snapshot instead of issuing another full account read, and team-account profile hydration only targets the current page.
+- **APIKEY.FUN presentation is clearer in dark mode**: the partner relay copy now says “official Cockpit partner relay”, and the APIKEY.FUN page adds dark-theme styling for panels, inputs, buttons, cards, messages, and key rows.
+
+### Fixed
+- **Deleted Codex accounts are fully removed from API Service references**: account pools, scoped API keys, custom routing rules, account model rules, runtime cache, response affinity, cooldowns, and bound OAuth references are cleaned when accounts are deleted.
+- **Codex API Service sidecar no longer restarts for quota-only manifest changes**: sidecar fingerprints ignore volatile remaining-quota fields while still detecting real routing and account changes.
+- **Codex API Service excludes Chat Completions API Key accounts from the regular account pool**: accounts that require the instance-specific provider gateway are no longer selectable for the global API Service pool, and the member picker shows an explicit unsupported status.
+- **Codex API Service is more stable on large local datasets and large requests**: startup raises the process file-descriptor soft limit on macOS/Linux, oversized declared HTTP request bodies are rejected before reading, and the sidecar can resolve macOS/Windows system proxy settings into an explicit upstream proxy URL.
+- **CLIProxyAPI sidecar preserves Codex reasoning effort for manifest models**: model registry entries now keep static thinking support for Codex models and aliases, so requests such as `reasoning.effort = high` survive the sidecar translation path.
+- **Restoring backups no longer overwrites unrelated configuration fields**: import and restore flows preserve configuration values outside the restored backup scope.
+- **MFA backup fields are handled more safely during backup transfer**: backup import/export avoids unsafe dynamic handling of MFA backup fields while keeping the related locale keys in sync.
+- **WebDAV service URL input now aligns with the other settings fields**: the WebDAV address field uses the same width behavior as neighboring settings controls.
+- **Pull request builds are more reliable on Windows runners**: PR builds now use the dedicated Tauri CI config file instead of inline JSON arguments that can be misparsed by Windows shells.
+
+---
+## [0.25.3] - 2026-06-07
+
+### Fixed
+- **Codex Chat Completions providers now use isolated local gateways per instance**: API Key accounts configured for Chat Completions start a dedicated provider gateway for the target Codex profile with its own local port, avoiding conflicts with the global API Service gateway or other Codex instances.
+- **Codex default-instance process matching now follows the official client launch shape**: the default desktop instance is detected without requiring `CODEX_HOME` or a managed profile directory, improving launch state, stop behavior, PID tracking, and window focus for the official default instance.
+- **Codex config.toml cleanup no longer removes user-managed provider settings**: Cockpit now only removes its own provider-gateway model catalog and model override, preserving external `model_catalog_json`, custom providers, and other user configuration.
+- **Windows provider-gateway sidecars no longer open visible console windows**: background sidecars launched for Codex provider gateways keep the Windows hidden-console startup behavior.
+
+---
+## [0.25.2] - 2026-06-06
+
+### Added
+- **Codex Chat Completions providers can now launch directly from account switching**: API Key accounts configured for Chat Completions, including common domestic model providers, automatically enable the local provider gateway, write the model catalog, and select the provider model when switching accounts.
+- **Codex API Key accounts can be edited again**: account cards and account lists restore the edit action for saved API Key accounts, allowing users to update the key, Base URL, protocol, model catalog, vision capability map, and vision routing model without recreating the account.
+- **Codex batch import is easier to monitor and control**: importing multiple JSON files now scans accounts one by one, shows live progress, summary stats, and a flat account list, supports resuming after cancellation, provides quick selection for all or healthy accounts, and still lets users manually include abnormal accounts before importing.
+- **Codex provider gateway now supports explicit vision routing**: providers can configure a default vision routing model so image requests move to a capable model when the selected model does not support images.
+- **Codex default-instance launching is more reliable across macOS and Windows**: default Codex launches use the platform app entry where possible, probe the launched process more accurately, and fall back to the executable path when the system entry cannot be resolved.
+
+### Changed
+- **Codex provider image handling is now predictable**: unsupported image input returns `unsupported_image_input` when no routing model is configured, while routed image requests preserve the original image payload instead of replacing it with placeholder text.
+- **Codex model injection is narrower and less intrusive**: the injector now targets the specific Statsig config ID (`107580212`), removes broad object-graph traversal, and marks the simplified behavior with injector version `2`.
+- **Codex provider management is easier to scan**: provider cards use shorter labels, and provider settings include clearer vision-model and routing-model guidance.
+- **Original sidebar spacing is tighter**: the capsule sidebar uses smaller padding and item gaps so the original layout feels less sparse.
 
 ---
 ## [0.25.1] - 2026-06-06
@@ -1564,7 +1612,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ---
 ## [0.9.6] - 2026-02-28
 
-
 ### Changed
 - **Unified account presentation pipeline across five platforms and multiple entry pages**: Added a shared presentation layer for display name, plan label (raw value), quota metrics, reset text, and usage summaries, and reused it in Dashboard, Accounts, and Instances pages (Antigravity / Codex / GitHub Copilot / Windsurf / Kiro) to avoid multi-place divergence.
 - **Token import UX now provides concrete input examples**: Updated token/JSON placeholder copy across locales and added token-format helper styling to improve readability in add/import modals.
@@ -2120,7 +2167,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **i18n**: Updated translations for close dialog, close behavior, and reset-time sorting across all 17 languages.
 - **UI Polish**: Refined styling to support the new close dialog and related layout updates.
 
-
 ## [0.4.0] - 2026-01-28
 
 ### Added
@@ -2136,7 +2182,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Typography**: switched default font to **Inter** for better readability.
 - **Documentation**: Comprehensive update to README with fresh screenshots and structured feature overview.
 - **i18n**: Updated translations for all 17 languages to cover new Dashboard and Codex features.
-
 
 ## [0.3.3] - 2026-01-24
 

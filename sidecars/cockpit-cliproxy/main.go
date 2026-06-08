@@ -27,6 +27,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	internallogging "github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
+	internalregistry "github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	responsesconverter "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/openai/openai/responses"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/synthesizer"
 	sdkopenai "github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers/openai"
@@ -97,13 +98,14 @@ type apiKeySpec struct {
 }
 
 type providerGatewaySpec struct {
-	BaseURL           string                                    `json:"baseUrl"`
-	APIKey            string                                    `json:"apiKey"`
-	UpstreamModel     string                                    `json:"upstreamModel"`
-	UpstreamModels    []string                                  `json:"upstreamModels,omitempty"`
-	WireAPI           string                                    `json:"wireApi,omitempty"`
-	SupportsVision    bool                                      `json:"supportsVision,omitempty"`
-	ModelCapabilities map[string]providerGatewayModelCapability `json:"modelCapabilities,omitempty"`
+	BaseURL            string                                    `json:"baseUrl"`
+	APIKey             string                                    `json:"apiKey"`
+	UpstreamModel      string                                    `json:"upstreamModel"`
+	UpstreamModels     []string                                  `json:"upstreamModels,omitempty"`
+	WireAPI            string                                    `json:"wireApi,omitempty"`
+	SupportsVision     bool                                      `json:"supportsVision,omitempty"`
+	ModelCapabilities  map[string]providerGatewayModelCapability `json:"modelCapabilities,omitempty"`
+	VisionRoutingModel string                                    `json:"visionRoutingModel,omitempty"`
 }
 
 type providerGatewayModelCapability struct {
@@ -377,6 +379,7 @@ func loadManifest(path string) (*manifest, error) {
 			gateway.APIKey = strings.TrimSpace(gateway.APIKey)
 			gateway.UpstreamModel = strings.TrimSpace(gateway.UpstreamModel)
 			gateway.UpstreamModels = normalizeStringList(gateway.UpstreamModels)
+			gateway.VisionRoutingModel = strings.TrimSpace(gateway.VisionRoutingModel)
 			if len(gateway.UpstreamModels) == 0 && gateway.UpstreamModel != "" {
 				gateway.UpstreamModels = []string{gateway.UpstreamModel}
 			}
@@ -977,6 +980,63 @@ func providerGatewayModelCapabilityOverridesVision(gateway *providerGatewaySpec,
 	return capability.SupportsVision, true
 }
 
+func providerGatewayVisionRoutingModel(gateway *providerGatewaySpec) string {
+	if gateway == nil {
+		return ""
+	}
+	model := strings.TrimSpace(gateway.VisionRoutingModel)
+	if model != "" && len(gateway.UpstreamModels) > 0 {
+		matched := ""
+		for _, upstreamModel := range gateway.UpstreamModels {
+			if strings.EqualFold(model, upstreamModel) {
+				matched = upstreamModel
+				break
+			}
+		}
+		if matched == "" {
+			return ""
+		}
+		model = matched
+	}
+	if model != "" && providerGatewayModelSupportsVision(gateway, model) {
+		return model
+	}
+	if model != "" {
+		return ""
+	}
+	visionModel := ""
+	for rawModel, capability := range gateway.ModelCapabilities {
+		if !capability.SupportsVision {
+			continue
+		}
+		model = strings.TrimSpace(rawModel)
+		if model == "" {
+			continue
+		}
+		if len(gateway.UpstreamModels) > 0 {
+			matched := ""
+			for _, upstreamModel := range gateway.UpstreamModels {
+				if strings.EqualFold(model, upstreamModel) {
+					matched = upstreamModel
+					break
+				}
+			}
+			if matched == "" {
+				continue
+			}
+			model = matched
+		}
+		if visionModel != "" && !strings.EqualFold(visionModel, model) {
+			return ""
+		}
+		visionModel = model
+	}
+	if visionModel != "" && providerGatewayModelSupportsVision(gateway, visionModel) {
+		return visionModel
+	}
+	return ""
+}
+
 func providerGatewayRequestHasVisionInput(body []byte) bool {
 	if len(body) == 0 || !json.Valid(body) {
 		return false
@@ -1010,68 +1070,6 @@ func providerGatewayValueHasVisionInput(value any) bool {
 		}
 	}
 	return false
-}
-
-func providerGatewayUnsupportedVisionPlaceholder(model string) string {
-	model = strings.TrimSpace(model)
-	if model == "" {
-		model = "current model"
-	}
-	return fmt.Sprintf("[Image omitted: %s does not support image input.]", model)
-}
-
-func providerGatewayOmitUnsupportedVisionInput(body []byte, model string) ([]byte, int) {
-	if len(body) == 0 || !json.Valid(body) {
-		return body, 0
-	}
-	var payload any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return body, 0
-	}
-	next, count := providerGatewayOmitUnsupportedVisionValue(payload, providerGatewayUnsupportedVisionPlaceholder(model))
-	if count == 0 {
-		return body, 0
-	}
-	encoded, err := json.Marshal(next)
-	if err != nil {
-		return body, 0
-	}
-	return encoded, count
-}
-
-func providerGatewayOmitUnsupportedVisionValue(value any, placeholder string) (any, int) {
-	switch typed := value.(type) {
-	case map[string]any:
-		if typ, _ := typed["type"].(string); strings.EqualFold(strings.TrimSpace(typ), "input_image") {
-			return map[string]any{"type": "input_text", "text": placeholder}, 1
-		} else if strings.EqualFold(strings.TrimSpace(typ), "image_url") {
-			return map[string]any{"type": "text", "text": placeholder}, 1
-		}
-		if _, ok := typed["image_url"]; ok {
-			return map[string]any{"type": "input_text", "text": placeholder}, 1
-		}
-		count := 0
-		for key, child := range typed {
-			nextChild, childCount := providerGatewayOmitUnsupportedVisionValue(child, placeholder)
-			if childCount > 0 {
-				typed[key] = nextChild
-				count += childCount
-			}
-		}
-		return typed, count
-	case []any:
-		count := 0
-		for index, child := range typed {
-			nextChild, childCount := providerGatewayOmitUnsupportedVisionValue(child, placeholder)
-			if childCount > 0 {
-				typed[index] = nextChild
-				count += childCount
-			}
-		}
-		return typed, count
-	default:
-		return value, 0
-	}
 }
 
 func stripModelPrefix(model string, spec *apiKeySpec) string {
@@ -2029,26 +2027,68 @@ func manifestRegistryModels(m *manifest) []*cliproxy.ModelInfo {
 	if m == nil {
 		return nil
 	}
-	ids := make([]string, 0, len(m.ModelIDs)+len(m.ModelAliases)*2)
-	ids = append(ids, m.ModelIDs...)
-	for _, alias := range m.ModelAliases {
-		ids = append(ids, alias.SourceModel, alias.Alias)
+	entries := make([]manifestRegistryModelEntry, 0, len(m.ModelIDs)+len(m.ModelAliases)*2)
+	seen := make(map[string]struct{}, cap(entries))
+	for _, id := range m.ModelIDs {
+		entries = appendManifestRegistryModelEntry(entries, seen, id, "")
 	}
-	ids = appendCodexInternalModels(ids)
-	ids = normalizeStringList(ids)
-	models := make([]*cliproxy.ModelInfo, 0, len(ids))
+	for _, alias := range m.ModelAliases {
+		entries = appendManifestRegistryModelEntry(entries, seen, alias.SourceModel, "")
+		entries = appendManifestRegistryModelEntry(entries, seen, alias.Alias, alias.SourceModel)
+	}
+	for _, id := range appendCodexInternalModels(nil) {
+		entries = appendManifestRegistryModelEntry(entries, seen, id, "")
+	}
+	models := make([]*cliproxy.ModelInfo, 0, len(entries))
 	now := time.Now().Unix()
-	for _, id := range ids {
-		models = append(models, &cliproxy.ModelInfo{
-			ID:          id,
-			Object:      "model",
-			Created:     now,
-			OwnedBy:     "openai",
-			Type:        "openai",
-			DisplayName: displayNameForModel(id),
-		})
+	for _, entry := range entries {
+		models = append(models, manifestRegistryModelInfo(entry.id, entry.source, now))
 	}
 	return models
+}
+
+type manifestRegistryModelEntry struct {
+	id     string
+	source string
+}
+
+func appendManifestRegistryModelEntry(entries []manifestRegistryModelEntry, seen map[string]struct{}, id string, source string) []manifestRegistryModelEntry {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return entries
+	}
+	key := strings.ToLower(id)
+	if _, exists := seen[key]; exists {
+		return entries
+	}
+	seen[key] = struct{}{}
+	return append(entries, manifestRegistryModelEntry{
+		id:     id,
+		source: strings.TrimSpace(source),
+	})
+}
+
+func manifestRegistryModelInfo(id string, source string, created int64) *cliproxy.ModelInfo {
+	info := &cliproxy.ModelInfo{
+		ID:          id,
+		Object:      "model",
+		Created:     created,
+		OwnedBy:     "openai",
+		Type:        "openai",
+		DisplayName: displayNameForModel(id),
+	}
+	lookupID := id
+	if source != "" {
+		lookupID = source
+	}
+	if staticInfo := internalregistry.LookupStaticModelInfo(lookupID); staticInfo != nil {
+		if staticInfo.Thinking != nil {
+			info.Thinking = staticInfo.Thinking
+		}
+		return info
+	}
+	info.UserDefined = true
+	return info
 }
 
 type sidecarRoundTripperProvider struct {
@@ -2970,18 +3010,23 @@ func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, gateway *prov
 		}
 	}
 	if providerGatewayRequestHasVisionInput(body) && !supportsVision {
-		var omitted int
-		body, omitted = providerGatewayOmitUnsupportedVisionInput(body, upstreamModel)
+		visionRoutingModel := providerGatewayVisionRoutingModel(gateway)
+		if strings.TrimSpace(visionRoutingModel) == "" {
+			writeAPIError(c, http.StatusBadRequest, fmt.Sprintf("model %s does not support image input", upstreamModel), "unsupported_image_input")
+			return
+		}
+		originalModel := upstreamModel
+		upstreamModel = visionRoutingModel
 		if s.emitter != nil {
 			s.emitter.emit(requestDiagnosticPayload{
-				Type:         "provider_gateway_vision_omitted",
+				Type:         "provider_gateway_vision_routed",
 				RequestID:    internallogging.GetRequestID(c.Request.Context()),
 				Method:       c.Request.Method,
 				Path:         requestPath(c.Request),
 				RequestKind:  requestKindFromPath(requestPath(c.Request)),
 				Model:        upstreamModel,
 				Transport:    diagnosticTransport(c.Request),
-				ErrorMessage: fmt.Sprintf("omitted %d image input(s) because model %s does not support image input", omitted, upstreamModel),
+				ErrorMessage: fmt.Sprintf("routed image input from %s to %s", originalModel, upstreamModel),
 			})
 		}
 	}

@@ -23,6 +23,53 @@ pub fn get_app_handle() -> Option<&'static tauri::AppHandle> {
     APP_HANDLE.get()
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn raise_process_file_descriptor_limit() {
+    const TARGET_NOFILE_LIMIT: libc::rlim_t = 4096;
+
+    unsafe {
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) != 0 {
+            logger::log_warn(&format!(
+                "[Startup] 读取进程文件句柄上限失败: {}",
+                std::io::Error::last_os_error()
+            ));
+            return;
+        }
+
+        let target = if limit.rlim_max == libc::RLIM_INFINITY {
+            TARGET_NOFILE_LIMIT
+        } else {
+            TARGET_NOFILE_LIMIT.min(limit.rlim_max)
+        };
+        if target <= limit.rlim_cur || target == 0 {
+            return;
+        }
+
+        let previous = limit.rlim_cur;
+        limit.rlim_cur = target;
+        if libc::setrlimit(libc::RLIMIT_NOFILE, &limit) == 0 {
+            logger::log_info(&format!(
+                "[Startup] 已提升进程文件句柄软限制: {} -> {}",
+                previous, target
+            ));
+        } else {
+            logger::log_warn(&format!(
+                "[Startup] 提升进程文件句柄软限制失败: {} -> {}, error={}",
+                previous,
+                target,
+                std::io::Error::last_os_error()
+            ));
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn raise_process_file_descriptor_limit() {}
+
 #[cfg(target_os = "macos")]
 fn apply_macos_activation_policy(app: &tauri::AppHandle) {
     let config = modules::config::get_user_config();
@@ -54,6 +101,7 @@ fn apply_macos_activation_policy(app: &tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     logger::init_logger();
+    raise_process_file_descriptor_limit();
     // 启动时先加载一次配置，确保进程级代理环境与用户设置同步。
     let _ = modules::config::get_user_config();
 
@@ -494,6 +542,11 @@ pub fn run() {
             commands::codex::codex_delete_cpa_account_files,
             commands::codex::codex_delete_all_cpa_account_files,
             commands::codex::import_codex_from_files,
+            commands::codex::start_codex_batch_import_from_files,
+            commands::codex::cancel_codex_batch_import,
+            commands::codex::resume_codex_batch_import,
+            commands::codex::get_codex_batch_import_preview,
+            commands::codex::confirm_codex_batch_import,
             commands::codex::refresh_codex_quota,
             commands::codex::refresh_codex_subscription_info,
             commands::codex::refresh_all_codex_quotas,

@@ -331,6 +331,8 @@ pub struct WebdavSyncSettings {
     pub last_download_at: Option<String>,
     /// 最近一次下载文件名
     pub last_download_file_name: Option<String>,
+    /// 备份保留天数
+    pub retention_days: i32,
 }
 
 const DEFAULT_UI_SCALE: f64 = 1.0;
@@ -1001,6 +1003,7 @@ fn build_webdav_sync_settings(config: &UserConfig) -> WebdavSyncSettings {
         last_upload_file_name: config.webdav_sync_last_upload_file_name.clone(),
         last_download_at: config.webdav_sync_last_download_at.clone(),
         last_download_file_name: config.webdav_sync_last_download_file_name.clone(),
+        retention_days: config.webdav_sync_retention_days,
     }
 }
 
@@ -1699,6 +1702,7 @@ pub fn save_webdav_sync_settings(
     password: Option<String>,
     clear_password: Option<bool>,
     remote_dir: String,
+    retention_days: i32,
 ) -> Result<WebdavSyncSettings, String> {
     let current = config::get_user_config();
     let next_password =
@@ -1712,6 +1716,7 @@ pub fn save_webdav_sync_settings(
         webdav_sync_username: next_username,
         webdav_sync_password: next_password,
         webdav_sync_remote_dir: next_remote_dir,
+        webdav_sync_retention_days: config::sanitize_webdav_sync_retention_days(retention_days),
         ..current
     };
     config::save_user_config(&new_config)?;
@@ -1748,35 +1753,30 @@ pub async fn upload_auto_backup_to_webdav(
     if !safe_name.ends_with(".json") {
         return Err("WebDAV 同步入口文件必须为 JSON 备份".to_string());
     }
-    let path = resolve_auto_backup_file_path(&safe_name)?;
-    if !path.exists() {
-        return Err("本地备份文件不存在".to_string());
+
+    let archive_name = auto_backup_archive_file_name(&safe_name)
+        .ok_or_else(|| "无法获取对应的压缩包名称".to_string())?;
+    let archive_path = resolve_auto_backup_file_path(&archive_name)?;
+    if !archive_path.exists() {
+        return Err("本地备份压缩包不存在".to_string());
     }
+
+    let archive_bytes =
+        fs::read(&archive_path).map_err(|err| format!("读取本地备份压缩包失败: {}", err))?;
+
+    let sync_client = modules::webdav_sync::WebdavSyncClient::new(&connection)?;
 
     let mut uploaded_files = Vec::new();
-    let bytes = fs::read(&path).map_err(|err| format!("读取本地备份失败: {}", err))?;
-    uploaded_files
-        .push(modules::webdav_sync::upload_backup_bytes(&connection, &safe_name, bytes).await?);
+    uploaded_files.push(
+        sync_client.upload_backup_bytes(
+            &archive_name,
+            archive_bytes,
+        )
+        .await?,
+    );
 
-    if let Some(archive_name) = auto_backup_archive_file_name(&safe_name) {
-        let archive_path = resolve_auto_backup_file_path(&archive_name)?;
-        if archive_path.exists() {
-            let archive_bytes = fs::read(&archive_path)
-                .map_err(|err| format!("读取本地备份压缩包失败: {}", err))?;
-            uploaded_files.push(
-                modules::webdav_sync::upload_backup_bytes(
-                    &connection,
-                    &archive_name,
-                    archive_bytes,
-                )
-                .await?,
-            );
-        }
-    }
-
-    let deleted_files = modules::webdav_sync::cleanup_remote_backups(
-        &connection,
-        config::sanitize_auto_backup_retention_days(config.auto_backup_retention_days),
+    let deleted_files = sync_client.cleanup_remote_backups(
+        config::sanitize_webdav_sync_retention_days(config.webdav_sync_retention_days),
     )
     .await?;
     let uploaded_at = chrono::Utc::now().to_rfc3339();
@@ -1784,7 +1784,7 @@ pub async fn upload_auto_backup_to_webdav(
 
     let new_config = UserConfig {
         webdav_sync_last_upload_at: Some(uploaded_at.clone()),
-        webdav_sync_last_upload_file_name: Some(safe_name),
+        webdav_sync_last_upload_file_name: Some(archive_name),
         ..config
     };
     config::save_user_config(&new_config)?;
@@ -1809,12 +1809,18 @@ pub async fn list_webdav_backup_files(
 pub async fn read_webdav_backup_file(file_name: String) -> Result<String, String> {
     let config = config::get_user_config();
     let safe_name = sanitize_auto_backup_file_name(&file_name)?;
-    if !safe_name.ends_with(".json") {
-        return Err("只能从 WebDAV 恢复 JSON 备份文件".to_string());
-    }
     let connection = modules::webdav_sync::connection_from_config(&config)?;
-    let content = modules::webdav_sync::read_remote_backup(&connection, &safe_name).await?;
+    
     let downloaded_at = chrono::Utc::now().to_rfc3339();
+    let content = if safe_name.ends_with(".zip") {
+        let bytes = modules::webdav_sync::read_remote_backup_bytes(&connection, &safe_name).await?;
+        backup_json_from_zip_bytes(&bytes)?
+    } else if safe_name.ends_with(".json") {
+        modules::webdav_sync::read_remote_backup(&connection, &safe_name).await?
+    } else {
+        return Err("不支持的备份文件格式".to_string());
+    };
+
     let new_config = UserConfig {
         webdav_sync_last_download_at: Some(downloaded_at),
         webdav_sync_last_download_file_name: Some(safe_name),
@@ -1948,6 +1954,7 @@ pub fn save_network_config(
         webdav_sync_username: current.webdav_sync_username,
         webdav_sync_password: current.webdav_sync_password,
         webdav_sync_remote_dir: current.webdav_sync_remote_dir,
+        webdav_sync_retention_days: current.webdav_sync_retention_days,
         webdav_sync_last_upload_at: current.webdav_sync_last_upload_at,
         webdav_sync_last_upload_file_name: current.webdav_sync_last_upload_file_name,
         webdav_sync_last_download_at: current.webdav_sync_last_download_at,
@@ -2691,6 +2698,7 @@ pub fn save_general_config(
         webdav_sync_username: current.webdav_sync_username,
         webdav_sync_password: current.webdav_sync_password,
         webdav_sync_remote_dir: current.webdav_sync_remote_dir,
+        webdav_sync_retention_days: current.webdav_sync_retention_days,
         webdav_sync_last_upload_at: current.webdav_sync_last_upload_at,
         webdav_sync_last_upload_file_name: current.webdav_sync_last_upload_file_name,
         webdav_sync_last_download_at: current.webdav_sync_last_download_at,

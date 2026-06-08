@@ -43,7 +43,6 @@ pub fn sanitize_codex_config_doc(doc: &mut Document) -> bool {
 }
 
 pub fn codex_config_doc_to_string(doc: &mut Document) -> String {
-    sanitize_codex_config_doc(doc);
     normalize_config_toml_spacing(&doc.to_string())
 }
 

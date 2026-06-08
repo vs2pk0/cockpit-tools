@@ -14,6 +14,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	internallogging "github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/usage"
@@ -187,6 +190,131 @@ func TestSidecarRuntimeRegistersConfigCodexAPIKeyAuths(t *testing.T) {
 	if got := m.accountByAuthID[strings.ToLower(codexAPIKeyAuth.ID)]; got == nil || got.ID != "api-account" {
 		t.Fatalf("expected auth to be linked to manifest account, got %#v", got)
 	}
+}
+
+func TestManifestRegistryModelsPreservesStaticThinkingSupport(t *testing.T) {
+	models := manifestRegistryModels(&manifest{
+		ModelIDs: []string{"gpt-5.2"},
+	})
+
+	info := findModelInfoForTest(models, "gpt-5.2")
+	if info == nil {
+		t.Fatalf("expected gpt-5.2 in manifest registry models: %#v", models)
+	}
+	if info.Thinking == nil {
+		t.Fatalf("expected gpt-5.2 to preserve static thinking support: %#v", info)
+	}
+	if !stringSliceContains(info.Thinking.Levels, "high") {
+		t.Fatalf("expected gpt-5.2 thinking levels to include high: %#v", info.Thinking.Levels)
+	}
+	if info.UserDefined {
+		t.Fatalf("static model should not be marked user-defined: %#v", info)
+	}
+}
+
+func TestManifestRegistryModelsCopiesSourceThinkingToAliases(t *testing.T) {
+	models := manifestRegistryModels(&manifest{
+		ModelAliases: []modelAliasSpec{{
+			SourceModel: "gpt-5.2",
+			Alias:       "gpt-5.2-codex",
+			Fork:        true,
+		}},
+	})
+
+	alias := findModelInfoForTest(models, "gpt-5.2-codex")
+	if alias == nil {
+		t.Fatalf("expected alias in manifest registry models: %#v", models)
+	}
+	if alias.Thinking == nil {
+		t.Fatalf("expected alias to inherit source thinking support: %#v", alias)
+	}
+	if !stringSliceContains(alias.Thinking.Levels, "high") {
+		t.Fatalf("expected alias thinking levels to include high: %#v", alias.Thinking.Levels)
+	}
+	if alias.UserDefined {
+		t.Fatalf("alias backed by static source should not be marked user-defined: %#v", alias)
+	}
+}
+
+func TestManifestRegistryModelsTreatsUnknownModelsAsUserDefined(t *testing.T) {
+	models := manifestRegistryModels(&manifest{
+		ModelIDs: []string{"custom-codex-model"},
+	})
+
+	info := findModelInfoForTest(models, "custom-codex-model")
+	if info == nil {
+		t.Fatalf("expected custom model in manifest registry models: %#v", models)
+	}
+	if !info.UserDefined {
+		t.Fatalf("unknown manifest model should be user-defined so thinking passes upstream: %#v", info)
+	}
+	if info.Thinking != nil {
+		t.Fatalf("unknown manifest model should not invent thinking support: %#v", info)
+	}
+}
+
+func TestManifestRegisteredModelsPreserveReasoningEffortThroughThinkingPipeline(t *testing.T) {
+	auth := &coreauth.Auth{
+		ID:       "test-codex-auth",
+		Provider: "codex",
+		Status:   coreauth.StatusActive,
+	}
+	manager := buildCoreAuthManager(&config.Config{}, &cockpitSelector{}, nil)
+	registered, err := manager.Register(context.Background(), auth)
+	if err != nil {
+		t.Fatalf("register auth: %v", err)
+	}
+	auth = registered
+	t.Cleanup(func() {
+		registry.GetGlobalRegistry().UnregisterClient(auth.ID)
+	})
+
+	registerManifestModelsForAuth(manager, &manifest{
+		ModelIDs: []string{"gpt-5.2"},
+		ModelAliases: []modelAliasSpec{{
+			SourceModel: "gpt-5.2",
+			Alias:       "gpt-5.2-codex",
+		}},
+	}, auth)
+
+	for _, model := range []string{"gpt-5.2", "gpt-5.2-codex"} {
+		out, err := thinking.ApplyThinking(
+			[]byte(`{"model":"`+model+`","reasoning":{"effort":"high"}}`),
+			model,
+			"openai-response",
+			"codex",
+			"codex",
+		)
+		if err != nil {
+			t.Fatalf("ApplyThinking(%s): %v", model, err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(out, &payload); err != nil {
+			t.Fatalf("translated payload for %s should be JSON: %v", model, err)
+		}
+		reasoning, _ := payload["reasoning"].(map[string]any)
+		if reasoning["effort"] != "high" {
+			t.Fatalf("reasoning effort should survive manifest registry for %s: %s", model, out)
+		}
+	}
+}
+
+func findModelInfoForTest(models []*cliproxy.ModelInfo, id string) *cliproxy.ModelInfo {
+	for _, model := range models {
+		if model != nil && strings.EqualFold(model.ID, id) {
+			return model
+		}
+	}
+	return nil
+}
+
+func stringSliceContains(values []string, target string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestBuiltinTranslatorNormalizesOpenAIResponsesForCodex(t *testing.T) {
@@ -791,14 +919,11 @@ func TestRelayServerProviderGatewayUsesSelectedUpstreamModel(t *testing.T) {
 	}
 }
 
-func TestRelayServerProviderGatewayOmitsVisionInputWhenUnsupported(t *testing.T) {
+func TestRelayServerProviderGatewayRejectsVisionInputWhenUnsupported(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstreamCalled := false
-	var upstreamBody string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamCalled = true
-		body, _ := io.ReadAll(r.Body)
-		upstreamBody = string(body)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"chatcmpl_1","object":"chat.completion","created":1,"model":"deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
 	}))
@@ -831,17 +956,121 @@ func TestRelayServerProviderGatewayOmitsVisionInputWhenUnsupported(t *testing.T)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	if upstreamCalled {
+		t.Fatal("unsupported image input without routing model should not call upstream")
+	}
+	if !strings.Contains(w.Body.String(), "unsupported_image_input") {
+		t.Fatalf("unsupported image input should return explicit error: %s", w.Body.String())
+	}
+}
+
+func TestRelayServerProviderGatewayRoutesVisionInputToConfiguredModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var upstreamPath string
+	var upstreamBody string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		upstreamBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl_1","object":"chat.completion","created":1,"model":"mimo-v2.5","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	defer upstream.Close()
+
+	gateway := &providerGatewaySpec{
+		BaseURL:            upstream.URL,
+		APIKey:             "mimo-key",
+		UpstreamModel:      "mimo-v2.5-pro",
+		UpstreamModels:     []string{"mimo-v2.5-pro", "mimo-v2.5"},
+		WireAPI:            "chat_completions",
+		VisionRoutingModel: "mimo-v2.5",
+		ModelCapabilities: map[string]providerGatewayModelCapability{
+			"mimo-v2.5": {SupportsVision: true},
+		},
+	}
+	m := &manifest{
+		APIKeys:  []apiKeySpec{{ID: "provider_gateway_account_1", Label: "Provider Gateway", Key: "client-key", Enabled: true, ProviderGateway: gateway}},
+		ModelIDs: []string{"mimo-v2.5-pro", "mimo-v2.5"},
+		apiKeyByValue: map[string]*apiKeySpec{
+			"client-key": {ID: "provider_gateway_account_1", Label: "Provider Gateway", Key: "client-key", Enabled: true, ProviderGateway: gateway},
+		},
+	}
+	router := (&relayServer{
+		runtime:  &fakeRuntime{},
+		cfg:      &config.Config{},
+		manifest: m,
+		policy:   &requestPolicy{manifest: m},
+	}).router()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"mimo-v2.5-pro","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"describe"},{"type":"input_image","image_url":"data:image/png;base64,abc"}]}],"stream":false}`))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
 	if w.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
 	}
-	if !upstreamCalled {
-		t.Fatal("vision input should be omitted and forwarded")
+	if upstreamPath != "/v1/chat/completions" {
+		t.Fatalf("unexpected upstream path: %s", upstreamPath)
 	}
-	if strings.Contains(upstreamBody, "image_url") || strings.Contains(upstreamBody, "input_image") {
-		t.Fatalf("unsupported image should be omitted before upstream: %s", upstreamBody)
+	if !strings.Contains(upstreamBody, `"model":"mimo-v2.5"`) || strings.Contains(upstreamBody, `"model":"mimo-v2.5-pro"`) {
+		t.Fatalf("vision request should be routed to configured model: %s", upstreamBody)
 	}
-	if !strings.Contains(upstreamBody, "Image omitted") {
-		t.Fatalf("unsupported image should leave a text placeholder: %s", upstreamBody)
+	if !strings.Contains(upstreamBody, "image_url") {
+		t.Fatalf("vision request should keep image input: %s", upstreamBody)
+	}
+}
+
+func TestRelayServerProviderGatewayRoutesVisionInputToOnlyVisionModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var upstreamBody string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		upstreamBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl_1","object":"chat.completion","created":1,"model":"mimo-v2.5","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	defer upstream.Close()
+
+	gateway := &providerGatewaySpec{
+		BaseURL:        upstream.URL,
+		APIKey:         "mimo-key",
+		UpstreamModel:  "mimo-v2.5-pro",
+		UpstreamModels: []string{"mimo-v2.5-pro", "mimo-v2.5"},
+		WireAPI:        "chat_completions",
+		ModelCapabilities: map[string]providerGatewayModelCapability{
+			"mimo-v2.5": {SupportsVision: true},
+		},
+	}
+	m := &manifest{
+		APIKeys:  []apiKeySpec{{ID: "provider_gateway_account_1", Label: "Provider Gateway", Key: "client-key", Enabled: true, ProviderGateway: gateway}},
+		ModelIDs: []string{"mimo-v2.5-pro", "mimo-v2.5"},
+		apiKeyByValue: map[string]*apiKeySpec{
+			"client-key": {ID: "provider_gateway_account_1", Label: "Provider Gateway", Key: "client-key", Enabled: true, ProviderGateway: gateway},
+		},
+	}
+	router := (&relayServer{
+		runtime:  &fakeRuntime{},
+		cfg:      &config.Config{},
+		manifest: m,
+		policy:   &requestPolicy{manifest: m},
+	}).router()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"mimo-v2.5-pro","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"describe"},{"type":"input_image","image_url":"data:image/png;base64,abc"}]}],"stream":false}`))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(upstreamBody, `"model":"mimo-v2.5"`) || strings.Contains(upstreamBody, `"model":"mimo-v2.5-pro"`) {
+		t.Fatalf("single vision model should be used automatically: %s", upstreamBody)
 	}
 }
 

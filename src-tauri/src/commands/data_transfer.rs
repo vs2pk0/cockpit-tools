@@ -81,9 +81,18 @@ pub fn data_transfer_apply_user_config(
 ) -> Result<bool, String> {
     let current = config::get_user_config();
     let mut next_config = config;
-    if next_config.webdav_sync_password.is_empty() {
-        next_config.webdav_sync_password = current.webdav_sync_password.clone();
-    }
+
+    // 恢复备份配置时，保留当前的 WebDAV 同步配置与同步历史状态，避免被覆盖或重置
+    next_config.webdav_sync_enabled = current.webdav_sync_enabled;
+    next_config.webdav_sync_url = current.webdav_sync_url.clone();
+    next_config.webdav_sync_username = current.webdav_sync_username.clone();
+    next_config.webdav_sync_password = current.webdav_sync_password.clone();
+    next_config.webdav_sync_remote_dir = current.webdav_sync_remote_dir.clone();
+    next_config.webdav_sync_retention_days = current.webdav_sync_retention_days;
+    next_config.webdav_sync_last_upload_at = current.webdav_sync_last_upload_at.clone();
+    next_config.webdav_sync_last_upload_file_name = current.webdav_sync_last_upload_file_name.clone();
+    next_config.webdav_sync_last_download_at = current.webdav_sync_last_download_at.clone();
+    next_config.webdav_sync_last_download_file_name = current.webdav_sync_last_download_file_name.clone();
     let current_app_auto_launch_enabled =
         get_app_auto_launch_enabled(&app).unwrap_or(current.app_auto_launch_enabled);
 

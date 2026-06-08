@@ -10,6 +10,8 @@ use super::logger;
 const ANNOUNCEMENT_URL: &str =
     "https://raw.githubusercontent.com/jlcodes99/cockpit-tools/main/announcements.json";
 const ANNOUNCEMENT_CACHE_FILE: &str = "announcement_cache.json";
+const ANNOUNCEMENT_FORCE_REFRESH_ATTEMPTS_FILE: &str =
+    "announcement_force_refresh_attempt_versions.json";
 const ANNOUNCEMENT_READ_IDS_FILE: &str = "announcement_read_ids.json";
 const ANNOUNCEMENT_LOCAL_OVERRIDE_FILE: &str = "announcements.local.json";
 const CACHE_TTL_MS: i64 = 3_600_000;
@@ -108,6 +110,10 @@ pub struct TopRightAdLocale {
 #[serde(rename_all = "camelCase")]
 pub struct TopRightAd {
     pub id: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub relay_related: bool,
     #[serde(default)]
     pub priority: i64,
     pub text: String,
@@ -232,9 +238,15 @@ struct AnnouncementResponse {
     #[serde(default)]
     pub version: String,
     #[serde(default)]
+    pub force_refresh_versions: Vec<String>,
+    #[serde(default)]
     pub announcements: Vec<Announcement>,
     #[serde(default)]
     pub top_right_ad: Option<TopRightAd>,
+    #[serde(default = "default_true")]
+    pub api_relay_enabled: bool,
+    #[serde(default = "default_true")]
+    pub top_right_ads_enabled: bool,
     #[serde(default)]
     pub top_right_ads: Vec<TopRightAd>,
     #[serde(default)]
@@ -294,6 +306,10 @@ fn get_shared_dir() -> Result<PathBuf, String> {
 
 fn get_cache_path() -> Result<PathBuf, String> {
     Ok(get_shared_dir()?.join(ANNOUNCEMENT_CACHE_FILE))
+}
+
+fn get_force_refresh_attempts_path() -> Result<PathBuf, String> {
+    Ok(get_shared_dir()?.join(ANNOUNCEMENT_FORCE_REFRESH_ATTEMPTS_FILE))
 }
 
 fn get_read_ids_path() -> Result<PathBuf, String> {
@@ -361,8 +377,11 @@ fn load_cache() -> Result<Option<AnnouncementCache>, String> {
             time: legacy.time,
             data: AnnouncementResponse {
                 version: String::new(),
+                force_refresh_versions: Vec::new(),
                 announcements: legacy.data,
                 top_right_ad: None,
+                api_relay_enabled: default_true(),
+                top_right_ads_enabled: default_true(),
                 top_right_ads: Vec::new(),
                 sponsor_module: None,
             },
@@ -403,6 +422,76 @@ fn remove_cache() -> Result<(), String> {
     let path = get_cache_path()?;
     if path.exists() {
         fs::remove_file(path).map_err(|e| format!("删除公告缓存失败: {}", e))?;
+    }
+    Ok(())
+}
+
+fn load_force_refresh_attempt_versions() -> Result<Vec<String>, String> {
+    let path = get_force_refresh_attempts_path()?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content =
+        fs::read_to_string(&path).map_err(|e| format!("读取公告强刷版本状态失败: {}", e))?;
+    if content.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    match serde_json::from_str::<Vec<String>>(&content) {
+        Ok(versions) => Ok(versions),
+        Err(error) => {
+            match crate::modules::atomic_write::quarantine_file(&path, "invalid-json") {
+                Ok(Some(backup_path)) => logger::log_warn(&format!(
+                    "[Announcement] 公告强刷版本状态解析失败，已隔离并重建: path={}, backup={}, error={}",
+                    path.display(),
+                    backup_path.display(),
+                    error
+                )),
+                Ok(None) => logger::log_warn(&format!(
+                    "[Announcement] 公告强刷版本状态解析失败，文件已不存在，将重建: path={}, error={}",
+                    path.display(),
+                    error
+                )),
+                Err(backup_error) => logger::log_warn(&format!(
+                    "[Announcement] 公告强刷版本状态解析失败且隔离失败，将重建: path={}, parse_error={}, backup_error={}",
+                    path.display(),
+                    error,
+                    backup_error
+                )),
+            }
+            Ok(Vec::new())
+        }
+    }
+}
+
+fn save_force_refresh_attempt_versions(versions: &[String]) -> Result<(), String> {
+    let content = serde_json::to_string_pretty(versions)
+        .map_err(|e| format!("序列化公告强刷版本状态失败: {}", e))?;
+    crate::modules::atomic_write::write_string_atomic(&get_force_refresh_attempts_path()?, &content)
+        .map_err(|e| format!("写入公告强刷版本状态失败: {}", e))
+}
+
+fn has_attempted_force_refresh_for_version(current_version: &str) -> Result<bool, String> {
+    let current_version = current_version.trim();
+    if current_version.is_empty() {
+        return Ok(true);
+    }
+    Ok(load_force_refresh_attempt_versions()?
+        .iter()
+        .any(|version| version.trim() == current_version))
+}
+
+fn mark_force_refresh_attempted_for_version(current_version: &str) -> Result<(), String> {
+    let current_version = current_version.trim();
+    if current_version.is_empty() {
+        return Ok(());
+    }
+    let mut versions = load_force_refresh_attempt_versions()?;
+    if !versions
+        .iter()
+        .any(|version| version.trim() == current_version)
+    {
+        versions.push(current_version.to_string());
+        save_force_refresh_attempt_versions(&versions)?;
     }
     Ok(())
 }
@@ -655,7 +744,15 @@ fn filter_top_right_ad_item(
     mut item: TopRightAd,
     current_version: &str,
     locale: &str,
+    api_relay_enabled: bool,
 ) -> Option<TopRightAd> {
+    if !item.enabled {
+        return None;
+    }
+    if item.relay_related && !api_relay_enabled {
+        return None;
+    }
+
     let target_versions = if item.target_versions.trim().is_empty() {
         "*"
     } else {
@@ -686,18 +783,22 @@ fn filter_top_right_ad(
     ad: Option<TopRightAd>,
     current_version: &str,
     locale: &str,
+    api_relay_enabled: bool,
 ) -> Option<TopRightAd> {
-    filter_top_right_ad_item(ad?, current_version, locale)
+    filter_top_right_ad_item(ad?, current_version, locale, api_relay_enabled)
 }
 
 fn filter_top_right_ads(
     ads: Vec<TopRightAd>,
     current_version: &str,
     locale: &str,
+    api_relay_enabled: bool,
 ) -> Vec<TopRightAd> {
     let mut filtered: Vec<TopRightAd> = ads
         .into_iter()
-        .filter_map(|item| filter_top_right_ad_item(item, current_version, locale))
+        .filter_map(|item| {
+            filter_top_right_ad_item(item, current_version, locale, api_relay_enabled)
+        })
         .collect();
 
     filtered.sort_by(|a, b| {
@@ -862,14 +963,91 @@ async fn fetch_remote_announcements() -> Result<AnnouncementResponse, String> {
         .map_err(|e| format!("解析远端公告失败: {}", e))
 }
 
+fn should_force_refresh_for_version(payload: &AnnouncementResponse, current_version: &str) -> bool {
+    payload
+        .force_refresh_versions
+        .iter()
+        .map(|pattern| pattern.trim())
+        .filter(|pattern| !pattern.is_empty())
+        .any(|pattern| match_version(current_version, pattern))
+}
+
+async fn try_load_force_refreshed_announcements(
+    current_version: &str,
+    cache_is_fresh: bool,
+) -> Result<Option<AnnouncementResponse>, String> {
+    if has_attempted_force_refresh_for_version(current_version)? {
+        return Ok(None);
+    }
+
+    match fetch_remote_announcements().await {
+        Ok(payload) => {
+            if let Err(err) = mark_force_refresh_attempted_for_version(current_version) {
+                logger::log_warn(&format!(
+                    "[Announcement] 记录版本强刷检查状态失败: version={}, error={}",
+                    current_version, err
+                ));
+            }
+
+            if should_force_refresh_for_version(&payload, current_version) {
+                logger::log_info(&format!(
+                    "[Announcement] 当前版本命中强刷配置，已刷新远端公告缓存: version={}",
+                    current_version
+                ));
+                if let Err(err) = save_cache(&payload) {
+                    logger::log_warn(&format!("[Announcement] 保存公告缓存失败: {}", err));
+                }
+                return Ok(Some(payload));
+            }
+
+            logger::log_info(&format!(
+                "[Announcement] 当前版本未命中强刷配置: version={}",
+                current_version
+            ));
+            if !cache_is_fresh {
+                if let Err(err) = save_cache(&payload) {
+                    logger::log_warn(&format!("[Announcement] 保存公告缓存失败: {}", err));
+                }
+                return Ok(Some(payload));
+            }
+            Ok(None)
+        }
+        Err(err) => {
+            if let Err(mark_err) = mark_force_refresh_attempted_for_version(current_version) {
+                logger::log_warn(&format!(
+                    "[Announcement] 记录版本强刷失败状态失败: version={}, error={}",
+                    current_version, mark_err
+                ));
+            }
+            logger::log_warn(&format!(
+                "[Announcement] 版本强刷检查拉取远端失败，将继续使用缓存: version={}, error={}",
+                current_version, err
+            ));
+            Ok(None)
+        }
+    }
+}
+
 async fn load_announcements_raw() -> Result<AnnouncementResponse, String> {
     if let Some(local_data) = load_local_announcements()? {
         return Ok(local_data);
     }
 
-    if let Some(cache) = load_cache()? {
-        let age_ms = Utc::now().timestamp_millis() - cache.time;
-        if age_ms < CACHE_TTL_MS {
+    let current_version = env!("CARGO_PKG_VERSION");
+    let cached = load_cache()?;
+    let cache_is_fresh = cached
+        .as_ref()
+        .map(|cache| Utc::now().timestamp_millis() - cache.time < CACHE_TTL_MS)
+        .unwrap_or(false);
+
+    if let Some(payload) =
+        try_load_force_refreshed_announcements(current_version, cache_is_fresh).await?
+    {
+        return Ok(payload);
+    }
+
+    if let Some(cache) = cached {
+        if cache_is_fresh {
             logger::log_info("[Announcement] 使用本地缓存公告");
             return Ok(cache.data);
         }
@@ -924,8 +1102,25 @@ pub async fn get_top_right_ad_state() -> Result<TopRightAdState, String> {
     let current_version = env!("CARGO_PKG_VERSION");
     let locale = config::get_user_config().language.to_lowercase();
     let raw_payload = load_announcements_raw().await?;
-    let ad = filter_top_right_ad(raw_payload.top_right_ad, current_version, &locale);
-    let ads = filter_top_right_ads(raw_payload.top_right_ads, current_version, &locale);
+    if !raw_payload.top_right_ads_enabled {
+        return Ok(TopRightAdState {
+            ad: None,
+            ads: Vec::new(),
+        });
+    }
+
+    let ad = filter_top_right_ad(
+        raw_payload.top_right_ad,
+        current_version,
+        &locale,
+        raw_payload.api_relay_enabled,
+    );
+    let ads = filter_top_right_ads(
+        raw_payload.top_right_ads,
+        current_version,
+        &locale,
+        raw_payload.api_relay_enabled,
+    );
     Ok(TopRightAdState { ad, ads })
 }
 
@@ -933,6 +1128,11 @@ pub async fn get_sponsor_module_state() -> Result<SponsorModuleState, String> {
     let current_version = env!("CARGO_PKG_VERSION");
     let locale = config::get_user_config().language.to_lowercase();
     let raw_payload = load_announcements_raw().await?;
+    if !raw_payload.api_relay_enabled {
+        return Ok(SponsorModuleState {
+            sponsor_module: None,
+        });
+    }
     let sponsor_module =
         filter_sponsor_module(raw_payload.sponsor_module, current_version, &locale);
     Ok(SponsorModuleState { sponsor_module })

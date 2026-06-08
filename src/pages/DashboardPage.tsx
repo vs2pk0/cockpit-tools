@@ -13,7 +13,10 @@ import { useQoderAccountStore } from '../stores/useQoderAccountStore';
 import { useTraeAccountStore } from '../stores/useTraeAccountStore';
 import { useWorkbuddyAccountStore } from '../stores/useWorkbuddyAccountStore';
 import { useZedAccountStore } from '../stores/useZedAccountStore';
+import { useSponsorStore } from '../stores/useSponsorStore';
 import {
+  API_RELAY_LAYOUT_ENTRY_ID,
+  ApiRelayLayoutEntryId,
   parseGroupEntryId,
   PlatformLayoutEntryId,
   resolveEntryDefaultPlatformId,
@@ -66,6 +69,7 @@ import {
   isCodexNewApiAccount,
 } from '../types/codex';
 import './DashboardPage.css';
+import apiKeyFunIcon from '../assets/icons/apikey-fun.png';
 import { RobotIcon } from '../components/icons/RobotIcon';
 import { CodexIcon } from '../components/icons/CodexIcon';
 import { WindsurfIcon } from '../components/icons/WindsurfIcon';
@@ -202,6 +206,9 @@ interface DashboardCardCollapseState {
   workbuddy: boolean;
 }
 
+type DashboardCardId = PlatformId | 'api-relay';
+type DashboardEntryId = PlatformLayoutEntryId | ApiRelayLayoutEntryId;
+
 export function DashboardPage({
   onNavigate,
   onOpenPlatformLayout,
@@ -273,19 +280,31 @@ export function DashboardPage({
     }
   };
 
-  const { orderedEntryIds, hiddenEntryIds, platformGroups, setHiddenEntry } = usePlatformLayoutStore();
+  const {
+    orderedEntryIds,
+    hiddenEntryIds,
+    platformGroups,
+    apiRelayDashboardVisible,
+    apiRelayEntryOrder,
+    setHiddenEntry,
+    setApiRelayDashboardVisible,
+  } = usePlatformLayoutStore();
+  const apiRelayEntryEnabled = useSponsorStore((state) => Boolean(state.state.sponsorModule));
+  const apiRelayDashboardEnabled = apiRelayEntryEnabled && apiRelayDashboardVisible;
   const hiddenEntrySet = useMemo(() => new Set(hiddenEntryIds), [hiddenEntryIds]);
   const visibleEntryOrder = useMemo(
     () => orderedEntryIds.filter((entryId) => !hiddenEntrySet.has(entryId)),
     [orderedEntryIds, hiddenEntrySet],
   );
-  const visiblePlatformOrder = useMemo(
-    () =>
-      visibleEntryOrder
-        .map((entryId) => resolveEntryDefaultPlatformId(entryId, platformGroups))
-        .filter((platformId): platformId is PlatformId => !!platformId),
-    [visibleEntryOrder, platformGroups],
-  );
+  const visibleDashboardEntryOrder = useMemo<DashboardEntryId[]>(() => {
+    const result: DashboardEntryId[] = [...visibleEntryOrder];
+    if (!apiRelayDashboardEnabled) {
+      return result;
+    }
+    const insertIndex = Math.max(0, Math.min(apiRelayEntryOrder, result.length));
+    result.splice(insertIndex, 0, API_RELAY_LAYOUT_ENTRY_ID);
+    return result;
+  }, [apiRelayDashboardEnabled, apiRelayEntryOrder, visibleEntryOrder]);
   const [privacyModeEnabled, setPrivacyModeEnabled] = React.useState<boolean>(() =>
     isPrivacyModeEnabledByDefault()
   );
@@ -2246,10 +2265,18 @@ export function DashboardPage({
     return result;
   }, [visibleEntryOrder, platformGroups, platformCounts]);
 
-  const visibleCardPlatformIds = useMemo(() => {
+  const visibleDashboardCardIds = useMemo(() => {
     const seen = new Set<PlatformId>();
-    const result: PlatformId[] = [];
-    for (const platformId of visiblePlatformOrder) {
+    const result: DashboardCardId[] = [];
+    for (const entryId of visibleDashboardEntryOrder) {
+      if (entryId === API_RELAY_LAYOUT_ENTRY_ID) {
+        result.push('api-relay');
+        continue;
+      }
+      const platformId = resolveEntryDefaultPlatformId(entryId, platformGroups);
+      if (!platformId) {
+        continue;
+      }
       const normalizedPlatformId = normalizeDashboardCardPlatformId(platformId);
       if (seen.has(normalizedPlatformId)) {
         continue;
@@ -2258,15 +2285,15 @@ export function DashboardPage({
       result.push(normalizedPlatformId);
     }
     return result;
-  }, [visiblePlatformOrder]);
-  const isSinglePlatformMode = visibleCardPlatformIds.length === 1;
+  }, [platformGroups, visibleDashboardEntryOrder]);
+  const isSinglePlatformMode = visibleDashboardCardIds.length === 1;
   const cardRows = useMemo(() => {
-    const rows: PlatformId[][] = [];
-    for (let i = 0; i < visibleCardPlatformIds.length; i += 2) {
-      rows.push(visibleCardPlatformIds.slice(i, i + 2));
+    const rows: DashboardCardId[][] = [];
+    for (let i = 0; i < visibleDashboardCardIds.length; i += 2) {
+      rows.push(visibleDashboardCardIds.slice(i, i + 2));
     }
     return rows;
-  }, [visibleCardPlatformIds]);
+  }, [visibleDashboardCardIds]);
 
   const handleHidePlatformCard = useCallback((platformId: PlatformId) => {
     const entryId = orderedEntryIds.find(
@@ -2287,6 +2314,60 @@ export function DashboardPage({
     >
       <EyeOff size={14} />
     </button>
+  );
+
+  const renderApiRelayHideButton = () => (
+    <button
+      className="header-action-btn header-icon-btn"
+      onClick={() => setApiRelayDashboardVisible(false)}
+      title={t('accounts.compact.hide', '隐藏')}
+      aria-label={t('accounts.compact.hide', '隐藏')}
+    >
+      <EyeOff size={14} />
+    </button>
+  );
+
+  const renderApiRelayCard = () => (
+    <div className="main-card windsurf-card api-relay-dashboard-card" key="api-relay">
+      <div className="main-card-header">
+        <div className="header-title">
+          <img src={apiKeyFunIcon} alt="" className="dashboard-api-relay-icon" />
+          <h3>{t('nav.apiRelay', '中转站')}</h3>
+        </div>
+        <div className="header-action-group">
+          {renderApiRelayHideButton()}
+        </div>
+      </div>
+
+      <div className="split-content">
+        <div className="split-half current-half">
+          <span className="half-label">
+            <CheckCircle2 size={12} /> {t('dashboard.apiRelay.localConfig', '本地配置')}
+          </span>
+          <div className="empty-slot-text">
+            {t(
+              'dashboard.apiRelay.localConfigDesc',
+              '管理本地中转站配置、API Key 查询和一键写入客户端入口。',
+            )}
+          </div>
+        </div>
+
+        <div className="split-divider"></div>
+
+        <div className="split-half recommend-half">
+          <span className="half-label">
+            <Sparkles size={12} /> {t('dashboard.apiRelay.status', '配置状态')}
+          </span>
+          <div className="empty-slot-text">
+            {t('dashboard.apiRelay.enabledByConfig', '远端配置已开启')}
+          </div>
+        </div>
+      </div>
+
+      <button className="card-footer-action" onClick={() => onNavigate('api-relay')}>
+        {t('dashboard.apiRelay.openLocalConfig', '打开本地配置页')}
+      </button>
+    </div>
   );
 
   const renderPlatformCard = (platformId: PlatformId) => {
@@ -2973,7 +3054,26 @@ export function DashboardPage({
           </div>
         </div>
 
-        {visibleEntryOrder.map((entryId) => {
+        {visibleDashboardEntryOrder.map((entryId) => {
+          if (entryId === API_RELAY_LAYOUT_ENTRY_ID) {
+            return (
+              <button
+                className="stat-card stat-card-button"
+                key="api-relay"
+                onClick={() => onNavigate('api-relay')}
+                title={t('dashboard.apiRelay.openLocalConfig', '打开本地配置页')}
+              >
+                <div className="stat-icon-bg info">
+                  <img src={apiKeyFunIcon} alt="" className="dashboard-api-relay-stat-icon" />
+                </div>
+                <div className="stat-info">
+                  <span className="stat-label">{t('nav.apiRelay', '中转站')}</span>
+                  <span className="stat-value">1</span>
+                </div>
+              </button>
+            );
+          }
+
           const platformId = resolveEntryDefaultPlatformId(entryId, platformGroups);
           if (!platformId) {
             return null;
@@ -3048,6 +3148,7 @@ export function DashboardPage({
             </button>
           );
         })}
+
       </div>
 
       {/* Main Comparison Section */}
@@ -3057,7 +3158,9 @@ export function DashboardPage({
             className={`cards-split-row${isSinglePlatformMode ? ' single-platform-row' : ''}`}
             key={`row-${rowIndex}`}
           >
-            {row.map((platformId) => renderPlatformCard(platformId))}
+            {row.map((cardId) => (
+              cardId === 'api-relay' ? renderApiRelayCard() : renderPlatformCard(cardId)
+            ))}
             {!isSinglePlatformMode && row.length < 2 && <div className="main-card main-card-placeholder" />}
           </div>
         ))}

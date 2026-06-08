@@ -97,6 +97,23 @@
   display: block;
 }
 
+.dashboard-api-relay-icon,
+.dashboard-api-relay-stat-icon {
+  border-radius: 6px;
+  object-fit: cover;
+  display: block;
+}
+
+.dashboard-api-relay-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.dashboard-api-relay-stat-icon {
+  width: 24px;
+  height: 24px;
+}
+
 .stat-info {
   display: flex;
   flex-direction: column;

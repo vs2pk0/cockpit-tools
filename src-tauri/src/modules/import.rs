@@ -433,10 +433,14 @@ pub async fn import_from_json_logic(json_content: String) -> Result<Vec<models::
     modules::logger::log_info("开始从 JSON 导入账号...");
 
     // 简化格式: [{"email": "xxx", "refresh_token": "..."}]
-    #[derive(serde::Deserialize)]
+    #[derive(Debug, serde::Deserialize)]
     struct SimpleAccount {
         email: String,
         refresh_token: String,
+        #[serde(default)]
+        tags: Vec<String>,
+        #[serde(default)]
+        notes: Option<String>,
     }
 
     // 尝试解析为简化格式数组
@@ -466,7 +470,17 @@ pub async fn import_from_json_logic(json_content: String) -> Result<Vec<models::
                     );
 
                     match modules::upsert_account(simple.email.clone(), None, token) {
-                        Ok(new_account) => {
+                        Ok(mut new_account) => {
+                            if !simple.tags.is_empty() {
+                                if let Ok(acc) = modules::account::update_account_tags(&new_account.id, simple.tags) {
+                                    new_account = acc;
+                                }
+                            }
+                            if let Some(notes) = simple.notes {
+                                if let Ok(acc) = modules::account::update_account_notes(&new_account.id, notes) {
+                                    new_account = acc;
+                                }
+                            }
                             modules::logger::log_info(&format!(
                                 "导入账号成功: {}",
                                 new_account.email
@@ -504,7 +518,17 @@ pub async fn import_from_json_logic(json_content: String) -> Result<Vec<models::
             old_account.name.clone(),
             old_account.token.clone(),
         ) {
-            Ok(new_account) => {
+            Ok(mut new_account) => {
+                if !old_account.tags.is_empty() {
+                    if let Ok(acc) = modules::account::update_account_tags(&new_account.id, old_account.tags) {
+                        new_account = acc;
+                    }
+                }
+                if let Some(notes) = old_account.notes {
+                    if let Ok(acc) = modules::account::update_account_notes(&new_account.id, notes) {
+                        new_account = acc;
+                    }
+                }
                 modules::logger::log_info(&format!("导入账号: {}", new_account.email));
                 imported.push(new_account);
             }
@@ -547,8 +571,8 @@ pub async fn import_from_files_logic(file_paths: Vec<String>) -> Result<FileImpo
 
     modules::logger::log_info(&format!("开始从 {} 个文件导入账号...", file_paths.len()));
 
-    // 收集所有候选条目: (email, refresh_token)
-    let mut candidates: Vec<(Option<String>, String)> = Vec::new();
+    // 收集所有候选条目
+    let mut candidates: Vec<ImportEntry> = Vec::new();
 
     for file_path in &file_paths {
         let path = Path::new(file_path);
@@ -615,7 +639,7 @@ pub async fn import_from_files_logic(file_paths: Vec<String>) -> Result<FileImpo
     let mut failed: Vec<FileImportFailure> = Vec::new();
     let total = candidates.len();
 
-    for (index, (email_opt, refresh_token)) in candidates.into_iter().enumerate() {
+    for (index, entry) in candidates.into_iter().enumerate() {
         // 发送进度事件
         if let Some(app_handle) = crate::get_app_handle() {
             let _ = app_handle.emit(
@@ -623,16 +647,16 @@ pub async fn import_from_files_logic(file_paths: Vec<String>) -> Result<FileImpo
                 serde_json::json!({
                     "current": index + 1,
                     "total": total,
-                    "email": email_opt.as_deref().unwrap_or(""),
+                    "email": entry.email.as_deref().unwrap_or(""),
                 }),
             );
         }
 
         // 使用 refresh_token 获取 access_token
-        match modules::oauth::refresh_access_token(&refresh_token).await {
+        match modules::oauth::refresh_access_token(&entry.refresh_token).await {
             Ok(token_response) => {
                 // 尝试获取用户信息以确定 email
-                let email = if let Some(ref e) = email_opt {
+                let email = if let Some(ref e) = entry.email {
                     e.clone()
                 } else {
                     match modules::oauth::get_user_info(&token_response.access_token).await {
@@ -649,7 +673,7 @@ pub async fn import_from_files_logic(file_paths: Vec<String>) -> Result<FileImpo
 
                 let token = models::TokenData::new(
                     token_response.access_token,
-                    token_response.refresh_token.unwrap_or(refresh_token),
+                    token_response.refresh_token.unwrap_or(entry.refresh_token),
                     token_response.expires_in,
                     Some(email.clone()),
                     None,
@@ -657,7 +681,17 @@ pub async fn import_from_files_logic(file_paths: Vec<String>) -> Result<FileImpo
                 );
 
                 match modules::upsert_account(email.clone(), None, token) {
-                    Ok(new_account) => {
+                    Ok(mut new_account) => {
+                        if !entry.tags.is_empty() {
+                            if let Ok(acc) = modules::account::update_account_tags(&new_account.id, entry.tags) {
+                                new_account = acc;
+                            }
+                        }
+                        if let Some(notes) = entry.notes {
+                            if let Ok(acc) = modules::account::update_account_notes(&new_account.id, notes) {
+                                new_account = acc;
+                            }
+                        }
                         modules::logger::log_info(&format!("导入账号成功: {}", new_account.email));
                         imported.push(new_account);
                     }
@@ -669,7 +703,7 @@ pub async fn import_from_files_logic(file_paths: Vec<String>) -> Result<FileImpo
                 }
             }
             Err(e) => {
-                let label = email_opt.as_deref().unwrap_or("unknown").to_string();
+                let label = entry.email.as_deref().unwrap_or("unknown").to_string();
                 let msg = format!("Token 刷新失败: {}", e);
                 modules::logger::log_error(&format!("{}: {}", label, msg));
                 failed.push(FileImportFailure {
@@ -693,11 +727,18 @@ pub async fn import_from_files_logic(file_paths: Vec<String>) -> Result<FileImpo
     Ok(FileImportResult { imported, failed })
 }
 
-/// 从 JSON 值中提取 (email, refresh_token)
+struct ImportEntry {
+    email: Option<String>,
+    refresh_token: String,
+    tags: Vec<String>,
+    notes: Option<String>,
+}
+
+/// 从 JSON 值中提取 ImportEntry
 fn extract_import_entry(
     value: &serde_json::Value,
     fallback_email: &Option<String>,
-) -> Option<(Option<String>, String)> {
+) -> Option<ImportEntry> {
     let obj = value.as_object()?;
 
     // 提取 refresh_token：顶层 或 token.refresh_token
@@ -720,7 +761,29 @@ fn extract_import_entry(
         .filter(|s| !s.is_empty())
         .or_else(|| fallback_email.clone());
 
-    Some((email, refresh_token))
+    let tags = obj
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|val| val.as_str().map(|s| s.trim().to_string()))
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+
+    let notes = obj
+        .get("notes")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    Some(ImportEntry {
+        email,
+        refresh_token,
+        tags,
+        notes,
+    })
 }
 
 /// 从 VS Code SecretStorage 导入插件账号

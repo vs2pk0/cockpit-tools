@@ -12,6 +12,7 @@ export interface WebdavSyncSettings {
   last_upload_file_name: string | null;
   last_download_at: string | null;
   last_download_file_name: string | null;
+  retention_days: number;
 }
 
 export interface WebdavBackupFileEntry {
@@ -40,6 +41,7 @@ export interface SaveWebdavSyncSettingsParams {
   password?: string | null;
   clearPassword?: boolean;
   remoteDir: string;
+  retentionDays: number;
 }
 
 export function dispatchWebdavSyncStateChanged() {
@@ -61,13 +63,14 @@ export async function saveWebdavSyncSettings(
     password: params.password ?? null,
     clearPassword: params.clearPassword ?? false,
     remoteDir: params.remoteDir,
+    retentionDays: params.retentionDays,
   });
   dispatchWebdavSyncStateChanged();
   return next;
 }
 
 export async function testWebdavSyncConnection(
-  params: Omit<SaveWebdavSyncSettingsParams, 'enabled'>,
+  params: Omit<SaveWebdavSyncSettingsParams, 'enabled' | 'retentionDays'>,
 ): Promise<WebdavTestResult> {
   return invoke<WebdavTestResult>('test_webdav_sync_connection', {
     url: params.url,

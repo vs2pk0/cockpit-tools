@@ -60,7 +60,10 @@ import {
   summarizeCodexQuotaPool,
   type CodexQuotaPoolItem,
 } from '../utils/codexQuotaPool';
-import { isCodexLocalAccessEligibleAccount } from '../utils/codexLocalAccessAccounts';
+import {
+  getCodexLocalAccessAccountIneligibleReason,
+  isCodexLocalAccessEligibleAccount,
+} from '../utils/codexLocalAccessAccounts';
 import { isBlockingCodexQuotaError } from '../utils/codexQuotaError';
 import { AccountTagFilterDropdown } from './AccountTagFilterDropdown';
 import {
@@ -72,9 +75,16 @@ import {
   type MultiSelectFilterOption,
 } from './MultiSelectFilterDropdown';
 import { SingleSelectDropdown } from './SingleSelectDropdown';
+import { PaginationControls } from './PaginationControls';
 import { useEscClose } from '../hooks/useEscClose';
+import {
+  buildPaginationPageSizeStorageKey,
+  usePagination,
+} from '../hooks/usePagination';
 import './GroupAccountPickerModal.css';
 import './CodexLocalAccessModal.css';
+
+const LOCAL_ACCESS_MEMBER_PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
 
 interface CodexLocalAccessModalProps {
   isOpen: boolean;
@@ -132,6 +142,16 @@ type StatsRangeKey = 'daily' | 'weekly' | 'monthly';
 type CopyableField = 'apiPortUrl' | 'baseUrl' | 'apiKey' | 'modelId';
 type CodexLocalAccessCollectionState = NonNullable<CodexLocalAccessState['collection']>;
 
+interface AccountPoolHealthSummary {
+  total: number;
+  available: number;
+  abnormal: number;
+  cooldown: number;
+  missing: number;
+  authError: number;
+  quotaLimited: number;
+}
+
 interface CustomRoutingDraftRule {
   priority: number;
   weight: number;
@@ -143,6 +163,12 @@ const CUSTOM_ROUTING_PRIORITY_MIN = 0;
 const CUSTOM_ROUTING_PRIORITY_MAX = 100;
 const CUSTOM_ROUTING_WEIGHT_MIN = 1;
 const CUSTOM_ROUTING_WEIGHT_MAX = 100;
+const BLOCKING_ACCOUNT_FAILURE_CATEGORIES = new Set([
+  'auth_unavailable',
+  'auth_refresh_failed',
+  'account_prepare_failed',
+  'free_account_restricted',
+]);
 
 function normalizeAccessScope(value: string): CodexLocalAccessScope {
   return value === 'lan' ? 'lan' : 'localhost';
@@ -185,6 +211,10 @@ function formatCpaDateTime(value?: string | null): string {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(time));
+}
+
+function isBlockingAccountFailureCategory(category?: string | null): boolean {
+  return Boolean(category && BLOCKING_ACCOUNT_FAILURE_CATEGORIES.has(category));
 }
 
 function clampInteger(value: number, min: number, max: number): number {
@@ -337,6 +367,7 @@ export function CodexLocalAccessModal({
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [groupFilter, setGroupFilter] = useState<string[]>([]);
   const [restrictFreeAccounts, setRestrictFreeAccounts] = useState(true);
+  const [membersDraftDirty, setMembersDraftDirty] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [testDialogOpen, setTestDialogOpen] = useState(false);
@@ -600,23 +631,86 @@ export function CodexLocalAccessModal({
     const accountIds = new Set(collection?.accountIds ?? []);
     return summarizeCodexQuotaPool(localAccessAccounts.filter((account) => accountIds.has(account.id)));
   }, [collection?.accountIds, localAccessAccounts]);
-  const localAccessAccountIdSet = useMemo(
-    () => new Set(localAccessAccounts.map((account) => account.id)),
-    [localAccessAccounts],
-  );
-  const normalizedInitialSelectedIds = useMemo(
-    () => initialSelectedIds.filter((accountId) => localAccessAccountIdSet.has(accountId)),
-    [initialSelectedIds, localAccessAccountIdSet],
-  );
+  const accountPoolHealthSummary = useMemo<AccountPoolHealthSummary>(() => {
+    const accountById = new Map(
+      localAccessAccounts.map((account) => [account.id, account]),
+    );
+    const healthById = new Map(
+      (state?.accountHealth ?? []).map((health) => [health.accountId, health]),
+    );
+    const summary: AccountPoolHealthSummary = {
+      total: collection?.accountIds.length ?? 0,
+      available: 0,
+      abnormal: 0,
+      cooldown: 0,
+      missing: 0,
+      authError: 0,
+      quotaLimited: 0,
+    };
+
+    (collection?.accountIds ?? []).forEach((accountId) => {
+      const account = accountById.get(accountId);
+      const health = healthById.get(accountId);
+      if (!account) {
+        summary.missing += 1;
+        summary.abnormal += 1;
+        return;
+      }
+      if (health?.cooldowns?.length) {
+        summary.cooldown += 1;
+        return;
+      }
+      if (isBlockingCodexQuotaError(account.quota_error)) {
+        summary.quotaLimited += 1;
+        summary.abnormal += 1;
+        return;
+      }
+      if (isBlockingAccountFailureCategory(health?.lastFailureCategory)) {
+        summary.authError += 1;
+        summary.abnormal += 1;
+        return;
+      }
+      if (health && !health.available) {
+        summary.abnormal += 1;
+        return;
+      }
+      summary.available += 1;
+    });
+
+    return summary;
+  }, [collection?.accountIds, localAccessAccounts, state?.accountHealth]);
+  const initialRestrictFreeAccounts = collection?.restrictFreeAccounts ?? true;
+  const normalizedInitialSelectedIds = useMemo(() => {
+    const accountById = new Map(
+      localAccessAccounts.map((account) => [account.id, account]),
+    );
+    return initialSelectedIds.filter((accountId) => {
+      const account = accountById.get(accountId);
+      if (!account) return false;
+      return isCodexLocalAccessEligibleAccount(
+        account,
+        initialRestrictFreeAccounts,
+      );
+    });
+  }, [initialSelectedIds, initialRestrictFreeAccounts, localAccessAccounts]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== 'members') {
+      setMembersDraftDirty(false);
+    }
+  }, [isOpen, mode]);
 
   useEffect(() => {
     if (!isOpen) return;
-    setQuery('');
-    setSelected(new Set(normalizedInitialSelectedIds));
-    setFilterTypes([]);
-    setTagFilter([]);
-    setGroupFilter([]);
-    setRestrictFreeAccounts(collection?.restrictFreeAccounts ?? true);
+    const shouldResetMembersDraft = mode !== 'members' || !membersDraftDirty;
+    if (shouldResetMembersDraft) {
+      setQuery('');
+      setSelected(new Set(normalizedInitialSelectedIds));
+      setFilterTypes([]);
+      setTagFilter([]);
+      setGroupFilter([]);
+      setRestrictFreeAccounts(initialRestrictFreeAccounts);
+    }
     setError('');
     setNotice('');
     setTestDialogOpen(false);
@@ -679,7 +773,9 @@ export function CodexLocalAccessModal({
     collection?.restrictFreeAccounts,
     collectionCustomCredentials,
     collection?.upstreamProxyUrl,
+    initialRestrictFreeAccounts,
     isOpen,
+    membersDraftDirty,
     mode,
     normalizedInitialSelectedIds,
   ]);
@@ -1185,6 +1281,13 @@ export function CodexLocalAccessModal({
   const visibleSelectableAccounts = useMemo(
     () =>
       visibleAccounts.filter((account) => {
+        const ineligibleReason = getCodexLocalAccessAccountIneligibleReason(
+          account,
+          restrictFreeAccounts,
+        );
+        if (ineligibleReason === "chat_completions_api_key") {
+          return true;
+        }
         if (isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts)) {
           return true;
         }
@@ -1192,19 +1295,45 @@ export function CodexLocalAccessModal({
       }),
     [restrictFreeAccounts, selected, visibleAccounts],
   );
+  const memberPagination = usePagination({
+    items: visibleSelectableAccounts,
+    storageKey: buildPaginationPageSizeStorageKey("CodexLocalAccessMembers"),
+    pageSizeOptions: LOCAL_ACCESS_MEMBER_PAGE_SIZE_OPTIONS,
+    defaultPageSize: 50,
+  });
+  const paginatedVisibleSelectableAccounts = memberPagination.pageItems;
+
+  useEffect(() => {
+    memberPagination.setCurrentPage(1);
+  }, [
+    filterTypes,
+    groupFilter,
+    memberPagination.setCurrentPage,
+    query,
+    restrictFreeAccounts,
+    tagFilter,
+  ]);
+
+  const visibleEnabledAccounts = useMemo(
+    () =>
+      visibleSelectableAccounts.filter((account) =>
+        isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts),
+      ),
+    [restrictFreeAccounts, visibleSelectableAccounts],
+  );
 
   const selectedVisibleCount = useMemo(
     () =>
-      visibleSelectableAccounts.reduce(
+      visibleEnabledAccounts.reduce(
         (count, account) => count + (selected.has(account.id) ? 1 : 0),
         0,
       ),
-    [selected, visibleSelectableAccounts],
+    [selected, visibleEnabledAccounts],
   );
 
   const allVisibleSelected =
-    visibleSelectableAccounts.length > 0 &&
-    selectedVisibleCount === visibleSelectableAccounts.length;
+    visibleEnabledAccounts.length > 0 &&
+    selectedVisibleCount === visibleEnabledAccounts.length;
 
   useEffect(() => {
     if (!selectAllCheckboxRef.current) return;
@@ -1636,15 +1765,16 @@ export function CodexLocalAccessModal({
   };
 
   const toggleSelectAllVisible = () => {
-    if (actionBusy || visibleSelectableAccounts.length === 0) return;
+    if (actionBusy || visibleEnabledAccounts.length === 0) return;
+    setMembersDraftDirty(true);
     setSelected((prev) => {
       const next = new Set(prev);
       if (allVisibleSelected) {
-        for (const account of visibleSelectableAccounts) {
+        for (const account of visibleEnabledAccounts) {
           next.delete(account.id);
         }
       } else {
-        for (const account of visibleSelectableAccounts) {
+        for (const account of visibleEnabledAccounts) {
           next.add(account.id);
         }
       }
@@ -1654,6 +1784,7 @@ export function CodexLocalAccessModal({
 
   const handleToggleRestrictFreeAccounts = async () => {
     if (actionBusy) return;
+    setMembersDraftDirty(true);
     setRestrictFreeAccounts((prev) => !prev);
   };
 
@@ -1661,13 +1792,14 @@ export function CodexLocalAccessModal({
     if (actionBusy) return;
     const account = localAccessAccountById.get(accountId);
     if (!account) return;
+    const isSelectionBlocked =
+      !isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts) &&
+      !selected.has(accountId);
+    if (isSelectionBlocked) {
+      return;
+    }
+    setMembersDraftDirty(true);
     setSelected((prev) => {
-      const isSelectionBlocked =
-        !isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts) &&
-        !prev.has(accountId);
-      if (isSelectionBlocked) {
-        return prev;
-      }
       const next = new Set(prev);
       if (next.has(accountId)) {
         next.delete(accountId);
@@ -2442,6 +2574,54 @@ export function CodexLocalAccessModal({
                   className="codex-local-access-quota-pool-grid"
                   aria-label={quotaPoolLabels.title}
                 >
+                  {accountPoolHealthSummary.total > 0 && (
+                    <div
+                      className={`codex-local-access-quota-pool-card codex-local-access-health-pool-card${
+                        accountPoolHealthSummary.abnormal > 0 ||
+                        accountPoolHealthSummary.cooldown > 0
+                          ? ' has-issue'
+                          : ''
+                      }`}
+                      title={t('codex.localAccess.accountPoolHealth.detail', {
+                        available: accountPoolHealthSummary.available,
+                        total: accountPoolHealthSummary.total,
+                        abnormal: accountPoolHealthSummary.abnormal,
+                        cooldown: accountPoolHealthSummary.cooldown,
+                        missing: accountPoolHealthSummary.missing,
+                        authError: accountPoolHealthSummary.authError,
+                        quotaLimited: accountPoolHealthSummary.quotaLimited,
+                        defaultValue:
+                          '可用 {{available}}/{{total}}，异常 {{abnormal}}，冷却 {{cooldown}}，缺失 {{missing}}，鉴权 {{authError}}，额度 {{quotaLimited}}',
+                      })}
+                    >
+                      <span className="codex-local-access-quota-pool-plan">
+                        {t('codex.localAccess.accountPoolHealth.title', '账号池')}
+                      </span>
+                      <span className="codex-local-access-quota-pool-value">
+                        {accountPoolHealthSummary.abnormal === 0 &&
+                        accountPoolHealthSummary.cooldown === 0
+                          ? t('codex.localAccess.accountPoolHealth.allAvailable', {
+                              count: accountPoolHealthSummary.total,
+                              defaultValue: '全部可用 {{count}}',
+                            })
+                          : t('codex.localAccess.accountPoolHealth.availableRatio', {
+                              available: accountPoolHealthSummary.available,
+                              total: accountPoolHealthSummary.total,
+                              defaultValue: '可用 {{available}}/{{total}}',
+                            })}
+                      </span>
+                      {(accountPoolHealthSummary.abnormal > 0 ||
+                        accountPoolHealthSummary.cooldown > 0) && (
+                        <span className="codex-local-access-quota-pool-value codex-local-access-health-issue">
+                          {t('codex.localAccess.accountPoolHealth.issueSummary', {
+                            abnormal: accountPoolHealthSummary.abnormal,
+                            cooldown: accountPoolHealthSummary.cooldown,
+                            defaultValue: '异常 {{abnormal}} · 冷却 {{cooldown}}',
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {currentQuotaPoolSummary.visiblePlans.map((item) => (
                     <div key={item.key} className="codex-local-access-quota-pool-card">
                       <span className="codex-local-access-quota-pool-plan">
@@ -3042,12 +3222,12 @@ export function CodexLocalAccessModal({
 
               <div className="group-account-item group-account-item-header">
                 <input
-                  ref={selectAllCheckboxRef}
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={toggleSelectAllVisible}
-                  disabled={actionBusy || visibleSelectableAccounts.length === 0}
-                />
+	                  ref={selectAllCheckboxRef}
+	                  type="checkbox"
+	                  checked={allVisibleSelected}
+	                  onChange={toggleSelectAllVisible}
+	                  disabled={actionBusy || visibleEnabledAccounts.length === 0}
+	                />
                 <div className="group-account-main" />
               </div>
 
@@ -3061,50 +3241,84 @@ export function CodexLocalAccessModal({
                     {t('common.shared.noMatch.title', '没有匹配的账号')}
                   </div>
                 ) : (
-                  visibleSelectableAccounts.map((account) => {
-                    const presentation = buildCodexAccountPresentation(account, t);
-                    const isChecked = selected.has(account.id);
-                    const accountStats = allStatsByAccountId.get(account.id)?.usage;
+	                  paginatedVisibleSelectableAccounts.map((account) => {
+	                    const presentation = buildCodexAccountPresentation(account, t);
+	                    const ineligibleReason =
+	                      getCodexLocalAccessAccountIneligibleReason(
+	                        account,
+	                        restrictFreeAccounts,
+	                      );
+	                    const isChatCompletionsApiKeyUnsupported =
+	                      ineligibleReason === 'chat_completions_api_key';
+	                    const isChecked =
+	                      !isChatCompletionsApiKeyUnsupported && selected.has(account.id);
+	                    const accountStats = allStatsByAccountId.get(account.id)?.usage;
 
-                    return (
-                      <label
-                        key={account.id}
-                        className={`group-account-item${isChecked ? ' is-current' : ''}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          disabled={actionBusy}
-                          onChange={() => toggleSelect(account.id)}
-                        />
-                        <div className="group-account-main">
-                        <div className="codex-local-access-member-mainline">
-                          <span
-                            className="group-account-email"
-                            title={maskAccountText(presentation.displayName)}
-                          >
-                              {maskAccountText(presentation.displayName)}
-                            </span>
-                          <CodexPlanBadge
-                            planClass={presentation.planClass}
-                            planLabel={presentation.planLabel}
-                            preferences={planBadgeStylePreferences}
-                          />
-                          <span className="codex-local-access-member-metric">
-                            {t('codex.localAccess.stats.accountRequests', {
-                              count: accountStats?.requestCount ?? 0,
-                              defaultValue: '{{count}} 次请求',
-                            })}
-                          </span>
-                          {renderQuotaPreview(presentation, 2)}
-                        </div>
-                        </div>
-                      </label>
-                    );
-                  })
-                )}
-              </div>
-            </section>
+	                    return (
+	                      <label
+	                        key={account.id}
+	                        className={`group-account-item${isChecked ? ' is-current' : ''}${
+	                          isChatCompletionsApiKeyUnsupported ? ' is-disabled' : ''
+	                        }`}
+	                      >
+	                        <input
+	                          type="checkbox"
+	                          checked={isChecked}
+	                          disabled={actionBusy || isChatCompletionsApiKeyUnsupported}
+	                          onChange={() => toggleSelect(account.id)}
+	                        />
+	                        <div className="group-account-main">
+	                          <div className="codex-local-access-member-mainline">
+	                            <span
+	                              className="group-account-email"
+	                              title={maskAccountText(presentation.displayName)}
+	                            >
+	                              {maskAccountText(presentation.displayName)}
+	                            </span>
+	                            <CodexPlanBadge
+	                              planClass={presentation.planClass}
+	                              planLabel={presentation.planLabel}
+	                              preferences={planBadgeStylePreferences}
+	                            />
+	                            <span className="codex-local-access-member-metric">
+	                              {t('codex.localAccess.stats.accountRequests', {
+	                                count: accountStats?.requestCount ?? 0,
+	                                defaultValue: '{{count}} 次请求',
+	                              })}
+	                            </span>
+	                            {isChatCompletionsApiKeyUnsupported && (
+	                              <span className="codex-local-access-member-unsupported">
+	                                {t(
+	                                  'codex.localAccess.modal.chatApiKeyUnsupported',
+	                                  'Chat Completions 协议不支持加入 API 服务',
+	                                )}
+	                              </span>
+	                            )}
+	                            {renderQuotaPreview(presentation, 2)}
+	                          </div>
+	                        </div>
+	                      </label>
+	                    );
+	                  })
+	                )}
+	              </div>
+	              {visibleSelectableAccounts.length > 0 && (
+	                <PaginationControls
+	                  totalItems={memberPagination.totalItems}
+	                  currentPage={memberPagination.currentPage}
+	                  totalPages={memberPagination.totalPages}
+	                  pageSize={memberPagination.pageSize}
+	                  pageSizeOptions={memberPagination.pageSizeOptions}
+	                  rangeStart={memberPagination.rangeStart}
+	                  rangeEnd={memberPagination.rangeEnd}
+	                  canGoPrevious={memberPagination.canGoPrevious}
+	                  canGoNext={memberPagination.canGoNext}
+	                  onPageSizeChange={memberPagination.setPageSize}
+	                  onPreviousPage={memberPagination.goToPreviousPage}
+	                  onNextPage={memberPagination.goToNextPage}
+	                />
+	              )}
+	            </section>
           )}
         </div>
 

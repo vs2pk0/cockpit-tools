@@ -45,6 +45,10 @@ pub async fn export_accounts(account_ids: Vec<String>) -> Result<String, String>
     struct SimpleAccount {
         email: String,
         refresh_token: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        tags: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        notes: Option<String>,
     }
 
     let simplified: Vec<SimpleAccount> = accounts_to_export
@@ -52,6 +56,8 @@ pub async fn export_accounts(account_ids: Vec<String>) -> Result<String, String>
         .map(|account| SimpleAccount {
             email: account.email,
             refresh_token: account.token.refresh_token,
+            tags: account.tags,
+            notes: account.notes,
         })
         .collect();
 

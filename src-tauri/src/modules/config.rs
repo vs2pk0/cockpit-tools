@@ -184,6 +184,9 @@ pub struct UserConfig {
     /// WebDAV 远端备份目录
     #[serde(default = "default_webdav_sync_remote_dir")]
     pub webdav_sync_remote_dir: String,
+    /// WebDAV 远端备份保留天数
+    #[serde(default = "default_webdav_sync_retention_days")]
+    pub webdav_sync_retention_days: i32,
     /// 最近一次 WebDAV 上传时间（ISO 8601）
     #[serde(default)]
     pub webdav_sync_last_upload_at: Option<String>,
@@ -614,7 +617,7 @@ pub fn normalize_auto_backup_selection(
     }
 }
 pub fn default_webdav_sync_enabled() -> bool {
-    false
+    true
 }
 pub fn default_webdav_sync_url() -> String {
     "https://dav.jianguoyun.com/dav/".to_string()
@@ -627,6 +630,12 @@ pub fn default_webdav_sync_password() -> String {
 }
 pub fn default_webdav_sync_remote_dir() -> String {
     "cockpit-tools".to_string()
+}
+pub fn default_webdav_sync_retention_days() -> i32 {
+    15
+}
+pub fn sanitize_webdav_sync_retention_days(raw: i32) -> i32 {
+    raw.clamp(1, 365)
 }
 fn default_opencode_app_path() -> String {
     String::new()
@@ -880,6 +889,7 @@ impl Default for UserConfig {
             webdav_sync_username: default_webdav_sync_username(),
             webdav_sync_password: default_webdav_sync_password(),
             webdav_sync_remote_dir: default_webdav_sync_remote_dir(),
+            webdav_sync_retention_days: default_webdav_sync_retention_days(),
             webdav_sync_last_upload_at: None,
             webdav_sync_last_upload_file_name: None,
             webdav_sync_last_download_at: None,
@@ -1402,6 +1412,12 @@ pub fn load_user_config() -> Result<UserConfig, String> {
                 json!(default_webdav_sync_remote_dir()),
             );
         }
+        if !obj.contains_key("webdav_sync_retention_days") {
+            obj.insert(
+                "webdav_sync_retention_days".to_string(),
+                json!(default_webdav_sync_retention_days()),
+            );
+        }
         if !obj.contains_key("webdav_sync_last_upload_at") {
             obj.insert(
                 "webdav_sync_last_upload_at".to_string(),
@@ -1749,6 +1765,8 @@ pub fn load_user_config() -> Result<UserConfig, String> {
     }
     config.auto_backup_retention_days =
         sanitize_auto_backup_retention_days(config.auto_backup_retention_days);
+    config.webdav_sync_retention_days =
+        sanitize_webdav_sync_retention_days(config.webdav_sync_retention_days);
     config.auto_backup_last_backup_at = config.auto_backup_last_backup_at.and_then(|value| {
         let trimmed = value.trim().to_string();
         if trimmed.is_empty() {
@@ -1877,7 +1895,7 @@ mod tests {
     #[test]
     fn webdav_sync_defaults_are_safe_for_jianguoyun_backup_sync() {
         let cfg = UserConfig::default();
-        assert!(!cfg.webdav_sync_enabled);
+        assert!(cfg.webdav_sync_enabled);
         assert_eq!(cfg.webdav_sync_url, "https://dav.jianguoyun.com/dav/");
         assert_eq!(cfg.webdav_sync_username, "");
         assert_eq!(cfg.webdav_sync_password, "");
@@ -1892,7 +1910,7 @@ mod tests {
     fn webdav_sync_missing_fields_fall_back_to_defaults() {
         let cfg: UserConfig =
             serde_json::from_value(serde_json::json!({})).expect("反序列化默认配置应成功");
-        assert!(!cfg.webdav_sync_enabled);
+        assert!(cfg.webdav_sync_enabled);
         assert_eq!(cfg.webdav_sync_url, "https://dav.jianguoyun.com/dav/");
         assert_eq!(cfg.webdav_sync_remote_dir, "cockpit-tools");
     }

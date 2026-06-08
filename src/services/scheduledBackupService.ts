@@ -292,7 +292,7 @@ export async function runAutoBackupCycle(): Promise<ManagedBackupResult | null> 
 
   try {
     const webdavSettings = await getWebdavSyncSettings();
-    if (webdavSettings.enabled) {
+    if (webdavSettings.enabled && webdavSettings.username.trim() && webdavSettings.has_password) {
       await uploadAutoBackupToWebdav(result.file_name);
     }
   } catch (error) {

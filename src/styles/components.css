@@ -2050,6 +2050,11 @@
   cursor: pointer;
 }
 
+.platform-layout-expand-trigger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .platform-layout-main .drag-handle {
   color: inherit;
 }

@@ -183,6 +183,10 @@ import {
   isCockpitApiProviderBaseUrl,
   resolveCodexApiProviderPresetId,
 } from "../utils/codexProviderPresets";
+import {
+  normalizeApiKeyFunOfficialUrl,
+  resolveApiKeyFunWireApi,
+} from "../utils/apikeyFunLinks";
 import { resolveCodexProviderCapabilityProfile } from "../utils/codexProviderGateway";
 import {
   formatCodexQuotaPoolPercent,
@@ -302,6 +306,8 @@ const CODEX_LEGACY_CUSTOM_SORT_ORDER_KEY =
   "agtools.codex.accounts.custom_sort_order.v1";
 const CODEX_SORT_PREFERENCE_KEY =
   "agtools.codex.accounts.sort_preference.v1";
+const CODEX_CUSTOM_SORT_ACTIVE_KEY =
+  "agtools.codex.accounts.custom_sort_active.v1";
 const DEFAULT_CODEX_API_PROVIDER_ID = OPENAI_OFFICIAL_PRESET_ID;
 const DEFAULT_CODEX_API_BASE_URL = OPENAI_OFFICIAL_BASE_URL;
 const CODEX_LOCAL_ACCESS_FALLBACK_PORT = 54140;
@@ -382,8 +388,10 @@ function isSponsorModelProvider(
   sponsorTemplates: SponsorApiProviderTemplate[],
 ): boolean {
   if (!provider) return false;
-  if (provider.sourceTag?.startsWith("sponsor:")) {
-    return sponsorTemplates.some((template) => template.id === provider.sourceTag);
+  if (provider.sourceTag) {
+    return sponsorTemplates.some(
+      (template) => template.id === provider.sourceTag,
+    );
   }
   const normalizedBaseUrl = normalizeHttpBaseUrl(provider.baseUrl);
   if (!normalizedBaseUrl) return false;
@@ -874,6 +882,22 @@ function reconcileCodexCustomSortOrder(
   return next;
 }
 
+function readCodexCustomSortActive(): boolean {
+  try {
+    return localStorage.getItem(CODEX_CUSTOM_SORT_ACTIVE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeCodexCustomSortActive(active: boolean): void {
+  try {
+    localStorage.setItem(CODEX_CUSTOM_SORT_ACTIVE_KEY, active ? "1" : "0");
+  } catch {
+    // ignore persistence failures
+  }
+}
+
 interface CodexOverviewGeneralConfig {
   codex_local_access_entry_visible?: boolean;
 }
@@ -981,15 +1005,22 @@ function normalizeSponsorApiProviderTemplates(
       continue;
     }
     templates.push({
-      id: `sponsor:${sponsor.id}`,
+      id: `relay:${sponsor.id}`,
       sponsor,
       name: sponsor.name,
       baseUrl: integration.baseUrl.trim(),
       modelCatalog: integration.models ?? [],
       supportsVision: integration.supportsVision === true,
-      website: integration.website?.trim() || sponsor.url?.trim() || "",
-      apiKeyUrl: integration.apiKeyUrl?.trim() || sponsor.url?.trim() || "",
-      wireApi: integration.wireApi ?? null,
+      website: normalizeApiKeyFunOfficialUrl(
+        integration.website || sponsor.url,
+      ),
+      apiKeyUrl: normalizeApiKeyFunOfficialUrl(
+        integration.apiKeyUrl || sponsor.url,
+      ),
+      wireApi: resolveApiKeyFunWireApi(
+        integration.baseUrl,
+        integration.wireApi ?? null,
+      ),
       integrationType: integration.type ?? null,
     });
   }
@@ -998,6 +1029,10 @@ function normalizeSponsorApiProviderTemplates(
     if (priority !== 0) return priority;
     return a.name.localeCompare(b.name);
   });
+}
+
+function isRelayApiProviderTemplateId(value?: string | null): boolean {
+  return Boolean(value?.startsWith("relay:"));
 }
 
 function getDefaultApiProviderPresetId(
@@ -1341,7 +1376,12 @@ export function CodexAccountsPage() {
     scrollKey: accountPhoneErrorScrollKey,
     set: setAccountPhoneError,
   } = useModalErrorState();
-  const initialSortPreference = useMemo(readCodexSortPreference, []);
+  const initialSortPreference = useMemo(() => {
+    const preference = readCodexSortPreference();
+    return readCodexCustomSortActive()
+      ? { ...preference, sortBy: "custom" as CodexSortBy }
+      : preference;
+  }, []);
 
   // Use the common hook WITHOUT oauthService since Codex uses Tauri event-based OAuth
   const page = useProviderAccountsPage<CodexAccount>({
@@ -1467,6 +1507,93 @@ export function CodexAccountsPage() {
   }, [sortBy, sortDirection]);
 
   const reauthTargetEmail = reauthTargetAccount?.email?.trim() ?? "";
+  const [batchImportOpen, setBatchImportOpen] = useState(false);
+  const [batchImportSessionId, setBatchImportSessionId] = useState<
+    string | null
+  >(null);
+  const [batchImportProgress, setBatchImportProgress] =
+    useState<codexService.CodexBatchImportProgress | null>(null);
+  const [batchImportPreview, setBatchImportPreview] =
+    useState<codexService.CodexBatchImportPreview | null>(null);
+  const [batchImportSelectedIds, setBatchImportSelectedIds] = useState<
+    string[]
+  >([]);
+  const [batchImportFilter, setBatchImportFilter] = useState<"all" | "ready">(
+    "all",
+  );
+  const [batchImportBusy, setBatchImportBusy] = useState(false);
+  const [batchImportError, setBatchImportError] = useState<string | null>(null);
+  const [batchImportResult, setBatchImportResult] =
+    useState<codexService.CodexBatchImportConfirmResult | null>(null);
+  const batchImportUnlistenersRef = useRef<UnlistenFn[]>([]);
+  const batchImportSessionIdRef = useRef<string | null>(null);
+
+  const cleanupBatchImportListeners = useCallback(() => {
+    for (const unlisten of batchImportUnlistenersRef.current) {
+      try {
+        unlisten();
+      } catch {
+        // ignore listener cleanup failures
+      }
+    }
+    batchImportUnlistenersRef.current = [];
+  }, []);
+
+  useEffect(() => cleanupBatchImportListeners, [cleanupBatchImportListeners]);
+
+  const resetBatchImportState = useCallback(() => {
+    cleanupBatchImportListeners();
+    batchImportSessionIdRef.current = null;
+    setBatchImportOpen(false);
+    setBatchImportSessionId(null);
+    setBatchImportProgress(null);
+    setBatchImportPreview(null);
+    setBatchImportSelectedIds([]);
+    setBatchImportFilter("all");
+    setBatchImportBusy(false);
+    setBatchImportError(null);
+    setBatchImportResult(null);
+  }, [cleanupBatchImportListeners]);
+
+  const batchImportCounts = useMemo(() => {
+    const items = batchImportPreview?.items ?? [];
+    return {
+      ready: items.filter((item) => item.status === "ready").length,
+      quotaFailed: items.filter((item) => item.status === "quota_failed")
+        .length,
+      existing: items.filter((item) => item.status === "existing").length,
+      invalid: items.filter((item) => item.status === "invalid").length,
+    };
+  }, [batchImportPreview]);
+
+  const batchImportVisibleItems = useMemo(() => {
+    const items = batchImportPreview?.items ?? [];
+    return batchImportFilter === "ready"
+      ? items.filter(
+          (item) => item.status === "ready" || item.status === "existing",
+        )
+      : items;
+  }, [batchImportFilter, batchImportPreview]);
+  const batchImportSelectableIds = useMemo(
+    () =>
+      (batchImportPreview?.items ?? [])
+        .filter((item) => item.selectable && item.status !== "invalid")
+        .map((item) => item.itemId),
+    [batchImportPreview],
+  );
+  const batchImportSelectableIdSet = useMemo(
+    () => new Set(batchImportSelectableIds),
+    [batchImportSelectableIds],
+  );
+  const batchImportSelectedSelectableCount = batchImportSelectedIds.filter(
+    (id) => batchImportSelectableIdSet.has(id),
+  ).length;
+  const batchImportSelectedCountLabel = t(
+    "codex.batchImport.selectedCount",
+    "已选 {{count}}/{{total}}",
+  )
+    .replace("{{count}}", String(batchImportSelectedSelectableCount))
+    .replace("{{total}}", String(batchImportSelectableIds.length));
 
   const openCodexAddModal = useCallback(
     (tab: string, targetAccount?: CodexAccount | null) => {
@@ -3269,6 +3396,8 @@ export function CodexAccountsPage() {
       apiModelCatalog?: string[];
       apiWireApi?: "responses" | "chat_completions";
       apiSupportsVision?: boolean;
+      apiModelVisionSupport?: Record<string, boolean>;
+      apiVisionRoutingModel?: string;
       accountName?: string;
       sponsorTemplate?: SponsorApiProviderTemplate;
     } => {
@@ -3315,6 +3444,15 @@ export function CodexAccountsPage() {
           apiModelCatalog: managedProvider.modelCatalog,
           apiWireApi: managedProvider.wireApi ?? undefined,
           apiSupportsVision: managedProvider.supportsVision,
+          apiModelVisionSupport: Object.fromEntries(
+            Object.entries(managedProvider.modelCapabilities ?? {}).map(
+              ([model, capability]) => [
+                model,
+                capability.supportsVision === true,
+              ],
+            ),
+          ),
+          apiVisionRoutingModel: managedProvider.visionRoutingModel,
           accountName: managedProvider.name,
         };
       }
@@ -3423,6 +3561,10 @@ export function CodexAccountsPage() {
   }, [customSortOrder, customSortPreferenceLoaded]);
 
   useEffect(() => {
+    writeCodexCustomSortActive(sortBy === "custom");
+  }, [sortBy]);
+
+  useEffect(() => {
     if (!showCustomSortModal || !draggedCustomSortAccountId) return;
     const handleMouseUp = () => {
       setDraggedCustomSortAccountId(null);
@@ -3473,10 +3615,7 @@ export function CodexAccountsPage() {
       if (sponsorApiProviderTemplates.length === 0) {
         return current;
       }
-      if (
-        current === DEFAULT_CODEX_API_PROVIDER_ID ||
-        !current.trim()
-      ) {
+      if (current === DEFAULT_CODEX_API_PROVIDER_ID || !current.trim()) {
         return defaultApiProviderPresetId;
       }
       return current;
@@ -4600,7 +4739,6 @@ export function CodexAccountsPage() {
   };
 
   const handleImportFromFiles = async () => {
-    let unlistenProgress: UnlistenFn | undefined;
     try {
       const selected = await openFileDialog({
         multiple: true,
@@ -4609,54 +4747,217 @@ export function CodexAccountsPage() {
       if (!selected || (Array.isArray(selected) && selected.length === 0))
         return;
       const paths = Array.isArray(selected) ? selected : [selected];
-      page.setAddStatus("loading");
-      page.setAddMessage(
-        t("modals.import.importingFiles", { count: paths.length }),
+      cleanupBatchImportListeners();
+      closeAddModal();
+      setBatchImportOpen(true);
+      setBatchImportSessionId(null);
+      setBatchImportProgress(null);
+      setBatchImportPreview(null);
+      setBatchImportSelectedIds([]);
+      setBatchImportFilter("all");
+      setBatchImportResult(null);
+      setBatchImportError(null);
+      setBatchImportBusy(true);
+      batchImportSessionIdRef.current = "__pending__";
+
+      const progressUnlisten =
+        await listen<codexService.CodexBatchImportProgress>(
+          "codex:batch-import-progress",
+          (event) => {
+            if (event.payload.sessionId !== batchImportSessionIdRef.current) {
+              return;
+            }
+            setBatchImportProgress(event.payload);
+          },
+        );
+      const completedUnlisten =
+        await listen<codexService.CodexBatchImportPreview>(
+          "codex:batch-import-completed",
+          (event) => {
+            if (event.payload.sessionId !== batchImportSessionIdRef.current) {
+              return;
+            }
+            setBatchImportPreview(event.payload);
+            setBatchImportProgress((current) =>
+              current
+                ? {
+                    ...current,
+                    phase: event.payload.status,
+                    current: event.payload.items.length,
+                    total: event.payload.total,
+                  }
+                : current,
+            );
+            setBatchImportSelectedIds((prev) => {
+              const next = new Set(prev);
+              for (const item of event.payload.items) {
+                if (
+                  item.defaultSelected &&
+                  item.selectable &&
+                  (item.status === "ready" || item.status === "existing")
+                ) {
+                  next.add(item.itemId);
+                }
+              }
+              return Array.from(next);
+            });
+            setBatchImportBusy(false);
+          },
+        );
+      const previewUnlisten =
+        await listen<codexService.CodexBatchImportPreview>(
+          "codex:batch-import-preview",
+          (event) => {
+            if (event.payload.sessionId !== batchImportSessionIdRef.current) {
+              return;
+            }
+            setBatchImportPreview(event.payload);
+            setBatchImportSelectedIds((prev) => {
+              const next = new Set(prev);
+              for (const item of event.payload.items) {
+                if (
+                  item.defaultSelected &&
+                  item.selectable &&
+                  (item.status === "ready" || item.status === "existing")
+                ) {
+                  next.add(item.itemId);
+                }
+              }
+              return Array.from(next);
+            });
+          },
+        );
+      batchImportUnlistenersRef.current = [
+        progressUnlisten,
+        previewUnlisten,
+        completedUnlisten,
+      ];
+
+      const started = await codexService.startCodexBatchImportFromFiles(paths);
+      batchImportSessionIdRef.current = started.sessionId;
+      setBatchImportSessionId(started.sessionId);
+    } catch (e) {
+      cleanupBatchImportListeners();
+      batchImportSessionIdRef.current = null;
+      setBatchImportBusy(false);
+      setBatchImportError(String(e).replace(/^Error:\s*/, ""));
+    }
+  };
+
+  const handleCancelBatchImport = async () => {
+    if (!batchImportSessionId) {
+      return;
+    }
+    if (batchImportBusy) {
+      try {
+        await codexService.cancelCodexBatchImport(batchImportSessionId);
+        setBatchImportProgress((current) =>
+          current ? { ...current, phase: "cancelling" } : current,
+        );
+      } catch (e) {
+        setBatchImportError(String(e).replace(/^Error:\s*/, ""));
+      }
+      return;
+    }
+  };
+
+  const handleCloseBatchImport = async () => {
+    const sessionId = batchImportSessionId;
+    if (batchImportBusy && sessionId) {
+      try {
+        await codexService.cancelCodexBatchImport(sessionId);
+      } catch {
+        // Closing is an explicit discard action; ignore cancellation failures.
+      }
+    }
+    resetBatchImportState();
+  };
+
+  const toggleBatchImportItem = (itemId: string) => {
+    if (!batchImportSelectableIdSet.has(itemId)) return;
+    setBatchImportSelectedIds((prev) =>
+      prev.includes(itemId)
+        ? prev.filter((id) => id !== itemId)
+        : [...prev, itemId],
+    );
+  };
+
+  const selectAllBatchImportAccounts = () => {
+    const items = batchImportPreview?.items ?? [];
+    const ids = items
+      .filter((item) => item.selectable && item.status !== "invalid")
+      .map((item) => item.itemId);
+    setBatchImportFilter("all");
+    setBatchImportSelectedIds(ids);
+  };
+
+  const selectReadyBatchImportAccounts = () => {
+    const items = batchImportPreview?.items ?? [];
+    const ids = items
+      .filter(
+        (item) =>
+          item.selectable &&
+          (item.status === "ready" || item.status === "existing"),
+      )
+      .map((item) => item.itemId);
+    setBatchImportFilter("ready");
+    setBatchImportSelectedIds(ids);
+  };
+
+  const clearBatchImportSelection = () => {
+    setBatchImportFilter("all");
+    setBatchImportSelectedIds([]);
+  };
+
+  const handleConfirmBatchImport = async () => {
+    const selectedSelectableIds = batchImportSelectedIds.filter((id) =>
+      batchImportSelectableIdSet.has(id),
+    );
+    if (!batchImportSessionId || selectedSelectableIds.length === 0) {
+      setBatchImportError(
+        t("codex.batchImport.noSelection", "请先选择要导入的账号"),
       );
-
-      unlistenProgress = await listen<{
-        current: number;
-        total: number;
-        email: string;
-      }>("codex:file-import-progress", (event) => {
-        const { current, total, email } = event.payload ?? {};
-        if (current > 0 && total > 0) {
-          const label = email ? ` ${email}` : "";
-          page.setAddMessage(
-            `${t("modals.import.importingFiles", { count: total })} ${current}/${total}${label}`,
-          );
-        }
-      });
-
-      const result = await codexService.importCodexFromFiles(paths);
-      const { imported, failed } = result;
+      return;
+    }
+    setBatchImportBusy(true);
+    setBatchImportError(null);
+    try {
+      const result = await codexService.confirmCodexBatchImport(
+        batchImportSessionId,
+        selectedSelectableIds,
+      );
+      setBatchImportResult(result);
       await fetchAccounts();
-      if (imported.length > 0) {
+      if (result.imported.length > 0) {
         await emitAccountsChanged({
           platformId: "codex",
           reason: "import",
         });
       }
-      if (imported.length === 0 && failed.length === 0) {
-        page.setAddStatus("error");
-        page.setAddMessage(t("modals.import.noAccountsFound"));
-      } else if (failed.length > 0) {
-        const failedList = failed.map((f) => f.email).join(", ");
-        page.setAddStatus(imported.length > 0 ? "success" : "error");
-        page.setAddMessage(
-          `${t("messages.importSuccess", { count: imported.length })}，${t("messages.importPartialFailed", { failCount: failed.length, failList: failedList })}`,
-        );
-      } else {
-        page.setAddStatus("success");
-        page.setAddMessage(
-          t("messages.importSuccess", { count: imported.length }),
-        );
-      }
+      cleanupBatchImportListeners();
     } catch (e) {
-      page.setAddStatus("error");
-      page.setAddMessage(t("messages.importFailed", { error: String(e) }));
+      setBatchImportError(String(e).replace(/^Error:\s*/, ""));
     } finally {
-      if (unlistenProgress) unlistenProgress();
+      setBatchImportBusy(false);
+    }
+  };
+
+  const handleResumeBatchImport = async () => {
+    if (!batchImportSessionId || batchImportBusy) return;
+    setBatchImportBusy(true);
+    setBatchImportError(null);
+    setBatchImportResult(null);
+    try {
+      await codexService.resumeCodexBatchImport(batchImportSessionId);
+      setBatchImportProgress((current) =>
+        current ? { ...current, phase: "scanning" } : current,
+      );
+      setBatchImportPreview((current) =>
+        current ? { ...current, status: "scanning" } : current,
+      );
+    } catch (e) {
+      setBatchImportBusy(false);
+      setBatchImportError(String(e).replace(/^Error:\s*/, ""));
     }
   };
 
@@ -4831,10 +5132,14 @@ export function CodexAccountsPage() {
         selectedQuickSwitchProvider.modelCatalog,
         selectedQuickSwitchProvider.supportsVision,
         Object.fromEntries(
-          Object.entries(selectedQuickSwitchProvider.modelCapabilities ?? {}).map(
-            ([model, capability]) => [model, capability.supportsVision === true],
-          ),
+          Object.entries(
+            selectedQuickSwitchProvider.modelCapabilities ?? {},
+          ).map(([model, capability]) => [
+            model,
+            capability.supportsVision === true,
+          ]),
         ),
+        selectedQuickSwitchProvider.visionRoutingModel,
         selectedQuickSwitchProvider.wireApi ?? undefined,
       );
       setMessage({
@@ -4907,7 +5212,9 @@ export function CodexAccountsPage() {
       ) {
         try {
           const savedProvider = await upsertCodexModelProviderFromCredential({
-            providerId: providerPayload.apiProviderId?.startsWith("sponsor:")
+            providerId: isRelayApiProviderTemplateId(
+              providerPayload.apiProviderId,
+            )
               ? null
               : (providerPayload.apiProviderId ?? null),
             providerName: providerPayload.apiProviderName ?? null,
@@ -4967,7 +5274,8 @@ export function CodexAccountsPage() {
         finalProviderPayload.apiProviderName,
         finalProviderPayload.apiModelCatalog,
         finalProviderPayload.apiSupportsVision,
-        undefined,
+        finalProviderPayload.apiModelVisionSupport,
+        finalProviderPayload.apiVisionRoutingModel,
         finalProviderPayload.accountName,
         finalProviderPayload.apiWireApi,
       );
@@ -5238,7 +5546,8 @@ export function CodexAccountsPage() {
 
   const refreshApiKeyUsage = useCallback(
     async (account: CodexAccount, provider?: CodexModelProvider | null) => {
-      const targetProvider = provider ?? resolveUsageProviderForApiKeyAccount(account);
+      const targetProvider =
+        provider ?? resolveUsageProviderForApiKeyAccount(account);
       const apiKey = (account.openai_api_key || "").trim();
       const baseUrl =
         targetProvider?.baseUrl.trim() || (account.api_base_url || "").trim();
@@ -5408,14 +5717,19 @@ export function CodexAccountsPage() {
       if (typeof value !== "number" || !Number.isFinite(value)) return "-";
       const normalizedUnit = unit?.trim() || "USD";
       const formatted = value.toFixed(value >= 100 ? 0 : 2);
-      return normalizedUnit === "USD" ? `$${formatted}` : `${formatted} ${normalizedUnit}`;
+      return normalizedUnit === "USD"
+        ? `$${formatted}`
+        : `${formatted} ${normalizedUnit}`;
     },
     [],
   );
 
   const formatApiKeyUsageBalance = useCallback(
     (summary?: CodexModelProviderUsageSummary): string | null => {
-      if (typeof summary?.balance !== "number" || !Number.isFinite(summary.balance)) {
+      if (
+        typeof summary?.balance !== "number" ||
+        !Number.isFinite(summary.balance)
+      ) {
         return null;
       }
       return formatApiKeyUsageMoney(summary.balance, summary.unit);
@@ -5477,8 +5791,7 @@ export function CodexAccountsPage() {
           summary.details?.find((item) => item.key === "totalGranted")?.value,
         );
         const available = Number(
-          summary.details?.find((item) => item.key === "totalAvailable")
-            ?.value,
+          summary.details?.find((item) => item.key === "totalAvailable")?.value,
         );
         if (
           Number.isFinite(granted) &&
@@ -5514,22 +5827,61 @@ export function CodexAccountsPage() {
         planName: t("codex.modelProviders.usage.fields.planName", "订阅"),
         remaining: t("codex.modelProviders.usage.fields.remaining", "剩余额度"),
         balance: t("codex.modelProviders.usage.fields.balance", "余额"),
-        quotaUnlimited: t("codex.modelProviders.usage.fields.quotaUnlimited", "无限额度"),
-        todayRequests: t("codex.modelProviders.usage.fields.todayRequests", "今日请求"),
-        todayTokens: t("codex.modelProviders.usage.fields.todayTokens", "今日 Token"),
+        quotaUnlimited: t(
+          "codex.modelProviders.usage.fields.quotaUnlimited",
+          "无限额度",
+        ),
+        todayRequests: t(
+          "codex.modelProviders.usage.fields.todayRequests",
+          "今日请求",
+        ),
+        todayTokens: t(
+          "codex.modelProviders.usage.fields.todayTokens",
+          "今日 Token",
+        ),
         todayCost: t("codex.modelProviders.usage.fields.todayCost", "今日消耗"),
-        totalRequests: t("codex.modelProviders.usage.fields.totalRequests", "累计请求"),
-        totalTokens: t("codex.modelProviders.usage.fields.totalTokens", "累计 Token"),
+        totalRequests: t(
+          "codex.modelProviders.usage.fields.totalRequests",
+          "累计请求",
+        ),
+        totalTokens: t(
+          "codex.modelProviders.usage.fields.totalTokens",
+          "累计 Token",
+        ),
         totalCost: t("codex.modelProviders.usage.fields.totalCost", "累计消耗"),
-        hardLimitUsd: t("codex.modelProviders.usage.fields.hardLimitUsd", "硬额度"),
-        softLimitUsd: t("codex.modelProviders.usage.fields.softLimitUsd", "软额度"),
-        systemHardLimitUsd: t("codex.modelProviders.usage.fields.systemHardLimitUsd", "系统额度"),
-        accessUntil: t("codex.modelProviders.usage.fields.accessUntil", "可用至"),
+        hardLimitUsd: t(
+          "codex.modelProviders.usage.fields.hardLimitUsd",
+          "硬额度",
+        ),
+        softLimitUsd: t(
+          "codex.modelProviders.usage.fields.softLimitUsd",
+          "软额度",
+        ),
+        systemHardLimitUsd: t(
+          "codex.modelProviders.usage.fields.systemHardLimitUsd",
+          "系统额度",
+        ),
+        accessUntil: t(
+          "codex.modelProviders.usage.fields.accessUntil",
+          "可用至",
+        ),
         expiresAt: t("codex.modelProviders.usage.fields.expiresAt", "过期时间"),
-        totalGranted: t("codex.modelProviders.usage.fields.totalGranted", "授予额度"),
-        totalAvailable: t("codex.modelProviders.usage.fields.totalAvailable", "可用额度"),
-        modelLimitsEnabled: t("codex.modelProviders.usage.fields.modelLimitsEnabled", "模型限制"),
-        totalUsage: t("codex.modelProviders.usage.fields.totalUsage", "累计消耗"),
+        totalGranted: t(
+          "codex.modelProviders.usage.fields.totalGranted",
+          "授予额度",
+        ),
+        totalAvailable: t(
+          "codex.modelProviders.usage.fields.totalAvailable",
+          "可用额度",
+        ),
+        modelLimitsEnabled: t(
+          "codex.modelProviders.usage.fields.modelLimitsEnabled",
+          "模型限制",
+        ),
+        totalUsage: t(
+          "codex.modelProviders.usage.fields.totalUsage",
+          "累计消耗",
+        ),
       };
       return labels[key] ?? fallback;
     },
@@ -5542,7 +5894,9 @@ export function CodexAccountsPage() {
       const numeric = Number(raw);
       if (
         Number.isFinite(numeric) &&
-        (item.key.includes("Tokens") || item.key === "todayTokens" || item.key === "totalTokens")
+        (item.key.includes("Tokens") ||
+          item.key === "todayTokens" ||
+          item.key === "totalTokens")
       ) {
         return formatCockpitApiTokenCount(numeric);
       }
@@ -5553,8 +5907,10 @@ export function CodexAccountsPage() {
         return numeric > 0 ? formatDate(numeric * 1000) : "-";
       }
       if (item.key === "quotaUnlimited" || item.key === "modelLimitsEnabled") {
-        if (raw === "true") return t("codex.modelProviders.usage.booleanTrue", "是");
-        if (raw === "false") return t("codex.modelProviders.usage.booleanFalse", "否");
+        if (raw === "true")
+          return t("codex.modelProviders.usage.booleanTrue", "是");
+        if (raw === "false")
+          return t("codex.modelProviders.usage.booleanFalse", "否");
       }
       if (
         Number.isFinite(numeric) &&
@@ -5570,7 +5926,10 @@ export function CodexAccountsPage() {
       ) {
         return formatApiKeyUsageMoney(numeric, unit);
       }
-      if (Number.isFinite(numeric) && ["totalGranted", "totalAvailable"].includes(item.key)) {
+      if (
+        Number.isFinite(numeric) &&
+        ["totalGranted", "totalAvailable"].includes(item.key)
+      ) {
         return formatCockpitApiInteger(numeric);
       }
       if (Number.isFinite(numeric) && item.key === "totalUsage") {
@@ -5578,7 +5937,9 @@ export function CodexAccountsPage() {
       }
       if (
         Number.isFinite(numeric) &&
-        (item.key.includes("Requests") || item.key === "todayRequests" || item.key === "totalRequests")
+        (item.key.includes("Requests") ||
+          item.key === "todayRequests" ||
+          item.key === "totalRequests")
       ) {
         return formatCockpitApiInteger(numeric);
       }
@@ -5615,7 +5976,8 @@ export function CodexAccountsPage() {
       const summary = usageState?.summary;
       const loading = usageState?.loading === true;
       const apiKey = (account.openai_api_key || "").trim();
-      const baseUrl = provider?.baseUrl.trim() || (account.api_base_url || "").trim();
+      const baseUrl =
+        provider?.baseUrl.trim() || (account.api_base_url || "").trim();
       const canRefresh = Boolean(apiKey && baseUrl);
       const usageMode = resolveApiKeyUsageMode(summary);
       const isNewApiUsage = usageMode === "new_api";
@@ -5640,7 +6002,8 @@ export function CodexAccountsPage() {
           summary.quotaUnlimited === true
             ? unlimitedText
             : `${availableText} / ${grantedText}`;
-        const quotaBarWidth = summary.quotaUnlimited === true ? 100 : usedPercent;
+        const quotaBarWidth =
+          summary.quotaUnlimited === true ? 100 : usedPercent;
         return (
           <div
             className="quota-item codex-api-key-quota-item new-api"
@@ -5651,9 +6014,7 @@ export function CodexAccountsPage() {
               <span className="quota-label">
                 {t("codex.cockpitApi.balance", "额度")}
               </span>
-              <span className="quota-pct high">
-                {quotaValueText}
-              </span>
+              <span className="quota-pct high">{quotaValueText}</span>
             </div>
             <div className="quota-bar-track">
               <div
@@ -5675,20 +6036,36 @@ export function CodexAccountsPage() {
           <div className="codex-api-key-usage-panel sub2api">
             <div className="codex-api-key-usage-grid">
               <div>
-                <span>{t("codex.modelProviders.usage.accountBalance", "账户余额")}</span>
+                <span>
+                  {t("codex.modelProviders.usage.accountBalance", "账户余额")}
+                </span>
                 <strong>
                   {formatApiKeyUsageQuotaValue(
                     summary,
-                    summary.remaining ?? summary.balance ?? summary.quotaRemaining,
+                    summary.remaining ??
+                      summary.balance ??
+                      summary.quotaRemaining,
                   )}
                 </strong>
               </div>
               <div>
-                <span>{t("codex.modelProviders.usage.fields.todayRequests", "今日请求")}</span>
-                <strong>{formatCockpitApiInteger(summary.todayRequests ?? 0)}</strong>
+                <span>
+                  {t(
+                    "codex.modelProviders.usage.fields.todayRequests",
+                    "今日请求",
+                  )}
+                </span>
+                <strong>
+                  {formatCockpitApiInteger(summary.todayRequests ?? 0)}
+                </strong>
               </div>
               <div>
-                <span>{t("codex.modelProviders.usage.fields.todayTokens", "今日 Token")}</span>
+                <span>
+                  {t(
+                    "codex.modelProviders.usage.fields.todayTokens",
+                    "今日 Token",
+                  )}
+                </span>
                 <strong>
                   {formatCockpitApiTokenCount(summary.todayTotalTokens ?? 0)}
                 </strong>
@@ -5701,14 +6078,21 @@ export function CodexAccountsPage() {
         return <></>;
       }
       return (
-        <div className={`codex-api-key-usage-panel ${variant} ${summary ? "" : "empty"}`}>
+        <div
+          className={`codex-api-key-usage-panel ${variant} ${summary ? "" : "empty"}`}
+        >
           {summary ? (
             <>
               <div className="codex-api-key-usage-grid">
                 {isNewApiUsage ? (
                   <>
                     <div>
-                      <span>{t("codex.modelProviders.usage.fields.totalGranted", "授予额度")}</span>
+                      <span>
+                        {t(
+                          "codex.modelProviders.usage.fields.totalGranted",
+                          "授予额度",
+                        )}
+                      </span>
                       <strong>
                         {(() => {
                           const raw = Number(
@@ -5725,7 +6109,12 @@ export function CodexAccountsPage() {
                       </strong>
                     </div>
                     <div>
-                      <span>{t("codex.modelProviders.usage.fields.totalAvailable", "可用额度")}</span>
+                      <span>
+                        {t(
+                          "codex.modelProviders.usage.fields.totalAvailable",
+                          "可用额度",
+                        )}
+                      </span>
                       <strong>
                         {(() => {
                           const raw = Number(
@@ -5742,7 +6131,12 @@ export function CodexAccountsPage() {
                       </strong>
                     </div>
                     <div>
-                      <span>{t("codex.modelProviders.usage.fields.expiresAt", "过期时间")}</span>
+                      <span>
+                        {t(
+                          "codex.modelProviders.usage.fields.expiresAt",
+                          "过期时间",
+                        )}
+                      </span>
                       <strong>
                         {formatApiKeyUsageDetailByKey(summary, "expiresAt")}
                       </strong>
@@ -5751,24 +6145,43 @@ export function CodexAccountsPage() {
                 ) : isSub2ApiUsage ? (
                   <>
                     <div>
-                      <span>{t("codex.modelProviders.usage.accountBalance", "账户余额")}</span>
+                      <span>
+                        {t(
+                          "codex.modelProviders.usage.accountBalance",
+                          "账户余额",
+                        )}
+                      </span>
                       <strong>
                         {formatApiKeyUsageQuotaValue(
                           summary,
-                          summary.remaining ?? summary.balance ?? summary.quotaRemaining,
+                          summary.remaining ??
+                            summary.balance ??
+                            summary.quotaRemaining,
                         )}
                       </strong>
                     </div>
                     <div>
-                      <span>{t("codex.modelProviders.usage.fields.todayRequests", "今日请求")}</span>
+                      <span>
+                        {t(
+                          "codex.modelProviders.usage.fields.todayRequests",
+                          "今日请求",
+                        )}
+                      </span>
                       <strong>
                         {formatCockpitApiInteger(summary.todayRequests ?? 0)}
                       </strong>
                     </div>
                     <div>
-                      <span>{t("codex.modelProviders.usage.fields.todayTokens", "今日 Token")}</span>
+                      <span>
+                        {t(
+                          "codex.modelProviders.usage.fields.todayTokens",
+                          "今日 Token",
+                        )}
+                      </span>
                       <strong>
-                        {formatCockpitApiTokenCount(summary.todayTotalTokens ?? 0)}
+                        {formatCockpitApiTokenCount(
+                          summary.todayTotalTokens ?? 0,
+                        )}
                       </strong>
                     </div>
                   </>
@@ -5890,7 +6303,8 @@ export function CodexAccountsPage() {
         providerPayload.apiProviderName,
         providerPayload.apiModelCatalog,
         providerPayload.apiSupportsVision,
-        undefined,
+        providerPayload.apiModelVisionSupport,
+        providerPayload.apiVisionRoutingModel,
         providerPayload.apiWireApi,
       );
       if (
@@ -5900,7 +6314,11 @@ export function CodexAccountsPage() {
       ) {
         try {
           const savedProvider = await upsertCodexModelProviderFromCredential({
-            providerId: providerPayload.apiProviderId ?? null,
+            providerId: isRelayApiProviderTemplateId(
+              providerPayload.apiProviderId,
+            )
+              ? null
+              : (providerPayload.apiProviderId ?? null),
             providerName: providerPayload.apiProviderName ?? null,
             apiBaseUrl: validation.apiBaseUrl,
             apiKey: validation.apiKey,
@@ -6825,8 +7243,9 @@ export function CodexAccountsPage() {
     }
 
     if (oauthBindingFilterTypes.length > 0) {
-      const { selectedTypes } =
-        splitValidityFilterValues(oauthBindingFilterTypes);
+      const { selectedTypes } = splitValidityFilterValues(
+        oauthBindingFilterTypes,
+      );
       if (selectedTypes.size > 0) {
         result = result.filter((account) => {
           if (selectedTypes.has("ERROR") && account.quota_error) {
@@ -8011,7 +8430,7 @@ export function CodexAccountsPage() {
   );
 
   useEffect(() => {
-    const teamAccountIds = filteredAccounts
+    const teamAccountIds = paginatedAccounts
       .filter(
         (account) =>
           !hasCodexAccountStructure(account) ||
@@ -8021,7 +8440,7 @@ export function CodexAccountsPage() {
       .map((account) => account.id);
     if (teamAccountIds.length === 0) return;
     void hydrateAccountProfilesIfNeeded(teamAccountIds);
-  }, [filteredAccounts, hydrateAccountProfilesIfNeeded]);
+  }, [hydrateAccountProfilesIfNeeded, paginatedAccounts]);
 
   const resolveGroupLabel = (groupKey: string) =>
     groupKey === untaggedKey
@@ -8244,7 +8663,10 @@ export function CodexAccountsPage() {
       const apiKeyUsageProvider = resolveUsageProviderForApiKeyAccount(account);
       const isSponsorApiKeyAccount =
         isApiKeyAccount &&
-        isSponsorModelProvider(apiKeyUsageProvider, sponsorApiProviderTemplates);
+        isSponsorModelProvider(
+          apiKeyUsageProvider,
+          sponsorApiProviderTemplates,
+        );
       const apiKeyUsageMode = resolveApiKeyUsageMode(
         apiKeyUsageMap[account.id]?.summary,
       );
@@ -8259,7 +8681,7 @@ export function CodexAccountsPage() {
         ? "sponsor-api"
         : isQuotaAwareApiKeyAccount
           ? "new-api-exclusive"
-        : planClass;
+          : planClass;
       const displayPlanLabel = isSponsorApiKeyAccount
         ? apiProviderName
         : presentation.planLabel;
@@ -8446,7 +8868,11 @@ export function CodexAccountsPage() {
                 {cockpitApiAccountBalanceText && (
                   <div className="codex-account-balance-line">
                     <span>
-                      {t("codex.modelProviders.usage.accountBalance", "账户余额")}：
+                      {t(
+                        "codex.modelProviders.usage.accountBalance",
+                        "账户余额",
+                      )}
+                      ：
                     </span>
                     <strong>{cockpitApiAccountBalanceText}</strong>
                   </div>
@@ -8638,6 +9064,15 @@ export function CodexAccountsPage() {
                     <Repeat size={14} />
                   </button>
                 )}
+                {isApiKeyAccount && !isNewApiAccount && (
+                  <button
+                    className="card-action-btn"
+                    onClick={() => openApiKeyCredentialsModal(account)}
+                    title={t("instances.actions.edit", "编辑")}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                )}
                 <button
                   className={`card-action-btn ${!isCurrent ? "success" : ""}`}
                   onClick={() => handleSwitch(account.id)}
@@ -8650,7 +9085,8 @@ export function CodexAccountsPage() {
                     <Play size={14} />
                   )}
                 </button>
-                {((!isApiKeyAccount || isNewApiAccount) ||
+                {(!isApiKeyAccount ||
+                  isNewApiAccount ||
                   canRefreshApiKeyUsage(account, apiKeyUsageProvider)) && (
                   <button
                     className="card-action-btn"
@@ -9643,7 +10079,10 @@ export function CodexAccountsPage() {
       const apiKeyUsageProvider = resolveUsageProviderForApiKeyAccount(account);
       const isSponsorApiKeyAccount =
         isApiKeyAccount &&
-        isSponsorModelProvider(apiKeyUsageProvider, sponsorApiProviderTemplates);
+        isSponsorModelProvider(
+          apiKeyUsageProvider,
+          sponsorApiProviderTemplates,
+        );
       const apiKeyUsageMode = resolveApiKeyUsageMode(
         apiKeyUsageMap[account.id]?.summary,
       );
@@ -9658,7 +10097,7 @@ export function CodexAccountsPage() {
         ? "sponsor-api"
         : isQuotaAwareApiKeyAccount
           ? "new-api-exclusive"
-        : planClass;
+          : planClass;
       const displayPlanLabel = isSponsorApiKeyAccount
         ? apiProviderName
         : presentation.planLabel;
@@ -9879,7 +10318,11 @@ export function CodexAccountsPage() {
                   {cockpitApiAccountBalanceText && (
                     <div className="codex-account-balance-line table">
                       <span>
-                        {t("codex.modelProviders.usage.accountBalance", "账户余额")}：
+                        {t(
+                          "codex.modelProviders.usage.accountBalance",
+                          "账户余额",
+                        )}
+                        ：
                       </span>
                       <strong>{cockpitApiAccountBalanceText}</strong>
                     </div>
@@ -10029,6 +10472,15 @@ export function CodexAccountsPage() {
                   <Repeat size={14} />
                 </button>
               )}
+              {isApiKeyAccount && !isNewApiAccount && (
+                <button
+                  className="action-btn"
+                  onClick={() => openApiKeyCredentialsModal(account)}
+                  title={t("instances.actions.edit", "编辑")}
+                >
+                  <Pencil size={14} />
+                </button>
+              )}
               <button
                 className={`action-btn ${!isCurrent ? "success" : ""}`}
                 onClick={() => handleSwitch(account.id)}
@@ -10041,7 +10493,8 @@ export function CodexAccountsPage() {
                   <Play size={14} />
                 )}
               </button>
-              {((!isApiKeyAccount || isNewApiAccount) ||
+              {(!isApiKeyAccount ||
+                isNewApiAccount ||
                 canRefreshApiKeyUsage(account, apiKeyUsageProvider)) && (
                 <button
                   className="action-btn"
@@ -10290,14 +10743,18 @@ export function CodexAccountsPage() {
     );
     const visible = visibleApiKeyAccountIds.has(account.id);
     const apiKeyDisplay = resolveApiKeyDisplayText(account, visible);
-    const baseUrl = provider?.baseUrl.trim() || (account.api_base_url || "").trim() || "-";
+    const baseUrl =
+      provider?.baseUrl.trim() || (account.api_base_url || "").trim() || "-";
     const usedPercent = formatApiKeyUsagePercent(summary);
     const summaryDetails =
       usageMode === "new_api"
         ? [
             {
               key: "totalGranted",
-              label: t("codex.modelProviders.usage.fields.totalGranted", "授予额度"),
+              label: t(
+                "codex.modelProviders.usage.fields.totalGranted",
+                "授予额度",
+              ),
               value: (() => {
                 const raw = Number(
                   findApiKeyUsageDetail(summary, "totalGranted")?.value ?? NaN,
@@ -10309,10 +10766,14 @@ export function CodexAccountsPage() {
             },
             {
               key: "totalAvailable",
-              label: t("codex.modelProviders.usage.fields.totalAvailable", "可用额度"),
+              label: t(
+                "codex.modelProviders.usage.fields.totalAvailable",
+                "可用额度",
+              ),
               value: (() => {
                 const raw = Number(
-                  findApiKeyUsageDetail(summary, "totalAvailable")?.value ?? NaN,
+                  findApiKeyUsageDetail(summary, "totalAvailable")?.value ??
+                    NaN,
                 );
                 return Number.isFinite(raw)
                   ? formatApiKeyUsageMoney(raw, summary.unit)
@@ -10321,7 +10782,10 @@ export function CodexAccountsPage() {
             },
             {
               key: "expiresAt",
-              label: t("codex.modelProviders.usage.fields.expiresAt", "过期时间"),
+              label: t(
+                "codex.modelProviders.usage.fields.expiresAt",
+                "过期时间",
+              ),
               value: formatApiKeyUsageDetailByKey(summary, "expiresAt"),
             },
           ]
@@ -10329,22 +10793,35 @@ export function CodexAccountsPage() {
           ? [
               {
                 key: "accountBalance",
-                label: t("codex.modelProviders.usage.accountBalance", "账户余额"),
+                label: t(
+                  "codex.modelProviders.usage.accountBalance",
+                  "账户余额",
+                ),
                 value: formatApiKeyUsageQuotaValue(
                   summary,
-                  summary.remaining ?? summary.balance ?? summary.quotaRemaining,
+                  summary.remaining ??
+                    summary.balance ??
+                    summary.quotaRemaining,
                 ),
               },
               {
                 key: "todayRequests",
-                label: t("codex.modelProviders.usage.fields.todayRequests", "今日请求"),
+                label: t(
+                  "codex.modelProviders.usage.fields.todayRequests",
+                  "今日请求",
+                ),
                 value: formatCockpitApiInteger(summary.todayRequests ?? 0),
               },
-            {
-              key: "todayTokens",
-              label: t("codex.modelProviders.usage.fields.todayTokens", "今日 Token"),
-              value: formatCockpitApiTokenCount(summary.todayTotalTokens ?? 0),
-            },
+              {
+                key: "todayTokens",
+                label: t(
+                  "codex.modelProviders.usage.fields.todayTokens",
+                  "今日 Token",
+                ),
+                value: formatCockpitApiTokenCount(
+                  summary.todayTotalTokens ?? 0,
+                ),
+              },
             ]
           : [];
     const summaryGridClassName =
@@ -10363,9 +10840,7 @@ export function CodexAccountsPage() {
         >
           <div className="modal-header cockpit-api-panel-header">
             <div>
-              <h2>
-                {t("codex.modelProviders.usage.detailTitle", "服务面板")}
-              </h2>
+              <h2>{t("codex.modelProviders.usage.detailTitle", "服务面板")}</h2>
               <span className="cockpit-api-panel-subtitle">
                 {maskAccountText(resolvePresentation(account).displayName)}
                 {provider ? ` · ${provider.name}` : ""}
@@ -10437,21 +10912,22 @@ export function CodexAccountsPage() {
                 >
                   <span className="cockpit-api-card-label">{item.label}</span>
                   <strong>{item.value}</strong>
-                  {(item.key === "remaining" || item.key === "totalAvailable") &&
+                  {(item.key === "remaining" ||
+                    item.key === "totalAvailable") &&
                     usageMode !== "new_api" &&
                     usageMode !== "sub2api" && (
-                    <div>
-                      <div className="cockpit-api-progress-row">
-                        <div className="cockpit-api-progress-track">
-                          <div
-                            className="cockpit-api-progress-bar"
-                            style={{ width: `${usedPercent}%` }}
-                          />
+                      <div>
+                        <div className="cockpit-api-progress-row">
+                          <div className="cockpit-api-progress-track">
+                            <div
+                              className="cockpit-api-progress-bar"
+                              style={{ width: `${usedPercent}%` }}
+                            />
+                          </div>
+                          <span>{usedPercent}%</span>
                         </div>
-                        <span>{usedPercent}%</span>
                       </div>
-                    </div>
-                  )}
+                    )}
                 </div>
               ))}
             </section>
@@ -10468,7 +10944,9 @@ export function CodexAccountsPage() {
                       <span className="cockpit-api-card-label">
                         {formatApiKeyUsageDetailLabel(item.key, item.label)}
                       </span>
-                      <strong>{formatApiKeyUsageDetailValue(item, summary.unit)}</strong>
+                      <strong>
+                        {formatApiKeyUsageDetailValue(item, summary.unit)}
+                      </strong>
                       <small>{item.key}</small>
                     </div>
                   ))
@@ -10656,8 +11134,8 @@ export function CodexAccountsPage() {
                 <strong>{quotaText}</strong>
                 {cockpitApiAccountBalanceText && (
                   <small className="cockpit-api-balance-meta">
-                    {t("codex.modelProviders.usage.accountBalance", "账户余额")}：
-                    {cockpitApiAccountBalanceText}
+                    {t("codex.modelProviders.usage.accountBalance", "账户余额")}
+                    ：{cockpitApiAccountBalanceText}
                   </small>
                 )}
                 <div className="cockpit-api-progress-row">
@@ -10836,6 +11314,335 @@ export function CodexAccountsPage() {
         onTabChange={setActiveTab}
         tabs={["overview", "providers", "wakeup", "instances", "sessions"]}
       />
+
+      {batchImportOpen && (
+        <div className="modal-overlay codex-batch-import-overlay">
+          <div
+            className="modal-content codex-batch-import-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h2>{t("codex.batchImport.title", "Codex 批量导入")}</h2>
+                <p className="codex-batch-import-subtitle">
+                  {batchImportResult
+                    ? t("codex.batchImport.resultSubtitle", "导入结果")
+                    : batchImportBusy
+                      ? t(
+                          "codex.batchImport.scanSubtitle",
+                          "正在逐条解析并检查账号",
+                        )
+                      : batchImportPreview
+                        ? t(
+                            "codex.batchImport.previewSubtitle",
+                            "选择要写入的账号",
+                          )
+                        : t(
+                            "codex.batchImport.scanSubtitle",
+                            "正在逐条解析并检查账号",
+                          )}
+                </p>
+              </div>
+              <button
+                className="modal-close"
+                onClick={() => void handleCloseBatchImport()}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="codex-batch-import-body">
+              {batchImportError && (
+                <div className="codex-batch-import-error">
+                  <CircleAlert size={16} />
+                  <span>{batchImportError}</span>
+                </div>
+              )}
+
+              {!batchImportResult && (
+                <div className="codex-batch-import-progress-panel">
+                  <div className="codex-batch-import-progress-head">
+                    <span>
+                      {batchImportProgress?.phase === "cancelling"
+                        ? t("codex.batchImport.cancelling", "正在取消...")
+                        : batchImportBusy
+                          ? t("codex.batchImport.scanning", "扫描中")
+                          : batchImportPreview?.status === "cancelled"
+                            ? t("codex.batchImport.cancelled", "已取消")
+                            : batchImportPreview
+                              ? t("codex.batchImport.scanDone", "扫描完成")
+                              : t("codex.batchImport.scanning", "扫描中")}
+                    </span>
+                    <strong>
+                      {batchImportProgress?.current ?? 0}/
+                      {batchImportProgress?.total ??
+                        batchImportPreview?.total ??
+                        0}
+                    </strong>
+                  </div>
+                  <div className="codex-batch-import-progress-track">
+                    <div
+                      className="codex-batch-import-progress-fill"
+                      style={{
+                        width: `${
+                          batchImportProgress?.total
+                            ? Math.min(
+                                100,
+                                Math.round(
+                                  ((batchImportProgress.current || 0) /
+                                    batchImportProgress.total) *
+                                    100,
+                                ),
+                              )
+                            : 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+                  {batchImportProgress?.currentLabel && (
+                    <div className="codex-batch-import-current">
+                      {t("codex.batchImport.current", "当前")}：
+                      {maskAccountText(batchImportProgress.currentLabel)}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {batchImportResult ? (
+                <div className="codex-batch-import-result">
+                  <div className="codex-batch-import-stat-grid">
+                    <div>
+                      <span>{t("codex.batchImport.imported", "已导入")}</span>
+                      <strong>{batchImportResult.imported.length}</strong>
+                    </div>
+                    <div>
+                      <span>{t("codex.batchImport.failed", "失败")}</span>
+                      <strong>{batchImportResult.failed.length}</strong>
+                    </div>
+                  </div>
+                  {batchImportResult.failed.length > 0 && (
+                    <div className="codex-batch-import-list compact">
+                      {batchImportResult.failed.map((item) => (
+                        <div
+                          className="codex-batch-import-row"
+                          key={item.email}
+                        >
+                          <div>
+                            <strong>{maskAccountText(item.email)}</strong>
+                            <small>{item.error}</small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : batchImportPreview ? (
+                <>
+                  <div className="codex-batch-import-stat-grid">
+                    <div>
+                      <span>
+                        {t("codex.batchImport.groups.ready", "可导入")}
+                      </span>
+                      <strong>{batchImportCounts.ready}</strong>
+                    </div>
+                    <div>
+                      <span>
+                        {t("codex.batchImport.groups.quotaFailed", "异常")}
+                      </span>
+                      <strong>{batchImportCounts.quotaFailed}</strong>
+                    </div>
+                    <div>
+                      <span>
+                        {t("codex.batchImport.groups.existing", "已存在")}
+                      </span>
+                      <strong>{batchImportCounts.existing}</strong>
+                    </div>
+                    <div>
+                      <span>
+                        {t("codex.batchImport.groups.invalid", "无效账号")}
+                      </span>
+                      <strong>{batchImportCounts.invalid}</strong>
+                    </div>
+                  </div>
+
+                  <div className="codex-batch-import-toolbar">
+                    <span>{batchImportSelectedCountLabel}</span>
+                    <div className="codex-batch-import-actions">
+                      <button
+                        type="button"
+                        className="btn btn-secondary compact"
+                        disabled={
+                          batchImportBusy ||
+                          batchImportSelectableIds.length === 0
+                        }
+                        onClick={selectAllBatchImportAccounts}
+                      >
+                        {t(
+                          "codex.batchImport.selectAllAccounts",
+                          "选择全部账号",
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary compact"
+                        disabled={
+                          batchImportBusy ||
+                          batchImportCounts.ready +
+                            batchImportCounts.existing ===
+                            0
+                        }
+                        onClick={selectReadyBatchImportAccounts}
+                      >
+                        {t("codex.batchImport.selectReady", "选择正常账号")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary compact"
+                        disabled={
+                          batchImportBusy ||
+                          batchImportSelectedSelectableCount === 0
+                        }
+                        onClick={clearBatchImportSelection}
+                      >
+                        {t("codex.batchImport.clearSelection", "取消选择")}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="codex-batch-import-list">
+                    {[...batchImportVisibleItems].reverse().map((item) => {
+                      const selectable = batchImportSelectableIdSet.has(
+                        item.itemId,
+                      );
+                      const checked =
+                        selectable &&
+                        batchImportSelectedIds.includes(item.itemId);
+                      return (
+                        <label
+                          className={`codex-batch-import-row status-${item.status}`}
+                          key={item.itemId}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={!selectable || batchImportBusy}
+                            onChange={() => toggleBatchImportItem(item.itemId)}
+                          />
+                          <div className="codex-batch-import-row-main">
+                            <div className="codex-batch-import-row-title">
+                              <strong>{maskAccountText(item.label)}</strong>
+                              <span>{item.accountType}</span>
+                            </div>
+                            <div className="codex-batch-import-row-meta">
+                              <span>{item.source}</span>
+                              {item.provider && <span>{item.provider}</span>}
+                              {item.status === "ready" && (
+                                <span>
+                                  {t("codex.batchImport.quotaOk", "账号正常")}
+                                </span>
+                              )}
+                              {item.status === "quota_failed" && (
+                                <span>
+                                  {t("codex.batchImport.quotaFailed", "异常")}
+                                </span>
+                              )}
+                              {item.status === "existing" && (
+                                <span>
+                                  {t(
+                                    "codex.batchImport.groups.existing",
+                                    "已存在",
+                                  )}
+                                </span>
+                              )}
+                              {item.status === "invalid" && (
+                                <span>
+                                  {t(
+                                    "codex.batchImport.groups.invalid",
+                                    "无效账号",
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                            {(item.quotaError || item.error) && (
+                              <small className="codex-batch-import-row-error">
+                                {item.quotaError || item.error}
+                              </small>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="codex-batch-import-empty">
+                  <RefreshCw size={18} className="loading-spinner" />
+                  {t("codex.batchImport.preparing", "正在准备导入任务...")}
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer codex-batch-import-footer">
+              {batchImportResult ? (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => void handleCloseBatchImport()}
+                >
+                  {t("common.shared.close", "关闭")}
+                </button>
+              ) : (
+                <>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() =>
+                      batchImportBusy
+                        ? void handleCancelBatchImport()
+                        : void handleCloseBatchImport()
+                    }
+                    disabled={
+                      batchImportBusy &&
+                      batchImportProgress?.phase === "cancelling"
+                    }
+                  >
+                    {batchImportBusy
+                      ? t("codex.batchImport.cancelScan", "取消扫描")
+                      : t("common.shared.close", "关闭")}
+                  </button>
+                  {!batchImportBusy &&
+                    batchImportPreview?.status === "cancelled" && (
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => void handleResumeBatchImport()}
+                      >
+                        <RefreshCw size={16} />
+                        {t("codex.batchImport.resumeScan", "继续扫描")}
+                      </button>
+                    )}
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => void handleConfirmBatchImport()}
+                    disabled={
+                      batchImportBusy ||
+                      !batchImportPreview ||
+                      batchImportSelectedSelectableCount === 0
+                    }
+                  >
+                    {batchImportBusy ? (
+                      <RefreshCw size={16} className="loading-spinner" />
+                    ) : (
+                      <Download size={16} />
+                    )}
+                    {t("codex.batchImport.importSelected", "导入选中账号")}
+                    {batchImportSelectedSelectableCount > 0
+                      ? ` (${batchImportSelectedSelectableCount})`
+                      : ""}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {externalImportProgress.visible && (
         <div
@@ -12000,7 +12807,7 @@ export function CodexAccountsPage() {
                           <p className="api-provider-hint">
                             {t(
                               "codex.modelProviders.sponsorHint",
-                              "已按赞助商推荐自动填写兼容服务地址。输入 API Key 后，卡片会自动查询余额和用量。",
+                              "已按专属中转站配置自动填写兼容服务地址。输入 API Key 后，卡片会自动查询余额和用量。",
                             )}
                           </p>
                           <div className="api-provider-links">
@@ -12027,7 +12834,10 @@ export function CodexAccountsPage() {
                                 }
                               >
                                 <KeyRound size={14} />
-                                {t("codex.api.provider.apiKeyPage", "API Key 页面")}
+                                {t(
+                                  "codex.api.provider.apiKeyPage",
+                                  "API Key 页面",
+                                )}
                               </button>
                             )}
                           </div>
@@ -12866,7 +13676,7 @@ export function CodexAccountsPage() {
               onClick={closeApiKeyCredentialsModal}
             >
               <div
-                className="modal-content codex-add-modal"
+                className="modal-content codex-add-modal codex-api-key-edit-modal"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="modal-header">

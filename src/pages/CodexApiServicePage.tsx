@@ -1814,7 +1814,12 @@ export function CodexApiServicePage() {
       restrictFreeAccounts,
     );
     setState(next);
-    await fetchAccounts();
+    void fetchAccounts().catch((error) => {
+      console.error(
+        "Failed to refresh Codex accounts after API service save:",
+        error,
+      );
+    });
   };
 
   const handleSaveMembers = async (

@@ -9,6 +9,9 @@ import {
   findCodexApiProviderPresetById,
   resolveCodexApiProviderPresetId,
 } from '../utils/codexProviderPresets';
+import {
+  isApiKeyFunProviderBaseUrl,
+} from '../utils/apikeyFunLinks';
 
 export interface CodexModelProviderApiKey {
   id: string;
@@ -27,6 +30,7 @@ export interface CodexModelProvider {
   modelCatalog?: string[];
   supportsVision?: boolean;
   modelCapabilities?: Record<string, { supportsVision?: boolean }>;
+  visionRoutingModel?: string;
   boundInstanceId?: string;
   website?: string;
   apiKeyUrl?: string;
@@ -75,6 +79,7 @@ interface UpsertFromCredentialInput {
   modelCatalog?: string[];
   supportsVision?: boolean;
   modelCapabilities?: Record<string, { supportsVision?: boolean }>;
+  visionRoutingModel?: string | null;
   website?: string | null;
   apiKeyUrl?: string | null;
   wireApi?: CodexProviderWireApi | null;
@@ -155,6 +160,29 @@ function normalizeIntegrationType(value: unknown): 'sub2api' | 'new_api' | undef
   return value === 'sub2api' || value === 'new_api' ? value : undefined;
 }
 
+function migrateApiKeyFunProviderWireApi(
+  providers: CodexModelProvider[],
+): { providers: CodexModelProvider[]; changed: boolean } {
+  let changed = false;
+  const next = providers.map((provider) => {
+    if (
+      isApiKeyFunProviderBaseUrl(provider.baseUrl) &&
+      provider.wireApi === 'chat_completions'
+    ) {
+      changed = true;
+      return {
+        ...provider,
+        wireApi: 'responses' as CodexProviderWireApi,
+        enableModePreference:
+          provider.enableModePreference === 'gateway' ? 'direct' : provider.enableModePreference,
+        updatedAt: Date.now(),
+      };
+    }
+    return provider;
+  });
+  return { providers: next, changed };
+}
+
 function presetModelCatalogForBaseUrl(baseUrl: string): string[] | undefined {
   return normalizeModelCatalog(
     findCodexApiProviderPresetById(resolveCodexApiProviderPresetId(baseUrl))
@@ -206,6 +234,7 @@ function cloneProviders(providers: CodexModelProvider[]): CodexModelProvider[] {
           ]),
         )
       : undefined,
+    visionRoutingModel: sanitizeName(provider.visionRoutingModel ?? '') || undefined,
     apiKeys: provider.apiKeys.map((apiKey) => ({ ...apiKey })),
   }));
 }
@@ -291,14 +320,16 @@ async function saveProvidersToDisk(providers: CodexModelProvider[]): Promise<voi
 async function ensureProvidersLoaded(): Promise<CodexModelProvider[]> {
   if (cachedProviders !== null) return cloneProviders(cachedProviders);
   const loadedProviders = await loadProvidersFromDisk().catch(() => []);
-  const loaded = loadedProviders.filter((provider) => {
+  let loaded = loadedProviders.filter((provider) => {
     // 兼容清理：移除旧版本自动注入但未配置 API Key 的默认预设项
     if (provider.id.startsWith('preset_') && provider.apiKeys.length === 0) {
       return false;
     }
     return true;
   });
-  if (loaded.length !== loadedProviders.length) {
+  const migration = migrateApiKeyFunProviderWireApi(loaded);
+  loaded = migration.providers;
+  if (loaded.length !== loadedProviders.length || migration.changed) {
     await saveProvidersToDisk(loaded).catch(() => { });
   }
   cachedProviders = loaded;
@@ -372,6 +403,7 @@ export async function createCodexModelProvider(input: {
   modelCatalog?: string[];
   supportsVision?: boolean;
   modelCapabilities?: Record<string, { supportsVision?: boolean }>;
+  visionRoutingModel?: string;
   boundInstanceId?: string;
   website?: string;
   apiKeyUrl?: string;
@@ -403,6 +435,7 @@ export async function createCodexModelProvider(input: {
       presetModelCatalogForBaseUrl(baseUrl),
     supportsVision: input.supportsVision === true,
     modelCapabilities: normalizeModelCapabilities(input.modelCapabilities),
+    visionRoutingModel: sanitizeName(input.visionRoutingModel ?? '') || undefined,
     boundInstanceId: normalizeBoundInstanceId(input.boundInstanceId),
     website: sanitizeName(input.website ?? '') || undefined,
     apiKeyUrl: sanitizeName(input.apiKeyUrl ?? '') || undefined,
@@ -430,6 +463,7 @@ export async function updateCodexModelProvider(
     modelCatalog?: string[] | null;
     supportsVision?: boolean;
     modelCapabilities?: Record<string, { supportsVision?: boolean }> | null;
+    visionRoutingModel?: string | null;
     boundInstanceId?: string | null;
     website?: string;
     apiKeyUrl?: string;
@@ -481,6 +515,12 @@ export async function updateCodexModelProvider(
       patch.modelCapabilities === null
         ? undefined
         : normalizeModelCapabilities(patch.modelCapabilities);
+  }
+  if (patch.visionRoutingModel !== undefined) {
+    provider.visionRoutingModel =
+      patch.visionRoutingModel === null
+        ? undefined
+        : sanitizeName(patch.visionRoutingModel) || undefined;
   }
   if (patch.boundInstanceId !== undefined) {
     provider.boundInstanceId =
@@ -616,6 +656,7 @@ export async function upsertCodexModelProviderFromCredential(
         presetModelCatalogForBaseUrl(apiBaseUrl),
       supportsVision: input.supportsVision === true,
       modelCapabilities: normalizeModelCapabilities(input.modelCapabilities),
+      visionRoutingModel: sanitizeName(input.visionRoutingModel ?? '') || undefined,
       integrationType: normalizeIntegrationType(input.integrationType),
       website: sanitizeName(input.website ?? '') || undefined,
       apiKeyUrl: sanitizeName(input.apiKeyUrl ?? '') || undefined,
@@ -647,6 +688,9 @@ export async function upsertCodexModelProviderFromCredential(
   }
   if (input.modelCapabilities !== undefined) {
     provider.modelCapabilities = normalizeModelCapabilities(input.modelCapabilities);
+  }
+  if (input.visionRoutingModel !== undefined) {
+    provider.visionRoutingModel = sanitizeName(input.visionRoutingModel ?? '') || undefined;
   }
   if (input.website !== undefined) {
     provider.website = sanitizeName(input.website ?? '') || undefined;
