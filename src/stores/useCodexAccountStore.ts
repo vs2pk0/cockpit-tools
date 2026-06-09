@@ -193,16 +193,20 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
   
   deleteAccount: async (accountId: string) => {
     const previousCurrentAccountId = get().currentAccount?.id ?? null;
-    allowNextEmptyCodexAccountList = get().accounts.length <= 1;
-    allowNextEmptyCodexCurrentAccount = previousCurrentAccountId === accountId;
-    try {
-      await codexService.deleteCodexAccount(accountId);
-      await get().fetchAccounts();
-      await get().fetchCurrentAccount();
-    } finally {
-      allowNextEmptyCodexAccountList = false;
-      allowNextEmptyCodexCurrentAccount = false;
-    }
+    await codexService.deleteCodexAccount(accountId);
+    set((state) => {
+      const nextAccounts = state.accounts.filter((account) => account.id !== accountId);
+      const nextCurrentAccount =
+        state.currentAccount?.id === accountId ? null : state.currentAccount;
+      persistCodexAccountsCache(nextAccounts);
+      persistCodexCurrentAccountCache(nextCurrentAccount);
+      return {
+        accounts: nextAccounts,
+        currentAccount: nextCurrentAccount,
+        loading: false,
+        error: null,
+      };
+    });
     await emitAccountsChanged({
       platformId: 'codex',
       reason: 'delete',
@@ -220,20 +224,22 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
   deleteAccounts: async (accountIds: string[]) => {
     const previousCurrentAccountId = get().currentAccount?.id ?? null;
     const deleteIdSet = new Set(accountIds);
-    allowNextEmptyCodexAccountList = get().accounts.every((account) =>
-      deleteIdSet.has(account.id),
-    );
-    allowNextEmptyCodexCurrentAccount = previousCurrentAccountId
-      ? deleteIdSet.has(previousCurrentAccountId)
-      : false;
-    try {
-      await codexService.deleteCodexAccounts(accountIds);
-      await get().fetchAccounts();
-      await get().fetchCurrentAccount();
-    } finally {
-      allowNextEmptyCodexAccountList = false;
-      allowNextEmptyCodexCurrentAccount = false;
-    }
+    await codexService.deleteCodexAccounts(accountIds);
+    set((state) => {
+      const nextAccounts = state.accounts.filter((account) => !deleteIdSet.has(account.id));
+      const nextCurrentAccount =
+        state.currentAccount && deleteIdSet.has(state.currentAccount.id)
+          ? null
+          : state.currentAccount;
+      persistCodexAccountsCache(nextAccounts);
+      persistCodexCurrentAccountCache(nextCurrentAccount);
+      return {
+        accounts: nextAccounts,
+        currentAccount: nextCurrentAccount,
+        loading: false,
+        error: null,
+      };
+    });
     await emitAccountsChanged({
       platformId: 'codex',
       reason: 'delete',
@@ -249,10 +255,12 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
   },
   
   refreshQuota: async (accountId: string) => {
-    const quota = await codexService.refreshCodexQuota(accountId);
-    await get().fetchAccounts();
-    await get().fetchCurrentAccount();
-    return quota;
+    try {
+      return await codexService.refreshCodexQuota(accountId);
+    } finally {
+      await get().fetchAccounts();
+      await get().fetchCurrentAccount();
+    }
   },
 
   refreshSubscriptionInfo: async (accountId: string) => {

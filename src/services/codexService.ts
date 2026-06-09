@@ -286,6 +286,7 @@ export interface CodexBatchImportStartResult {
 export interface CodexBatchImportProgress {
   sessionId: string;
   phase: string;
+  checkQuota: boolean;
   current: number;
   total: number;
   success: number;
@@ -315,6 +316,7 @@ export interface CodexBatchImportItem {
 export interface CodexBatchImportPreview {
   sessionId: string;
   status: string;
+  checkQuota: boolean;
   total: number;
   items: CodexBatchImportItem[];
 }
@@ -326,8 +328,9 @@ export interface CodexBatchImportConfirmResult {
 
 export async function startCodexBatchImportFromFiles(
   filePaths: string[],
+  checkQuota = false,
 ): Promise<CodexBatchImportStartResult> {
-  return await invoke('start_codex_batch_import_from_files', { filePaths });
+  return await invoke('start_codex_batch_import_from_files', { filePaths, checkQuota });
 }
 
 export async function cancelCodexBatchImport(sessionId: string): Promise<void> {
