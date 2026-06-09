@@ -3671,6 +3671,60 @@ pub fn write_account_bundle_to_dir(base_dir: &Path, account: &CodexAccount) -> R
     write_prepared_account_bundle_to_dir(base_dir, &account)
 }
 
+fn configured_codex_wsl_config_dir() -> Option<PathBuf> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let cfg = crate::modules::config::get_user_config();
+        if !cfg.codex_sync_wsl {
+            return None;
+        }
+        let trimmed = cfg.codex_wsl_config_dir.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        Some(PathBuf::from(trimmed))
+    }
+}
+
+fn sync_default_codex_account_to_wsl<F>(account_id: &str, write_bundle: F)
+where
+    F: FnOnce(&Path) -> Result<(), String>,
+{
+    let Some(wsl_dir) = configured_codex_wsl_config_dir() else {
+        return;
+    };
+
+    match write_bundle(&wsl_dir) {
+        Ok(()) => logger::log_info(&format!(
+            "[Codex切号] 已同步默认账号到 WSL 配置目录: account_id={}, target_dir={}",
+            account_id,
+            wsl_dir.display()
+        )),
+        Err(err) => logger::log_warn(&format!(
+            "[Codex切号] 同步默认账号到 WSL 配置目录失败，默认实例切号已完成: account_id={}, target_dir={}, error={}",
+            account_id,
+            wsl_dir.display(),
+            err
+        )),
+    }
+}
+
+fn is_default_codex_projection_dir(dir: &Path) -> bool {
+    if projection_dirs_equal(dir, &get_codex_home()) {
+        return true;
+    }
+
+    configured_codex_wsl_config_dir()
+        .as_deref()
+        .map(|wsl_dir| projection_dirs_equal(dir, wsl_dir))
+        .unwrap_or(false)
+}
+
 fn is_bound_api_key_account_id(
     bound_account_id: Option<&str>,
     oauth_account_id: &str,
@@ -3703,6 +3757,9 @@ fn managed_projection_dirs_for_account(account_id: &str) -> Vec<PathBuf> {
         )
     {
         dirs.push(get_codex_home());
+        if let Some(wsl_dir) = configured_codex_wsl_config_dir() {
+            dirs.push(wsl_dir);
+        }
     }
 
     match crate::modules::codex_instance::load_instance_store() {
@@ -3763,7 +3820,7 @@ fn load_bound_api_key_account_for_projection_dir(
     };
 
     let index = load_account_index();
-    if projection_dirs_equal(dir, &get_codex_home()) {
+    if is_default_codex_projection_dir(dir) {
         if let Some(account) = index
             .current_account_id
             .as_deref()
@@ -4120,6 +4177,9 @@ fn switch_account_with_prepared(
         codex_home.display(),
         auth_path.display()
     ));
+    sync_default_codex_account_to_wsl(&account_for_write.id, |wsl_dir| {
+        write_prepared_account_bundle_to_dir(wsl_dir, &account_for_write)
+    });
 
     // 更新索引中的 current_account_id
     let mut index = load_account_index();
@@ -4179,6 +4239,9 @@ pub async fn switch_account_managed(account_id: &str) -> Result<CodexAccount, St
             codex_home.display(),
             auth_path.display()
         ));
+        sync_default_codex_account_to_wsl(&account.id, |wsl_dir| {
+            write_api_key_account_bundle_with_oauth_to_dir(wsl_dir, &account, &oauth_account)
+        });
 
         let mut index = load_account_index();
         index.current_account_id = Some(account_id.to_string());

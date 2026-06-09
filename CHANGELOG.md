@@ -7,6 +7,27 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [0.25.5-vs2pk0.1] - 2026-06-09
+
+### Changed
+- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `0cc3962f`**: this build includes upstream `v0.25.5` Antigravity OAuth metadata preservation, WSL Codex default-account projection, Windows hidden-console probe fixes, and Windows default-instance launch path normalization.
+- **Preserved local fork CPA, custom-service, stable ordering, and bound-phone enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime management, account JSON sync, full phone display/export/filtering, token-expiry UTC+8 display, configurable plan badges, and account custom ordering remain available.
+
+---
+## [0.25.5] - 2026-06-08
+
+### Changed
+- **Antigravity IDE and Antigravity account switching now preserve official OAuth metadata**: OAuth imports, refreshes, local IDE state injection, account records, and official Language Server wakeup now keep the OAuth client key and `id_token`, and Antigravity IDE local state updates `userStatus` plus enterprise project preferences from the same token metadata.
+- **Antigravity Desktop account switching now follows one auth write path per client version**: Antigravity 2.0+ writes the system credential path, while older Desktop builds keep using the SQLite state database, avoiding mixed credential writes during switching.
+
+### Added
+- **Codex default-account switching can now mirror auth state into WSL on Windows**: settings and quick settings expose a WSL Codex directory option, and default account switching writes the selected `auth.json` and `config.toml` projection into that directory, including API Key accounts bound to OAuth.
+
+### Fixed
+- **Antigravity non-enterprise switching clears stale enterprise preferences**: switching away from enterprise accounts removes the previous enterprise project preference from the local IDE state.
+- **Windows WSL and proxy helper probes no longer flash console windows**: WSL network-prefix detection and Windows registry proxy lookup now launch their helper subprocesses with hidden console flags.
+
+---
 ## [0.25.4-vs2pk0.1] - 2026-06-08
 
 ### Changed

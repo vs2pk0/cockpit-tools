@@ -56,6 +56,8 @@ interface GeneralConfig {
   ui_scale: number;
   auto_refresh_minutes: number;
   codex_auto_refresh_minutes: number;
+  codex_sync_wsl: boolean;
+  codex_wsl_config_dir: string;
   ghcp_auto_refresh_minutes: number;
   windsurf_auto_refresh_minutes: number;
   kiro_auto_refresh_minutes: number;
@@ -808,6 +810,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
           uiScale: merged.ui_scale,
           autoRefreshMinutes: merged.auto_refresh_minutes,
           codexAutoRefreshMinutes: merged.codex_auto_refresh_minutes,
+          codexSyncWsl: merged.codex_sync_wsl,
+          codexWslConfigDir: merged.codex_wsl_config_dir,
           ghcpAutoRefreshMinutes: merged.ghcp_auto_refresh_minutes,
           windsurfAutoRefreshMinutes: merged.windsurf_auto_refresh_minutes,
           kiroAutoRefreshMinutes: merged.kiro_auto_refresh_minutes,
@@ -1784,6 +1788,49 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                     '仅控制 Codex 总览中的 API 服务入口显示，不会停止本地 API 服务；关闭后可在这里重新打开。',
                   )}
                 </div>
+                {isWindows && (
+                  <>
+                    <div className="qs-row" style={{ marginTop: 8 }}>
+                      <div className="qs-row-label">
+                        <span>{t('settings.general.codexSyncWsl', '同步 Codex 到 WSL')}</span>
+                      </div>
+                      <div className="qs-row-control">
+                        <label className="qs-switch">
+                          <input
+                            type="checkbox"
+                            checked={config.codex_sync_wsl}
+                            onChange={(e) =>
+                              saveConfig({ codex_sync_wsl: e.target.checked })
+                            }
+                          />
+                          <span className="qs-switch-slider"></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div className="qs-hint">
+                      {t(
+                        'settings.general.codexSyncWslDesc',
+                        '切换默认 Codex 账号后，同时写入 WSL 的 Codex 配置目录。',
+                      )}
+                    </div>
+                    {config.codex_sync_wsl && (
+                      <div className="qs-path-control" style={{ marginTop: 8 }}>
+                        <input
+                          type="text"
+                          className="qs-path-input"
+                          value={config.codex_wsl_config_dir}
+                          placeholder={t(
+                            'settings.general.codexWslConfigDirPlaceholder',
+                            '\\\\wsl.localhost\\Ubuntu-24.04\\home\\user\\.codex',
+                          )}
+                          onChange={(e) =>
+                            saveConfig({ codex_wsl_config_dir: e.target.value })
+                          }
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
 

@@ -255,12 +255,19 @@ fn push_prefix16(prefixes: &mut Vec<(u8, u8)>, ip_str: &str) {
 }
 
 #[cfg(target_os = "windows")]
+fn hidden_wsl_output(args: &[&str]) -> std::io::Result<std::process::Output> {
+    use std::os::windows::process::CommandExt;
+
+    let mut command = std::process::Command::new("wsl.exe");
+    command.creation_flags(0x08000000);
+    command.args(args).output()
+}
+
+#[cfg(target_os = "windows")]
 fn resolve_wsl_network_prefixes16() -> Vec<(u8, u8)> {
     let mut prefixes = Vec::new();
 
-    let resolv_output = std::process::Command::new("wsl.exe")
-        .args(["-e", "sh", "-c", "cat /etc/resolv.conf"])
-        .output();
+    let resolv_output = hidden_wsl_output(&["-e", "sh", "-c", "cat /etc/resolv.conf"]);
     if let Ok(output) = resolv_output {
         if output.status.success() {
             let content = String::from_utf8_lossy(&output.stdout);
@@ -276,9 +283,7 @@ fn resolve_wsl_network_prefixes16() -> Vec<(u8, u8)> {
         }
     }
 
-    let route_output = std::process::Command::new("wsl.exe")
-        .args(["-e", "sh", "-c", "ip route show default"])
-        .output();
+    let route_output = hidden_wsl_output(&["-e", "sh", "-c", "ip route show default"]);
     if let Ok(output) = route_output {
         if output.status.success() {
             let content = String::from_utf8_lossy(&output.stdout);

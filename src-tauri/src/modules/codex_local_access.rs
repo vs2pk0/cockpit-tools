@@ -728,7 +728,12 @@ fn windows_proxy_url_from_server(proxy_server: &str, target_scheme: &str) -> Opt
 
 #[cfg(target_os = "windows")]
 fn system_proxy_url_for_target(target_url: &str) -> Option<String> {
-    let output = StdCommand::new("reg")
+    let mut command = StdCommand::new("reg");
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let output = command
         .args([
             "query",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings",

@@ -375,7 +375,8 @@ async fn import_from_refresh_token(
         Some(email.clone()),
         None,
         None,
-    );
+    )
+    .with_oauth_metadata(token_response.oauth_client_key, token_response.id_token);
 
     // 添加或更新账号
     let account = modules::upsert_account(email.clone(), user_info.get_display_name(), token)?;
@@ -467,17 +468,23 @@ pub async fn import_from_json_logic(json_content: String) -> Result<Vec<models::
                         Some(simple.email.clone()),
                         None,
                         None,
-                    );
+                    )
+                    .with_oauth_metadata(token_response.oauth_client_key, token_response.id_token);
 
                     match modules::upsert_account(simple.email.clone(), None, token) {
                         Ok(mut new_account) => {
                             if !simple.tags.is_empty() {
-                                if let Ok(acc) = modules::account::update_account_tags(&new_account.id, simple.tags) {
+                                if let Ok(acc) = modules::account::update_account_tags(
+                                    &new_account.id,
+                                    simple.tags,
+                                ) {
                                     new_account = acc;
                                 }
                             }
                             if let Some(notes) = simple.notes {
-                                if let Ok(acc) = modules::account::update_account_notes(&new_account.id, notes) {
+                                if let Ok(acc) =
+                                    modules::account::update_account_notes(&new_account.id, notes)
+                                {
                                     new_account = acc;
                                 }
                             }
@@ -520,12 +527,15 @@ pub async fn import_from_json_logic(json_content: String) -> Result<Vec<models::
         ) {
             Ok(mut new_account) => {
                 if !old_account.tags.is_empty() {
-                    if let Ok(acc) = modules::account::update_account_tags(&new_account.id, old_account.tags) {
+                    if let Ok(acc) =
+                        modules::account::update_account_tags(&new_account.id, old_account.tags)
+                    {
                         new_account = acc;
                     }
                 }
                 if let Some(notes) = old_account.notes {
-                    if let Ok(acc) = modules::account::update_account_notes(&new_account.id, notes) {
+                    if let Ok(acc) = modules::account::update_account_notes(&new_account.id, notes)
+                    {
                         new_account = acc;
                     }
                 }
@@ -678,17 +688,22 @@ pub async fn import_from_files_logic(file_paths: Vec<String>) -> Result<FileImpo
                     Some(email.clone()),
                     None,
                     None,
-                );
+                )
+                .with_oauth_metadata(token_response.oauth_client_key, token_response.id_token);
 
                 match modules::upsert_account(email.clone(), None, token) {
                     Ok(mut new_account) => {
                         if !entry.tags.is_empty() {
-                            if let Ok(acc) = modules::account::update_account_tags(&new_account.id, entry.tags) {
+                            if let Ok(acc) =
+                                modules::account::update_account_tags(&new_account.id, entry.tags)
+                            {
                                 new_account = acc;
                             }
                         }
                         if let Some(notes) = entry.notes {
-                            if let Ok(acc) = modules::account::update_account_notes(&new_account.id, notes) {
+                            if let Ok(acc) =
+                                modules::account::update_account_notes(&new_account.id, notes)
+                            {
                                 new_account = acc;
                             }
                         }
@@ -831,7 +846,8 @@ pub async fn import_from_extension_credentials(
                     Some(user_info.email.clone()),
                     item.project_id.clone(),
                     None,
-                );
+                )
+                .with_oauth_metadata(token_response.oauth_client_key, token_response.id_token);
 
                 match modules::add_account(
                     user_info.email.clone(),

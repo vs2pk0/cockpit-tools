@@ -65,6 +65,10 @@ pub struct GeneralConfig {
     pub auto_refresh_minutes: i32,
     /// Codex 自动刷新间隔（分钟），-1 表示禁用
     pub codex_auto_refresh_minutes: i32,
+    /// Codex 切号时是否同步覆盖 WSL 配置 (Windows Only)
+    pub codex_sync_wsl: bool,
+    /// Codex WSL 配置目录 (Windows Only)
+    pub codex_wsl_config_dir: String,
     /// Zed 自动刷新间隔（分钟），-1 表示禁用
     pub zed_auto_refresh_minutes: i32,
     /// GitHub Copilot 自动刷新间隔（分钟），-1 表示禁用
@@ -1919,6 +1923,8 @@ pub fn save_network_config(
         ui_scale: current.ui_scale,
         auto_refresh_minutes: current.auto_refresh_minutes,
         codex_auto_refresh_minutes: current.codex_auto_refresh_minutes,
+        codex_sync_wsl: current.codex_sync_wsl,
+        codex_wsl_config_dir: current.codex_wsl_config_dir,
         zed_auto_refresh_minutes: current.zed_auto_refresh_minutes,
         ghcp_auto_refresh_minutes: current.ghcp_auto_refresh_minutes,
         windsurf_auto_refresh_minutes: current.windsurf_auto_refresh_minutes,
@@ -2196,6 +2202,8 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         ui_scale: user_config.ui_scale,
         auto_refresh_minutes: user_config.auto_refresh_minutes,
         codex_auto_refresh_minutes: user_config.codex_auto_refresh_minutes,
+        codex_sync_wsl: user_config.codex_sync_wsl,
+        codex_wsl_config_dir: user_config.codex_wsl_config_dir,
         zed_auto_refresh_minutes: user_config.zed_auto_refresh_minutes,
         ghcp_auto_refresh_minutes: user_config.ghcp_auto_refresh_minutes,
         windsurf_auto_refresh_minutes: user_config.windsurf_auto_refresh_minutes,
@@ -2325,6 +2333,8 @@ pub fn save_general_config(
     ui_scale: Option<f64>,
     auto_refresh_minutes: i32,
     codex_auto_refresh_minutes: i32,
+    codex_sync_wsl: Option<bool>,
+    codex_wsl_config_dir: Option<String>,
     zed_auto_refresh_minutes: Option<i32>,
     ghcp_auto_refresh_minutes: Option<i32>,
     windsurf_auto_refresh_minutes: Option<i32>,
@@ -2423,6 +2433,9 @@ pub fn save_general_config(
     let normalized_codex_specified_app_path = codex_specified_app_path
         .map(|value| value.trim().to_string())
         .unwrap_or_else(|| current.codex_specified_app_path.clone());
+    let normalized_codex_wsl_config_dir = codex_wsl_config_dir
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|| current.codex_wsl_config_dir.clone());
     let normalized_zed_path = zed_app_path
         .map(|value| value.trim().to_string())
         .unwrap_or_else(|| current.zed_app_path.clone());
@@ -2531,6 +2544,8 @@ pub fn save_general_config(
         ui_scale: normalized_ui_scale,
         auto_refresh_minutes,
         codex_auto_refresh_minutes,
+        codex_sync_wsl: codex_sync_wsl.unwrap_or(current.codex_sync_wsl),
+        codex_wsl_config_dir: normalized_codex_wsl_config_dir,
         zed_auto_refresh_minutes: zed_auto_refresh_minutes
             .unwrap_or(current.zed_auto_refresh_minutes),
         ghcp_auto_refresh_minutes: ghcp_auto_refresh_minutes

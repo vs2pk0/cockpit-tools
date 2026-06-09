@@ -79,6 +79,12 @@ pub struct UserConfig {
     /// Codex 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_codex_auto_refresh")]
     pub codex_auto_refresh_minutes: i32,
+    /// Codex 切号时是否同步覆盖 WSL 配置 (Windows Only)
+    #[serde(default = "default_codex_sync_wsl")]
+    pub codex_sync_wsl: bool,
+    /// Codex WSL 配置目录 (Windows Only)
+    #[serde(default = "default_codex_wsl_config_dir")]
+    pub codex_wsl_config_dir: String,
     /// Zed 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_zed_auto_refresh")]
     pub zed_auto_refresh_minutes: i32,
@@ -513,6 +519,12 @@ fn default_auto_refresh() -> i32 {
 fn default_codex_auto_refresh() -> i32 {
     10
 } // 默认 10 分钟
+fn default_codex_sync_wsl() -> bool {
+    false
+}
+fn default_codex_wsl_config_dir() -> String {
+    String::new()
+}
 fn default_zed_auto_refresh() -> i32 {
     10
 }
@@ -853,6 +865,8 @@ impl Default for UserConfig {
             ui_scale: default_ui_scale(),
             auto_refresh_minutes: default_auto_refresh(),
             codex_auto_refresh_minutes: default_codex_auto_refresh(),
+            codex_sync_wsl: default_codex_sync_wsl(),
+            codex_wsl_config_dir: default_codex_wsl_config_dir(),
             zed_auto_refresh_minutes: default_zed_auto_refresh(),
             ghcp_auto_refresh_minutes: default_ghcp_auto_refresh(),
             windsurf_auto_refresh_minutes: default_windsurf_auto_refresh(),
@@ -1193,6 +1207,20 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             obj.insert(
                 "gemini_auto_refresh_minutes".to_string(),
                 json!(inherited_refresh),
+            );
+        }
+
+        if !obj.contains_key("codex_sync_wsl") {
+            obj.insert(
+                "codex_sync_wsl".to_string(),
+                json!(default_codex_sync_wsl()),
+            );
+        }
+
+        if !obj.contains_key("codex_wsl_config_dir") {
+            obj.insert(
+                "codex_wsl_config_dir".to_string(),
+                json!(default_codex_wsl_config_dir()),
             );
         }
 

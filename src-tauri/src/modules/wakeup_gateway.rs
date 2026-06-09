@@ -830,10 +830,13 @@ fn build_official_ls_metadata_bytes() -> Vec<u8> {
 
 fn build_uss_oauth_topic_bytes(token: &crate::models::token::TokenData) -> Vec<u8> {
     let expiry = token.expiry_timestamp.max(0);
-    let oauth_info = crate::utils::protobuf::create_oauth_info(
+    let oauth_info = crate::utils::protobuf::create_oauth_info_with_metadata(
         &token.access_token,
         &token.refresh_token,
         expiry,
+        token.is_gcp_tos,
+        token.id_token.as_deref(),
+        token.email.as_deref(),
     );
     let oauth_info_b64 = general_purpose::STANDARD.encode(oauth_info);
 

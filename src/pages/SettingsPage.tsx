@@ -106,6 +106,8 @@ interface GeneralConfig {
   ui_scale: number;
   auto_refresh_minutes: number;
   codex_auto_refresh_minutes: number;
+  codex_sync_wsl: boolean;
+  codex_wsl_config_dir: string;
   ghcp_auto_refresh_minutes: number;
   windsurf_auto_refresh_minutes: number;
   kiro_auto_refresh_minutes: number;
@@ -363,6 +365,8 @@ export function SettingsPage() {
   const [uiScale, setUiScale] = useState('1');
   const [autoRefresh, setAutoRefresh] = useState('5');
   const [codexAutoRefresh, setCodexAutoRefresh] = useState('10');
+  const [codexSyncWsl, setCodexSyncWsl] = useState(false);
+  const [codexWslConfigDir, setCodexWslConfigDir] = useState('');
   const [ghcpAutoRefresh, setGhcpAutoRefresh] = useState('10');
   const [windsurfAutoRefresh, setWindsurfAutoRefresh] = useState('10');
   const [kiroAutoRefresh, setKiroAutoRefresh] = useState('10');
@@ -801,6 +805,8 @@ export function SettingsPage() {
           uiScale: normalizedUiScale,
           autoRefreshMinutes: autoRefreshNum,
           codexAutoRefreshMinutes: codexAutoRefreshNum,
+          codexSyncWsl,
+          codexWslConfigDir,
           ghcpAutoRefreshMinutes: ghcpAutoRefreshNum,
           windsurfAutoRefreshMinutes: windsurfAutoRefreshNum,
           kiroAutoRefreshMinutes: kiroAutoRefreshNum,
@@ -918,6 +924,8 @@ export function SettingsPage() {
   }, [
     autoRefresh,
     codexAutoRefresh,
+    codexSyncWsl,
+    codexWslConfigDir,
     ghcpAutoRefresh,
     windsurfAutoRefresh,
     kiroAutoRefresh,
@@ -1213,6 +1221,8 @@ export function SettingsPage() {
       setUiScale(String(config.ui_scale ?? 1));
       setAutoRefresh(String(config.auto_refresh_minutes));
       setCodexAutoRefresh(String(config.codex_auto_refresh_minutes ?? 10));
+      setCodexSyncWsl(Boolean(config.codex_sync_wsl ?? false));
+      setCodexWslConfigDir(config.codex_wsl_config_dir || '');
       setGhcpAutoRefresh(String(config.ghcp_auto_refresh_minutes ?? 10));
       setWindsurfAutoRefresh(String(config.windsurf_auto_refresh_minutes ?? 10));
       setKiroAutoRefresh(String(config.kiro_auto_refresh_minutes ?? 10));
@@ -2913,6 +2923,45 @@ export function SettingsPage() {
 
               {renderCurrentAccountRefreshRow('codex')}
               {renderAccountLevelRefreshConfig('codex')}
+
+              {isWindows && (
+                <>
+                  <div className="settings-row">
+                    <div className="row-label">
+                      <div className="row-title">{t('settings.general.codexSyncWsl')}</div>
+                      <div className="row-desc">{t('settings.general.codexSyncWslDesc')}</div>
+                    </div>
+                    <div className="row-control">
+                      <label className="switch">
+                        <input
+                          type="checkbox"
+                          checked={codexSyncWsl}
+                          onChange={(e) => setCodexSyncWsl(e.target.checked)}
+                        />
+                        <span className="slider"></span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {codexSyncWsl && (
+                    <div className="settings-row">
+                      <div className="row-label">
+                        <div className="row-title">{t('settings.general.codexWslConfigDir')}</div>
+                        <div className="row-desc">{t('settings.general.codexWslConfigDirDesc')}</div>
+                      </div>
+                      <div className="row-control row-control--grow">
+                        <input
+                          type="text"
+                          className="settings-input settings-input--path"
+                          value={codexWslConfigDir}
+                          placeholder={t('settings.general.codexWslConfigDirPlaceholder')}
+                          onChange={(e) => setCodexWslConfigDir(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
 
               <div className="settings-row">
                 <div className="row-label">

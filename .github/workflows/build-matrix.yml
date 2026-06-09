@@ -111,6 +111,17 @@ jobs:
       - name: Sync versions
         run: npm run sync-version
 
+      - name: Cache Tauri binary dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ matrix.platform == 'windows-latest' && 'C:\Users\runneradmin\AppData\Local\tauri' || '' }}
+            ${{ startsWith(matrix.platform, 'ubuntu') && '~/.cache/tauri' || '' }}
+            ${{ matrix.platform == 'macos-latest' && '~/Library/Caches/tauri' || '' }}
+          key: tauri-deps-${{ matrix.platform }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            tauri-deps-${{ matrix.platform }}-
+
       - name: Build app (pull request)
         if: github.event_name == 'pull_request'
         shell: bash
@@ -119,6 +130,17 @@ jobs:
         run: |
           set -euo pipefail
           npx tauri build --ci --config src-tauri/tauri.ci.conf.json ${{ matrix.args }} 2>&1 | tee "build-${{ matrix.label }}.log"
+
+      - name: Print build logs on failure (PR)
+        if: failure() && github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          echo "=== BUILD LOG (PR) ==="
+          if [ -f "build-${{ matrix.label }}.log" ]; then
+            tail -n 200 "build-${{ matrix.label }}.log"
+          else
+            echo "Log file not found"
+          fi
 
       - name: Build app (signed)
         if: github.event_name != 'pull_request'
@@ -130,6 +152,17 @@ jobs:
         run: |
           set -euo pipefail
           npx tauri build --ci ${{ matrix.args }} 2>&1 | tee "build-${{ matrix.label }}.log"
+
+      - name: Print build logs on failure (Signed)
+        if: failure() && github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          echo "=== BUILD LOG (SIGNED) ==="
+          if [ -f "build-${{ matrix.label }}.log" ]; then
+            tail -n 200 "build-${{ matrix.label }}.log"
+          else
+            echo "Log file not found"
+          fi
 
       - name: Summarize warnings
         if: always()

@@ -7,6 +7,27 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
 ---
+## [0.25.5-vs2pk0.1] - 2026-06-09
+
+### 变更
+- **已同步 fork 到作者仓库 `jlcodes99/cockpit-tools` 的 `0cc3962f`**：本构建包含上游 `v0.25.5` 的 Antigravity OAuth 元数据保留、Windows 上 WSL Codex 默认账号投影、Windows 隐藏控制台探测修复，以及 Windows 默认实例启动路径规范化。
+- **上游合并后继续保留本地 fork 的 CPA、自定义服务、稳定排序和绑定手机号增强**：Codex API 服务仍支持内置服务、自定义配置和 CPA 服务模式；CPA 运行时管理、账号 JSON 同步、手机号完整显示/导出/筛选、token 过期时间 UTC+8 展示、可配置套餐徽章和账号自定义排序仍可使用。
+
+---
+## [0.25.5] - 2026-06-08
+
+### 变更
+- **Antigravity IDE 与 Antigravity 切号现保留官方 OAuth 元数据**：OAuth 导入、刷新、本地 IDE 登录态注入、账号记录和官方 Language Server 唤醒链路都会保留 OAuth client key 与 `id_token`，Antigravity IDE 本地状态也会基于同一组 token 元数据写入 `userStatus` 和企业项目偏好。
+- **Antigravity 桌面版切号按客户端版本只走一条认证写入路径**：Antigravity 2.0+ 只写系统凭据，旧版 Desktop 继续写 SQLite state 数据库，避免切号时混写两套凭据。
+
+### 新增
+- **Codex 默认账号切换可在 Windows 上同步写入 WSL**：设置和快速设置新增 WSL Codex 目录配置；切换默认账号时会把所选账号的 `auth.json` 与 `config.toml` 投影写入该目录，包含绑定 OAuth 的 API Key 账号。
+
+### 修复
+- **Antigravity 从企业账号切到非企业账号时会清理旧企业偏好**：本地 IDE 状态会移除上一账号遗留的企业项目偏好，减少非企业账号被旧项目状态影响。
+- **Windows WSL 和代理探测不再闪出控制台窗口**：WSL 网络前缀检测和 Windows 注册表代理读取会以隐藏控制台方式启动辅助子进程。
+
+---
 ## [0.25.4-vs2pk0.1] - 2026-06-08
 
 ### 变更

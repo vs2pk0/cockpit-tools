@@ -6918,6 +6918,72 @@ fn close_pids(pids: &[u32], timeout_secs: u64) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn try_launch_via_shortcut(shortcut_pattern: &str) -> Result<Option<u32>, String> {
+    use std::fs;
+    let Some(config_dir) = dirs::config_dir() else {
+        return Ok(None);
+    };
+
+    let taskbar_dir = config_dir.join("Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar");
+    if taskbar_dir.exists() {
+        if let Ok(entries) = fs::read_dir(taskbar_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let name_lower = name.to_lowercase();
+                    if name_lower.contains(shortcut_pattern) && name_lower.ends_with(".lnk") {
+                        crate::modules::logger::log_info(&format!(
+                            "[Shortcut Launch] 找到任务栏快捷方式: {}, 尝试通过快捷方式启动",
+                            name
+                        ));
+                        let mut cmd = std::process::Command::new("cmd");
+                        cmd.arg("/C");
+                        cmd.arg("start");
+                        cmd.arg("");
+                        cmd.arg(&path);
+                        
+                        use std::os::windows::process::CommandExt;
+                        cmd.creation_flags(0x08000000);
+                        match cmd.spawn() {
+                            Ok(child) => {
+                                crate::modules::logger::log_info("[Shortcut Launch] 快捷方式启动命令已执行");
+                                return Ok(Some(child.id()));
+                            }
+                            Err(e) => {
+                                crate::modules::logger::log_warn(&format!(
+                                    "[Shortcut Launch] 快捷方式启动失败: {}",
+                                    e
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(target_os = "windows")]
+pub fn normalize_actual_path_case(path: &std::path::Path) -> std::path::PathBuf {
+    use std::fs;
+    if let Ok(canonical) = fs::canonicalize(path) {
+        let path_str = canonical.to_string_lossy().to_string();
+        let stripped = if path_str.to_lowercase().starts_with("\\\\?\\unc\\") {
+            format!("\\\\{}", &path_str[8..])
+        } else if path_str.to_lowercase().starts_with("\\\\?\\") {
+            path_str[4..].to_string()
+        } else {
+            path_str
+        };
+        std::path::PathBuf::from(stripped)
+    } else {
+        path.to_path_buf()
+    }
+}
+
 /// 启动 Antigravity IDE
 pub fn start_antigravity() -> Result<u32, String> {
     start_antigravity_with_args("", &[])
@@ -6981,7 +7047,17 @@ pub fn start_antigravity_with_args(
     {
         use std::os::windows::process::CommandExt;
 
+        if user_data_dir.trim().is_empty() && extra_args.is_empty() {
+            if let Ok(Some(pid)) = try_launch_via_shortcut("antigravity") {
+                return Ok(pid);
+            }
+        }
+
+        let launch_path = normalize_actual_path_case(&launch_path);
         let mut cmd = Command::new(&launch_path);
+        if let Some(parent) = launch_path.parent() {
+            cmd.current_dir(parent);
+        }
         apply_managed_proxy_env_to_command(&mut cmd);
         if should_detach_child() {
             cmd.creation_flags(0x08000000 | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS); // CREATE_NO_WINDOW | detached
@@ -7075,7 +7151,17 @@ pub fn start_antigravity_legacy_with_args(
     {
         use std::os::windows::process::CommandExt;
 
+        if user_data_dir.trim().is_empty() && extra_args.is_empty() {
+            if let Ok(Some(pid)) = try_launch_via_shortcut("antigravity") {
+                return Ok(pid);
+            }
+        }
+
+        let launch_path = normalize_actual_path_case(&launch_path);
         let mut cmd = Command::new(&launch_path);
+        if let Some(parent) = launch_path.parent() {
+            cmd.current_dir(parent);
+        }
         apply_managed_proxy_env_to_command(&mut cmd);
         if should_detach_child() {
             cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);

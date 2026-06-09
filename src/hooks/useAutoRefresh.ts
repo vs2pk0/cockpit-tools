@@ -39,6 +39,8 @@ interface GeneralConfig {
   theme: string;
   auto_refresh_minutes: number;
   codex_auto_refresh_minutes: number;
+  codex_sync_wsl: boolean;
+  codex_wsl_config_dir: string;
   ghcp_auto_refresh_minutes: number;
   windsurf_auto_refresh_minutes: number;
   kiro_auto_refresh_minutes: number;
