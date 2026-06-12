@@ -17,7 +17,6 @@ import {
   X,
   Globe,
   KeyRound,
-  Power,
   Database,
   Copy,
   Check,
@@ -49,7 +48,6 @@ import {
   FolderPlus,
   ChevronRight,
   LogOut,
-  Wrench,
   Terminal,
   Link2,
   Palette,
@@ -144,7 +142,6 @@ import {
   SingleSelectFilterDropdown,
   type SingleSelectFilterOption,
 } from "../components/SingleSelectFilterDropdown";
-import { SingleSelectDropdown } from "../components/SingleSelectDropdown";
 import type { CodexAccount, CodexAppSpeed } from "../types/codex";
 import {
   CODEX_CPA_SERVICE_API_KEY,
@@ -312,7 +309,6 @@ const DEFAULT_CODEX_API_PROVIDER_ID = OPENAI_OFFICIAL_PRESET_ID;
 const DEFAULT_CODEX_API_BASE_URL = OPENAI_OFFICIAL_BASE_URL;
 const CODEX_LOCAL_ACCESS_FALLBACK_PORT = 54140;
 const CODEX_LOCAL_ACCESS_FALLBACK_BASE_URL = `http://127.0.0.1:${CODEX_LOCAL_ACCESS_FALLBACK_PORT}/v1`;
-const CODEX_LOCAL_ACCESS_FALLBACK_API_KEY_MASK = "agt_codex_••••••••••••";
 const CODEX_FILTER_PERSISTENCE_SCOPE = normalizeAccountsOverviewScope("Codex");
 const FILTER_TYPES_FIELD = "filter_types";
 const EXPIRY_FILTER_FIELD = "expiry_filter";
@@ -1162,9 +1158,6 @@ export function CodexAccountsPage() {
   >("panel");
   const [localAccessCpaSelectedIds, setLocalAccessCpaSelectedIds] =
     useState<string[] | null>(null);
-  const [cpaServiceState, setCpaServiceState] =
-    useState<codexService.CodexCpaServiceState | null>(null);
-  const [cpaServiceStateLoading, setCpaServiceStateLoading] = useState(false);
   const [localAccessSaving, setLocalAccessSaving] = useState(false);
   const [localAccessTesting, setLocalAccessTesting] = useState(false);
   const [localAccessStarting, setLocalAccessStarting] = useState(false);

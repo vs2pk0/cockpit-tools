@@ -379,7 +379,6 @@ export function PlatformLayoutModal({
     removePlatformGroup,
     resetPlatformLayout,
   } = usePlatformLayoutStore();
-  const apiRelayEntryEnabled = useSponsorStore((state) => Boolean(state.state.sponsorModule));
 
   const [draggingId, setDraggingId] = useState<LayoutEntryId | null>(null);
   const [dropTargetId, setDropTargetId] = useState<LayoutEntryId | null>(null);

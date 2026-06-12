@@ -533,7 +533,6 @@ function MainApp() {
   const fetchTopRightAdState = useTopRightAdStore((state) => state.fetchState);
   const sponsorModuleState = useSponsorStore((state) => state.state);
   const fetchSponsorModuleState = useSponsorStore((state) => state.fetchState);
-  const sponsorModuleInitialized = useSponsorStore((state) => state.initialized);
   const sponsorEntryVisible = Boolean(sponsorModuleState.sponsorModule);
   const [topRightAdVisible, setTopRightAdVisible] = useState(true);
   const trayRefreshInFlightRef = useRef(false);
