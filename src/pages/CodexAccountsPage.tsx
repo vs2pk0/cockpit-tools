@@ -1182,10 +1182,6 @@ export function CodexAccountsPage() {
     scrollKey: apiSwitchNoticeErrorScrollKey,
     set: setApiSwitchNoticeError,
   } = useModalErrorState();
-  const [localAccessCopiedField, setLocalAccessCopiedField] = useState<
-    "baseUrl" | "apiKey" | null
-  >(null);
-  const [localAccessKeyVisible, setLocalAccessKeyVisible] = useState(false);
   const [localAccessAddressKind, setLocalAccessAddressKind] =
     useState<CodexLocalAccessAddressKind>(() =>
       readStoredLocalAccessAddressKind(),
@@ -1198,14 +1194,6 @@ export function CodexAccountsPage() {
   const localAccessRiskNoticeResolverRef = useRef<
     ((accepted: boolean) => void) | null
   >(null);
-  const [localAccessDetailsExpanded, setLocalAccessDetailsExpanded] =
-    useState<boolean>(() => {
-      try {
-        return localStorage.getItem(CODEX_LOCAL_ACCESS_EXPANDED_KEY) === "1";
-      } catch {
-        return false;
-      }
-    });
 
   const reloadCodexGroups = useCallback(async () => {
     setCodexGroups(await getCodexAccountGroups());
@@ -1326,10 +1314,6 @@ export function CodexAccountsPage() {
     ),
     [planBadgeStylePreferences],
   );
-  const [
-    localAccessGatewayGuideDismissed,
-    setLocalAccessGatewayGuideDismissed,
-  ] = useState(readLocalAccessGatewayGuideDismissed);
 
   const store = useCodexAccountStore();
   const codexInstanceStore = useCodexInstanceStore();
@@ -1697,28 +1681,6 @@ export function CodexAccountsPage() {
     }
   }, [setMessage, t]);
 
-  const refreshCpaServiceState = useCallback(async () => {
-    setCpaServiceStateLoading(true);
-    try {
-      const nextState = await codexService.getCodexCpaServiceState();
-      setCpaServiceState(nextState);
-      return nextState;
-    } catch (error) {
-      console.warn("[CodexCPA] load service state failed:", error);
-      setCpaServiceState(null);
-      return null;
-    } finally {
-      setCpaServiceStateLoading(false);
-    }
-  }, []);
-
-  const ensureCpaServiceRunning = useCallback(async () => {
-    const nextState = await codexService.startCodexCpaService();
-    setCpaServiceState(nextState);
-    window.dispatchEvent(new Event("codex-cpa-service-state-updated"));
-    return nextState;
-  }, []);
-
   const reloadLocalAccessEntryVisibility = useCallback(async () => {
     try {
       const config =
@@ -1817,22 +1779,6 @@ export function CodexAccountsPage() {
       );
     };
   }, [reloadLocalAccessLaunchCurrent, reloadLocalAccessState]);
-
-  useEffect(() => {
-    const handleCpaServiceUpdated = () => {
-      void refreshCpaServiceState();
-    };
-    window.addEventListener(
-      "codex-cpa-service-state-updated",
-      handleCpaServiceUpdated,
-    );
-    return () => {
-      window.removeEventListener(
-        "codex-cpa-service-state-updated",
-        handleCpaServiceUpdated,
-      );
-    };
-  }, [refreshCpaServiceState]);
 
   useEffect(() => {
     if (!localAccessEntryVisible) {
@@ -6818,13 +6764,6 @@ export function CodexAccountsPage() {
     localAccessRefreshing ||
     localAccessPortKilling;
 
-  useEffect(() => {
-    if (!isLocalAccessCpaCredential) {
-      setCpaServiceState(null);
-      return;
-    }
-    void refreshCpaServiceState();
-  }, [isLocalAccessCpaCredential, refreshCpaServiceState]);
   const selectedLocalAccessAddressKind: CodexLocalAccessEndpointKind =
     isLocalAccessExternalCredential
       ? "custom"

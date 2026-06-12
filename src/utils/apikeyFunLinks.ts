@@ -1,3 +1,5 @@
+export type CodexProviderWireApi = "responses" | "chat_completions";
+
 export const APIKEY_FUN_PROVIDER_BASE_URL = 'https://api.apikey.fun';
 
 export function buildApiKeyFunProviderBaseUrl(endpoint: string): string {
@@ -16,6 +18,6 @@ export function isApiKeyFunProviderBaseUrl(value?: string | null): boolean {
 export function resolveApiKeyFunWireApi(
   baseUrl?: string | null,
   wireApi?: string | null,
-): string | null {
-  return isApiKeyFunProviderBaseUrl(baseUrl) ? 'responses' : wireApi ?? null;
+): CodexProviderWireApi | null {
+  return isApiKeyFunProviderBaseUrl(baseUrl) ? 'responses' : wireApi as CodexProviderWireApi ?? null;
 }
