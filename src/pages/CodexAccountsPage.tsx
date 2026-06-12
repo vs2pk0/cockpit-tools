@@ -530,7 +530,6 @@ function persistLocalAccessAddressKind(
   }
 }
 
-function readLocalAccessGatewayGuideDismissed(): boolean {
   try {
     return (
       localStorage.getItem(CODEX_LOCAL_ACCESS_GATEWAY_GUIDE_DISMISSED_KEY) ===
@@ -1243,7 +1242,6 @@ export function CodexAccountsPage() {
 
   const dismissLocalAccessGatewayGuide = useCallback(() => {
     persistLocalAccessGatewayGuideDismissed();
-    setLocalAccessGatewayGuideDismissed(true);
   }, []);
 
   const toggleGroupFilterValue = useCallback((groupId: string) => {
@@ -1740,17 +1738,6 @@ export function CodexAccountsPage() {
   useEffect(() => {
     void reloadLocalAccessLaunchCurrent();
   }, [reloadLocalAccessLaunchCurrent]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        CODEX_LOCAL_ACCESS_EXPANDED_KEY,
-        localAccessDetailsExpanded ? "1" : "0",
-      );
-    } catch {
-      // ignore persistence failures
-    }
-  }, [localAccessDetailsExpanded]);
 
   useEffect(() => {
     const handleConfigUpdated = () => {
@@ -2815,122 +2802,7 @@ export function CodexAccountsPage() {
     [savingAppSpeedId, setMessage, t, updateAccountAppSpeed],
   );
 
-  const handleApiServiceAppSpeedChange = useCallback(
-    async (speed: CodexAppSpeed) => {
-      if (savingAppSpeedId) return;
-      const previousSpeed = apiServiceAppSpeed;
-      setApiServiceAppSpeed(speed);
-      setSavingAppSpeedId(CODEX_API_SERVICE_BIND_ID);
-      try {
-        const saved = await codexService.saveCodexApiServiceAppSpeed(speed);
-        setApiServiceAppSpeed(saved.speed);
-        setMessage({
-          text: t("codex.speed.saveSuccess", "速度已更新"),
-        });
-      } catch (error) {
-        setApiServiceAppSpeed(previousSpeed);
-        setMessage({
-          text: t("codex.speed.saveFailed", {
-            defaultValue: "保存速度失败：{{error}}",
-            error: String(error),
-          }),
-          tone: "error",
-        });
-      } finally {
-        setSavingAppSpeedId(null);
-      }
-    },
-    [apiServiceAppSpeed, savingAppSpeedId, setMessage, t],
-  );
-
-  const renderAccountSpeedSelect = useCallback(
-    (account: CodexAccount, compact = false) => (
-      <CodexSpeedSelect
-        value={account.app_speed ?? "standard"}
-        onChange={(speed) => handleAccountAppSpeedChange(account, speed)}
-        busy={savingAppSpeedId === account.id}
-        compact={compact}
-        preferredPlacement="top"
-        ariaLabel={t("codex.speed.title", "速度")}
-      />
-    ),
-    [handleAccountAppSpeedChange, savingAppSpeedId, t],
-  );
-
-  const handleSubmitAccountNote = useCallback(async () => {
-    if (!editingAccountNoteId || savingAccountNote) return;
-    setSavingAccountNote(true);
-    setAccountNoteError(null);
-    try {
-      await store.updateAccountNote(
-        editingAccountNoteId,
-        editingAccountNoteValue,
-      );
-      setMessage({
-        text: t("codex.accountNote.saved", "账号备注已保存"),
-        tone: "success",
-      });
-      setEditingAccountNoteId(null);
-      setEditingAccountNoteValue("");
-    } catch (error) {
-      setAccountNoteError(
-        t("codex.accountNote.saveFailed", {
-          error: String(error).replace(/^Error:\s*/, ""),
-          defaultValue: "保存账号备注失败：{{error}}",
-        }),
-      );
-    } finally {
-      setSavingAccountNote(false);
-    }
-  }, [
-    editingAccountNoteId,
-    editingAccountNoteValue,
-    savingAccountNote,
-    setAccountNoteError,
-    setMessage,
-    store,
-    t,
-  ]);
-
-  const handleSubmitAccountPhone = useCallback(async () => {
-    if (!editingAccountPhoneId || savingAccountPhone) return;
-    const normalizedPhone = editingAccountPhoneValue.trim();
-    setSavingAccountPhone(true);
-    setAccountPhoneError(null);
-    try {
-      await store.updateAccountPhone(editingAccountPhoneId, normalizedPhone);
-      setMessage({
-        text: normalizedPhone
-          ? t("codex.accountPhone.saved", "绑定手机号已保存")
-          : t("codex.accountPhone.cleared", "绑定手机号已清空"),
-        tone: "success",
-      });
-      setEditingAccountPhoneId(null);
-      setEditingAccountPhoneValue("");
-    } catch (error) {
-      setAccountPhoneError(
-        t("codex.accountPhone.saveFailed", {
-          error: String(error).replace(/^Error:\s*/, ""),
-          defaultValue: "保存绑定手机号失败：{{error}}",
-        }),
-      );
-    } finally {
-      setSavingAccountPhone(false);
-    }
-  }, [
-    editingAccountPhoneId,
-    editingAccountPhoneValue,
-    savingAccountPhone,
-    setAccountPhoneError,
-    setMessage,
-    store,
-    t,
-  ]);
-
-  const renderAccountNoteButton = useCallback(
-    (account: CodexAccount, className = "codex-account-note-chip") => {
-      const hasNote = Boolean(account.account_note?.trim());
-      return (
+  return (
         <button
           type="button"
           className={`${className} ${hasNote ? "has-note" : "empty-note"}`}
@@ -4160,29 +4032,6 @@ export function CodexAccountsPage() {
     ],
   );
 
-  const openLocalAccessOAuthBindingModal = useCallback(
-    (options?: { autoSwitch?: boolean }) => {
-      setOauthBindingTargetKind("local_access");
-      setOauthBindingAccountId(null);
-      setOauthBindingSelectedAccountId(
-        boundLocalAccessOAuthAccount &&
-          isOAuthBindingEligibleAccount(boundLocalAccessOAuthAccount)
-          ? boundLocalAccessOAuthAccount.id
-          : "",
-      );
-      setOauthBindingAutoSwitch(options?.autoSwitch ?? false);
-      setOauthBindingSearchQuery("");
-      setOauthBindingFilterTypes([]);
-      setOauthBindingTagFilter([]);
-      setOauthBindingError(null);
-    },
-    [
-      boundLocalAccessOAuthAccount,
-      isOAuthBindingEligibleAccount,
-      setOauthBindingError,
-    ],
-  );
-
   const closeApiSwitchVisibilityNotice = useCallback(() => {
     apiSwitchNoticeRepairSeqRef.current += 1;
     if (apiSwitchNoticeAutoCloseTimerRef.current != null) {
@@ -4588,50 +4437,6 @@ export function CodexAccountsPage() {
         account,
         selected,
       );
-      const prepared = await codexInstanceService.startInstance(instance.id);
-      const result =
-        await codexInstanceService.executeCodexInstanceLaunchCommand(
-          prepared.id,
-        );
-      await codexInstanceStore.refreshInstances();
-      setMessage({
-        text: result || t("codex.cli.launchSuccess", "已启动 Codex CLI"),
-      });
-    } catch (e) {
-      setMessage({
-        text: t(
-          "codex.cli.launchFailed",
-          "启动 Codex CLI 失败: {{error}}",
-        ).replace("{{error}}", String(e).replace(/^Error:\s*/, "")),
-        tone: "error",
-      });
-    } finally {
-      setCliLaunchingAccountId(null);
-    }
-  };
-
-  const handleLaunchLocalAccessCli = async () => {
-    if (cliLaunchingAccountId) return;
-    if (!localAccessCollection) {
-      setMessage({
-        text: t("codex.localAccess.testUnavailable", "当前 API 服务地址不可用"),
-        tone: "error",
-      });
-      return;
-    }
-    setMessage(null);
-    setCliLaunchingAccountId(CODEX_API_SERVICE_BIND_ID);
-    try {
-      const selected = await openFileDialog({
-        directory: true,
-        multiple: false,
-        title: t("codex.cli.selectWorkingDir", "选择 Codex CLI 工作目录"),
-      });
-      if (!selected || typeof selected !== "string") {
-        return;
-      }
-
-      const instance = await resolveCodexCliInstanceForApiService(selected);
       const prepared = await codexInstanceService.startInstance(instance.id);
       const result =
         await codexInstanceService.executeCodexInstanceLaunchCommand(
@@ -6697,9 +6502,6 @@ export function CodexAccountsPage() {
       localAccessCollection?.accountIds,
       localAccessState?.accountHealth,
     ]);
-  const localAccessAccountPoolHealthHasIssue =
-    localAccessAccountPoolHealthSummary.abnormal > 0 ||
-    localAccessAccountPoolHealthSummary.cooldown > 0;
   const localAccessQuotaPoolLabels = useMemo(
     () => ({
       hourly: t("codex.localAccess.quotaPool.hourlyShort", "5h"),
@@ -6711,11 +6513,6 @@ export function CodexAccountsPage() {
   const localAccessQuotaPreviewItems = useMemo(
     () => localAccessQuotaPoolSummary.visiblePlans.slice(0, 3),
     [localAccessQuotaPoolSummary.visiblePlans],
-  );
-  const localAccessQuotaHiddenCount = Math.max(
-    0,
-    localAccessQuotaPoolSummary.visiblePlans.length -
-      localAccessQuotaPreviewItems.length,
   );
   const overviewAccounts = accounts;
   const localAccessScope = localAccessCollection?.accessScope ?? "localhost";
@@ -6753,11 +6550,6 @@ export function CodexAccountsPage() {
       cpaServiceAccountIdSet.has(account.id),
     [cpaAccountEmailSet, cpaServiceAccountIdSet],
   );
-  const localAccessEndpointLabel = isLocalAccessCpaCredential
-    ? t("codex.localAccess.credentialModeCpaShort", "CPA")
-    : isLocalAccessCustomCredential
-    ? t("codex.localAccess.credentialModeCustomShort", "自定义")
-    : localAccessScopeLabel;
   const localAccessBusy =
     localAccessSaving ||
     localAccessStarting ||
