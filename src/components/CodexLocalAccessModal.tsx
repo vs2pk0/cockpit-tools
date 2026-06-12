@@ -3345,6 +3345,7 @@ export function CodexLocalAccessModal({
               </div>
               </div>
 
+
               {showCpaServiceManager && (
                 <div
                   className="modal-overlay codex-cpa-service-manager-overlay"

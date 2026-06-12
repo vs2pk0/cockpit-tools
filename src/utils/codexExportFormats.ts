@@ -33,6 +33,8 @@ interface CodexPortableTokenStorage extends JsonRecord {
   expired: string;
   bound_phone?: string;
   phone?: string;
+  account_note?: string;
+  tags?: string[];
 }
 
 export interface CodexExportDocument {
@@ -262,6 +264,12 @@ function toPortableTokenStorage(account: CodexAccount): CodexPortableTokenStorag
     expired: resolveAccessTokenExpiry(account) || '',
   };
   appendBoundPhoneMetadata(payload, account);
+  if (account.account_note?.trim()) {
+    payload.account_note = account.account_note.trim();
+  }
+  if (account.tags && account.tags.length > 0) {
+    payload.tags = [...account.tags];
+  }
   return payload;
 }
 
@@ -286,6 +294,12 @@ function toPortableApiKeyStorage(account: CodexAccount): JsonRecord {
     payload.api_provider_name = account.api_provider_name.trim();
   }
   appendBoundPhoneMetadata(payload, account);
+  if (account.account_note?.trim()) {
+    payload.account_note = account.account_note.trim();
+  }
+  if (account.tags && account.tags.length > 0) {
+    payload.tags = [...account.tags];
+  }
 
   return payload;
 }

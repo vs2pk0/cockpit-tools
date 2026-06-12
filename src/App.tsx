@@ -74,9 +74,6 @@ const AccountsPage = lazy(() =>
 const CodexAccountsPage = lazy(() =>
   import('./pages/CodexAccountsPage').then((module) => ({ default: module.CodexAccountsPage })),
 );
-const CodexApiServicePage = lazy(() =>
-  import('./pages/CodexApiServicePage').then((module) => ({ default: module.CodexApiServicePage })),
-);
 const GitHubCopilotAccountsPage = lazy(() =>
   import('./pages/GitHubCopilotAccountsPage').then((module) => ({
     default: module.GitHubCopilotAccountsPage,
@@ -128,9 +125,6 @@ const TwoFactorAuthPage = lazy(() =>
 );
 const ManualPage = lazy(() =>
   import('./pages/ManualPage').then((module) => ({ default: module.ManualPage })),
-);
-const ApiKeyFunPage = lazy(() =>
-  import('./pages/ApiKeyFunPage').then((module) => ({ default: module.ApiKeyFunPage })),
 );
 const InstancesPage = lazy(() =>
   import('./pages/InstancesPage').then((module) => ({ default: module.InstancesPage })),
@@ -747,12 +741,6 @@ function MainApp() {
       window.removeEventListener('general-language-updated', handleLanguageChanged);
     };
   }, [fetchSponsorModuleState, fetchTopRightAdState]);
-
-  useEffect(() => {
-    if (sponsorModuleInitialized && page === 'api-relay' && !sponsorEntryVisible) {
-      setPage('dashboard');
-    }
-  }, [page, sponsorEntryVisible, sponsorModuleInitialized]);
 
   useEffect(() => {
     if (sideNavLayoutMode !== 'classic' || sideNavClassicFirstSyncDone) {
@@ -2807,9 +2795,7 @@ function MainApp() {
           const target = String(event.payload || '');
           switch (target) {
             case 'overview':
-            case 'api-relay':
             case 'codex':
-            case 'codex-api-service':
             case 'github-copilot':
             case 'windsurf':
             case 'kiro':
@@ -3216,10 +3202,8 @@ function MainApp() {
               }
             />
           )}
-          {page === 'api-relay' && <ApiKeyFunPage />}
           {page === 'overview' && <AccountsPage onNavigate={setPage} />}
           {page === 'codex' && <CodexAccountsPage />}
-          {page === 'codex-api-service' && <CodexApiServicePage />}
           {page === 'github-copilot' && <GitHubCopilotAccountsPage />}
           {page === 'windsurf' && <WindsurfAccountsPage />}
           {page === 'kiro' && <KiroAccountsPage />}

@@ -15,8 +15,6 @@ import { useWorkbuddyAccountStore } from '../stores/useWorkbuddyAccountStore';
 import { useZedAccountStore } from '../stores/useZedAccountStore';
 import { useSponsorStore } from '../stores/useSponsorStore';
 import {
-  API_RELAY_LAYOUT_ENTRY_ID,
-  ApiRelayLayoutEntryId,
   parseGroupEntryId,
   PlatformLayoutEntryId,
   resolveEntryDefaultPlatformId,
@@ -69,7 +67,6 @@ import {
   isCodexNewApiAccount,
 } from '../types/codex';
 import './DashboardPage.css';
-import apiKeyFunIcon from '../assets/icons/apikey-fun.png';
 import { RobotIcon } from '../components/icons/RobotIcon';
 import { CodexIcon } from '../components/icons/CodexIcon';
 import { WindsurfIcon } from '../components/icons/WindsurfIcon';
@@ -206,7 +203,7 @@ interface DashboardCardCollapseState {
   workbuddy: boolean;
 }
 
-type DashboardEntryId = PlatformLayoutEntryId | ApiRelayLayoutEntryId;
+type DashboardEntryId = PlatformLayoutEntryId;
 
 export function DashboardPage({
   onNavigate,
@@ -296,13 +293,8 @@ export function DashboardPage({
   );
   const visibleDashboardEntryOrder = useMemo<DashboardEntryId[]>(() => {
     const result: DashboardEntryId[] = [...visibleEntryOrder];
-    if (!apiRelayDashboardEnabled) {
-      return result;
-    }
-    const insertIndex = Math.max(0, Math.min(apiRelayEntryOrder, result.length));
-    result.splice(insertIndex, 0, API_RELAY_LAYOUT_ENTRY_ID);
     return result;
-  }, [apiRelayDashboardEnabled, apiRelayEntryOrder, visibleEntryOrder]);
+  }, [visibleEntryOrder]);
   const [privacyModeEnabled, setPrivacyModeEnabled] = React.useState<boolean>(() =>
     isPrivacyModeEnabledByDefault()
   );
@@ -2267,9 +2259,6 @@ export function DashboardPage({
     const seen = new Set<PlatformId>();
     const result: PlatformId[] = [];
     for (const entryId of visibleDashboardEntryOrder) {
-      if (entryId === API_RELAY_LAYOUT_ENTRY_ID) {
-        continue;
-      }
       const platformId = resolveEntryDefaultPlatformId(entryId, platformGroups);
       if (!platformId) {
         continue;
@@ -2998,25 +2987,6 @@ export function DashboardPage({
         </div>
 
         {visibleDashboardEntryOrder.map((entryId) => {
-          if (entryId === API_RELAY_LAYOUT_ENTRY_ID) {
-            return (
-              <button
-                className="stat-card stat-card-button"
-                key="api-relay"
-                onClick={() => onNavigate('api-relay')}
-                title={t('dashboard.apiRelay.openLocalConfig', '打开本地配置页')}
-              >
-                <div className="stat-icon-bg info">
-                  <img src={apiKeyFunIcon} alt="" className="dashboard-api-relay-stat-icon" />
-                </div>
-                <div className="stat-info">
-                  <span className="stat-label">{t('nav.apiRelay', '中转站')}</span>
-                  <span className="stat-value">1</span>
-                </div>
-              </button>
-            );
-          }
-
           const platformId = resolveEntryDefaultPlatformId(entryId, platformGroups);
           if (!platformId) {
             return null;

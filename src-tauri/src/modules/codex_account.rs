@@ -323,6 +323,22 @@ fn build_api_key_account_id(api_key: &str) -> String {
     format!("codex_apikey_{:x}", md5::compute(api_key.as_bytes()))
 }
 
+fn build_unique_api_key_account_id(api_key: &str, index: &CodexAccountIndex) -> String {
+    let base_id = build_api_key_account_id(api_key);
+    if !index.accounts.iter().any(|item| item.id == base_id) {
+        return base_id;
+    }
+
+    for suffix in 2..10_000 {
+        let candidate = format!("{}_{}", base_id, suffix);
+        if !index.accounts.iter().any(|item| item.id == candidate) {
+            return candidate;
+        }
+    }
+
+    format!("{}_{}", base_id, now_timestamp())
+}
+
 fn normalize_api_model_catalog(models: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut values = Vec::new();
@@ -2069,11 +2085,12 @@ fn apply_compat_account_metadata(
         .or_else(|| account.account_structure.clone());
     account.account_note = read_json_string(value, &["account_note", "accountNote"])
         .or_else(|| account.account_note.clone());
-    account.bound_phone = read_json_string(
+    if let Some(phone) = read_json_string(
         value,
         &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
-    )
-    .or_else(|| account.bound_phone.clone());
+    ) {
+        account.bound_phone = Some(phone);
+    }
     account.token_expired_at = read_token_expired_at_metadata(value)
         .or_else(|| account.token_expired_at.clone())
         .or_else(|| infer_token_expired_at_from_tokens(&account.tokens));
@@ -2422,72 +2439,26 @@ pub fn upsert_api_key_account(
         api_provider_id.as_deref(),
         api_provider_name.as_deref(),
     )?;
-    let account_id = build_api_key_account_id(&api_key);
     let account_name = normalize_optional_value(account_name);
     let mut index = load_account_index();
-    let existing = index.accounts.iter().position(|item| item.id == account_id);
+    let account_id = build_unique_api_key_account_id(&api_key, &index);
 
-    let mut account = if let Some(pos) = existing {
-        let existing_id = index.accounts[pos].id.clone();
-        let mut acc = load_account(&existing_id).unwrap_or_else(|| {
-            CodexAccount::new_api_key(
-                existing_id,
-                build_api_key_email(&api_key),
-                api_key.clone(),
-                provider_config.mode.clone(),
-                provider_config.base_url.clone(),
-                provider_config.provider_id.clone(),
-                provider_config.provider_name.clone(),
-                normalize_api_model_catalog(api_model_catalog.clone()),
-            )
-        });
-        apply_api_key_fields(
-            &mut acc,
-            &api_key,
-            provider_config.clone(),
-            api_model_catalog.clone(),
-            api_wire_api.clone(),
-            api_supports_vision,
-            api_model_vision_support.clone(),
-            api_vision_routing_model.clone(),
-        );
-        if acc.email.trim().is_empty() {
-            acc.email = build_api_key_email(&api_key);
-        }
-        if let Some(name) = account_name.clone() {
-            if normalize_optional_ref(acc.account_name.as_deref()).is_none() {
-                acc.account_name = Some(name);
-            }
-        }
-        acc.update_last_used();
-        acc
-    } else {
-        let mut acc = CodexAccount::new_api_key(
-            account_id.clone(),
-            build_api_key_email(&api_key),
-            api_key,
-            provider_config.mode.clone(),
-            provider_config.base_url.clone(),
-            provider_config.provider_id.clone(),
-            provider_config.provider_name.clone(),
-            normalize_api_model_catalog(api_model_catalog.clone()),
-        );
-        acc.plan_type = Some(API_KEY_LOGIN_PLAN_TYPE.to_string());
-        acc.account_name = account_name;
-        acc.api_wire_api = normalize_api_wire_api(api_wire_api.clone());
-        acc.api_supports_vision = api_supports_vision;
-        acc.api_model_vision_support = normalize_api_model_vision_support(api_model_vision_support);
-        acc.api_vision_routing_model = normalize_optional_value(api_vision_routing_model);
-        index.accounts.push(CodexAccountSummary {
-            id: account_id.clone(),
-            email: acc.email.clone(),
-            plan_type: acc.plan_type.clone(),
-            subscription_active_until: acc.subscription_active_until.clone(),
-            created_at: acc.created_at,
-            last_used: acc.last_used,
-        });
-        acc
-    };
+    let mut account = CodexAccount::new_api_key(
+        account_id,
+        build_api_key_email(&api_key),
+        api_key,
+        provider_config.mode.clone(),
+        provider_config.base_url.clone(),
+        provider_config.provider_id.clone(),
+        provider_config.provider_name.clone(),
+        normalize_api_model_catalog(api_model_catalog.clone()),
+    );
+    account.plan_type = Some(API_KEY_LOGIN_PLAN_TYPE.to_string());
+    account.account_name = account_name;
+    account.api_wire_api = normalize_api_wire_api(api_wire_api.clone());
+    account.api_supports_vision = api_supports_vision;
+    account.api_model_vision_support = normalize_api_model_vision_support(api_model_vision_support);
+    account.api_vision_routing_model = normalize_optional_value(api_vision_routing_model);
 
     account.auth_mode = CodexAuthMode::Apikey;
     save_account(&account)?;
@@ -4416,6 +4387,7 @@ enum CodexJsonImportCandidate {
         account_id_hint: Option<String>,
         account_note: Option<String>,
         token_expired_at: Option<String>,
+        bound_phone: Option<String>,
     },
     AccessToken {
         access_token: String,
@@ -4538,6 +4510,14 @@ fn extract_codex_session_candidate_from_value(
             .or_else(|| extract_account_note_from_value(&session)),
         token_expired_at: read_token_expired_at_metadata(value)
             .or_else(|| read_token_expired_at_metadata(&session)),
+        bound_phone: read_json_string(
+            value,
+            &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
+        )
+        .or_else(|| read_json_string(
+            &session,
+            &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
+        )),
     })
 }
 
@@ -4592,6 +4572,10 @@ fn extract_codex_import_candidate_from_value(
             account_id_hint,
             account_note: extract_account_note_from_value(value),
             token_expired_at: read_token_expired_at_metadata(value),
+            bound_phone: read_json_string(
+                value,
+                &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
+            ),
         });
     }
 
@@ -4760,13 +4744,17 @@ async fn import_codex_candidate(
             account_id_hint,
             account_note,
             token_expired_at,
+            bound_phone,
         } => {
             let mut account = upsert_account_with_hints(tokens, account_id_hint, None)?;
-            if account_note.is_some() || token_expired_at.is_some() {
+            if account_note.is_some() || token_expired_at.is_some() || bound_phone.is_some() {
                 account.account_note = account_note;
                 account.token_expired_at = token_expired_at
                     .or_else(|| account.token_expired_at.clone())
                     .or_else(|| infer_token_expired_at_from_tokens(&account.tokens));
+                if let Some(phone) = bound_phone {
+                    account.bound_phone = Some(phone);
+                }
                 save_account(&account)?;
             }
             Ok(account)
@@ -4915,7 +4903,10 @@ async fn import_account_from_json_value(
     }
 
     if let Some(candidate) = extract_codex_import_candidate_from_value(&value) {
-        return Ok(Some(import_codex_candidate(candidate).await?));
+        let mut account = import_codex_candidate(candidate).await?;
+        apply_compat_account_metadata(&mut account, &value, None);
+        save_account(&account)?;
+        return Ok(Some(account));
     }
 
     if let Ok(account) = serde_json::from_value::<CodexAccount>(value) {
@@ -5021,8 +5012,9 @@ pub async fn import_from_json(json_content: &str) -> Result<Vec<CodexAccount>, S
             if let Some(value) = raw_value.as_ref() {
                 if let Some(token_expired_at) = read_token_expired_at_metadata(value) {
                     account.token_expired_at = Some(token_expired_at);
-                    save_account(&account)?;
                 }
+                apply_compat_account_metadata(&mut account, value, None);
+                save_account(&account)?;
             }
             return Ok(vec![account]);
         }
@@ -5728,6 +5720,7 @@ enum CodexBatchImportDraft {
         account_id_hint: Option<String>,
         account_note: Option<String>,
         token_expired_at: Option<String>,
+        bound_phone: Option<String>,
     },
     AccessToken {
         access_token: String,
@@ -5890,12 +5883,19 @@ fn preview_account_for_draft(draft: &CodexBatchImportDraft) -> Result<CodexAccou
             account_id_hint,
             account_note,
             token_expired_at,
-        } => preview_account_from_full_tokens(
-            tokens.clone(),
-            account_id_hint.clone(),
-            account_note.clone(),
-            token_expired_at.clone(),
-        ),
+            bound_phone,
+        } => {
+            let mut account = preview_account_from_full_tokens(
+                tokens.clone(),
+                account_id_hint.clone(),
+                account_note.clone(),
+                token_expired_at.clone(),
+            )?;
+            if let Some(phone) = bound_phone {
+                account.bound_phone = Some(phone.clone());
+            }
+            Ok(account)
+        }
         CodexBatchImportDraft::AccessToken {
             access_token,
             account_note,
@@ -5917,11 +5917,13 @@ fn codex_batch_import_draft_from_candidate(
             account_id_hint,
             account_note,
             token_expired_at,
+            bound_phone,
         } => CodexBatchImportDraft::FullToken {
             tokens,
             account_id_hint,
             account_note,
             token_expired_at,
+            bound_phone,
         },
         CodexJsonImportCandidate::AccessToken {
             access_token,
@@ -6035,6 +6037,10 @@ async fn codex_batch_import_draft_from_value(
                 account_id_hint,
                 account_note: None,
                 token_expired_at: read_token_expired_at_metadata(&value),
+                bound_phone: read_json_string(
+                    &value,
+                    &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
+                ),
             }));
         }
         if let Some(api_key) = fallback_api_key {
@@ -6070,6 +6076,7 @@ async fn codex_batch_import_draft_from_value(
                     account_id_hint: None,
                     account_note,
                     token_expired_at,
+                    bound_phone: None,
                 }))
             }
             other => Ok(Some(codex_batch_import_draft_from_candidate(other))),
@@ -6579,13 +6586,17 @@ pub fn confirm_codex_batch_import(
                 account_id_hint,
                 account_note,
                 token_expired_at,
+                bound_phone,
             } => {
                 let mut account = upsert_account_with_hints(tokens, account_id_hint, None)?;
-                if account_note.is_some() || token_expired_at.is_some() {
+                if account_note.is_some() || token_expired_at.is_some() || bound_phone.is_some() {
                     account.account_note = account_note;
                     account.token_expired_at = token_expired_at
                         .or_else(|| account.token_expired_at.clone())
                         .or_else(|| infer_token_expired_at_from_tokens(&account.tokens));
+                    if let Some(phone) = bound_phone {
+                        account.bound_phone = Some(phone);
+                    }
                     save_account(&account)?;
                 }
                 Ok(account)
@@ -8433,6 +8444,126 @@ multi_agent = true
     }
 
     #[test]
+    fn duplicate_api_key_accounts_are_allowed() {
+        let _lock = TEST_ENV_LOCK.lock().expect("lock test env");
+        let _env = TestEnvGuard::new("codex-duplicate-api-key-test");
+
+        let first = super::upsert_api_key_account(
+            "sk-duplicate-key".to_string(),
+            Some("https://api.openai.com/v1".to_string()),
+            None,
+            None,
+            None,
+            Vec::new(),
+            None,
+            false,
+            std::collections::HashMap::new(),
+            None,
+            Some("First".to_string()),
+        )
+        .expect("first api key account should be created");
+        let second = super::upsert_api_key_account(
+            "sk-duplicate-key".to_string(),
+            Some("https://api.openai.com/v1".to_string()),
+            None,
+            None,
+            None,
+            Vec::new(),
+            None,
+            false,
+            std::collections::HashMap::new(),
+            None,
+            Some("Second".to_string()),
+        )
+        .expect("duplicate api key account should be created");
+
+        assert_ne!(first.id, second.id);
+        assert_eq!(first.openai_api_key.as_deref(), Some("sk-duplicate-key"));
+        assert_eq!(second.openai_api_key.as_deref(), Some("sk-duplicate-key"));
+        assert_eq!(first.account_name.as_deref(), Some("First"));
+        assert_eq!(second.account_name.as_deref(), Some("Second"));
+
+        let base_id = super::build_api_key_account_id("sk-duplicate-key");
+        assert_eq!(first.id, base_id);
+        assert!(second.id.starts_with(&format!("{}_", base_id)));
+
+        let index = load_account_index();
+        let stored_count = index
+            .accounts
+            .iter()
+            .filter_map(|summary| load_account(&summary.id))
+            .filter(|account| account.openai_api_key.as_deref() == Some("sk-duplicate-key"))
+            .count();
+        assert_eq!(stored_count, 2);
+    }
+
+    #[test]
+    fn updating_api_key_credentials_to_existing_key_keeps_both_accounts() {
+        let _lock = TEST_ENV_LOCK.lock().expect("lock test env");
+        let _env = TestEnvGuard::new("codex-update-duplicate-api-key-test");
+
+        let first = super::upsert_api_key_account(
+            "sk-existing-key".to_string(),
+            Some("https://api.openai.com/v1".to_string()),
+            None,
+            None,
+            None,
+            Vec::new(),
+            None,
+            false,
+            std::collections::HashMap::new(),
+            None,
+            Some("Existing".to_string()),
+        )
+        .expect("existing api key account should be created");
+        let second = super::upsert_api_key_account(
+            "sk-other-key".to_string(),
+            Some("https://api.openai.com/v1".to_string()),
+            None,
+            None,
+            None,
+            Vec::new(),
+            None,
+            false,
+            std::collections::HashMap::new(),
+            None,
+            Some("Other".to_string()),
+        )
+        .expect("second api key account should be created");
+
+        let updated = super::update_api_key_credentials(
+            &second.id,
+            "sk-existing-key".to_string(),
+            Some("https://api.openai.com/v1".to_string()),
+            None,
+            None,
+            None,
+            Vec::new(),
+            None,
+            false,
+            std::collections::HashMap::new(),
+            None,
+        )
+        .expect("updating to an existing api key should not be blocked");
+
+        assert_ne!(updated.id, first.id);
+        assert_ne!(updated.id, second.id);
+        assert_eq!(updated.openai_api_key.as_deref(), Some("sk-existing-key"));
+        assert!(load_account(&first.id).is_some());
+        assert!(load_account(&second.id).is_none());
+        assert!(load_account(&updated.id).is_some());
+
+        let index = load_account_index();
+        let stored_count = index
+            .accounts
+            .iter()
+            .filter_map(|summary| load_account(&summary.id))
+            .filter(|account| account.openai_api_key.as_deref() == Some("sk-existing-key"))
+            .count();
+        assert_eq!(stored_count, 2);
+    }
+
+    #[test]
     #[ignore = "manual local Codex repair smoke test"]
     fn local_codex_index_repair_smoke() {
         crate::modules::logger::init_logger();
@@ -8784,15 +8915,16 @@ pub fn update_api_key_credentials(
         api_provider_name.as_deref(),
     )?;
     let old_id = account.id.clone();
-    let new_id = build_api_key_account_id(&normalized_key);
     let mut index = load_account_index();
     let was_current = get_current_account()
         .map(|current| current.id == old_id)
         .unwrap_or(false);
-
-    if new_id != old_id && index.accounts.iter().any(|item| item.id == new_id) {
-        return Err("该 API Key 已存在，请直接使用已有账号".to_string());
-    }
+    let existing_key = normalize_optional_ref(account.openai_api_key.as_deref());
+    let new_id = if existing_key.as_deref() == Some(normalized_key.as_str()) {
+        old_id.clone()
+    } else {
+        build_unique_api_key_account_id(&normalized_key, &index)
+    };
 
     if new_id != old_id {
         account.id = new_id.clone();

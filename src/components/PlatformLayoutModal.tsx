@@ -468,39 +468,18 @@ export function PlatformLayoutModal({
       });
     }
 
-    if (apiRelayEntryEnabled) {
-      const insertIndex = Math.max(0, Math.min(apiRelayEntryOrder, result.length));
-      result.splice(insertIndex, 0, {
-        id: API_RELAY_LAYOUT_ENTRY_ID,
-        type: 'api-relay',
-        label: t('nav.apiRelay', '中转站'),
-        hidden: !apiRelayDashboardVisible,
-        group: null,
-        defaultPlatformId: null,
-        platformIds: [],
-      });
-    }
-
     return result;
   }, [
     orderedEntryIds,
     platformGroups,
     hiddenSet,
     t,
-    apiRelayEntryEnabled,
-    apiRelayEntryOrder,
-    apiRelayDashboardVisible,
   ]);
 
   const layoutEntryOrderIds = useMemo<LayoutEntryId[]>(() => {
     const result: LayoutEntryId[] = [...orderedEntryIds];
-    if (!apiRelayEntryEnabled) {
-      return result;
-    }
-    const insertIndex = Math.max(0, Math.min(apiRelayEntryOrder, result.length));
-    result.splice(insertIndex, 0, API_RELAY_LAYOUT_ENTRY_ID);
     return result;
-  }, [apiRelayEntryEnabled, apiRelayEntryOrder, orderedEntryIds]);
+  }, [orderedEntryIds]);
 
   const allGroupIds = useMemo(
     () => entries.filter((entry) => entry.type === 'group' && !!entry.group).map((entry) => entry.id),

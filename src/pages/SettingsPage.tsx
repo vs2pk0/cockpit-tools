@@ -5702,6 +5702,12 @@ export function SettingsPage() {
                 <h3>{t('settings.about.author')}</h3>
                 <p>jlcodes99</p>
               </button>
+
+              <button className="credit-item" onClick={() => openLink('https://github.com/vs2pk0')}>
+                <div className="credit-icon"><User size={24} /></div>
+                <h3>{t('settings.about.secondaryModifier', '二次修改者')}</h3>
+                <p>vs2pk0</p>
+              </button>
               
               
               <button className="credit-item" onClick={() => openLink('https://github.com/jlcodes99/cockpit-tools')}>

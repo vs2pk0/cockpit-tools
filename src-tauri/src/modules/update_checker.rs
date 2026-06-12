@@ -37,7 +37,7 @@ fn default_remind_on_update() -> bool {
 impl Default for UpdateSettings {
     fn default() -> Self {
         Self {
-            auto_check: true,
+            auto_check: false,
             last_check_time: 0,
             check_interval_hours: DEFAULT_CHECK_INTERVAL_HOURS,
             auto_install: false,
