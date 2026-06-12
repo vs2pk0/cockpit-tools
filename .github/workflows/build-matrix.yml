@@ -7,8 +7,7 @@ on:
       - "main"
   push:
     branches:
-      - "feature/build-matrix*"
-      - "feature/build-matrix/**"
+      - "*"
 
 concurrency:
   group: build-matrix-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
