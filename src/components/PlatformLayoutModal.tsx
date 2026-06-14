@@ -1241,9 +1241,9 @@ export function PlatformLayoutModal({
                       )}
 
                       <div className="platform-layout-icon">
-                        {isApiRelayEntry ? (
+                        {entry.group?.iconCustomDataUrl ? (
                           <img
-                            src={apiKeyFunIcon}
+                            src={entry.group.iconCustomDataUrl}
                             alt=""
                             className="platform-layout-group-icon"
                             style={{ width: 18, height: 18 }}
