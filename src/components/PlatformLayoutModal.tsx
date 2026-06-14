@@ -20,7 +20,6 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import apiKeyFunIcon from '../assets/icons/apikey-fun.png';
 import { isMenuVisiblePlatform, MENU_VISIBLE_PLATFORM_IDS, PlatformId } from '../types/platform';
 import {
   API_RELAY_LAYOUT_ENTRY_ID,
