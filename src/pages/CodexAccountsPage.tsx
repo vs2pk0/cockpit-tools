@@ -530,6 +530,7 @@ function persistLocalAccessAddressKind(
   }
 }
 
+function readLocalAccessGatewayGuideDismissed(): boolean {
   try {
     return (
       localStorage.getItem(CODEX_LOCAL_ACCESS_GATEWAY_GUIDE_DISMISSED_KEY) ===
@@ -2765,6 +2766,68 @@ export function CodexAccountsPage() {
     setAccountPhoneError(null);
   }, [savingAccountPhone, setAccountPhoneError]);
 
+  const handleSubmitAccountNote = useCallback(async () => {
+    if (!editingAccountNoteId || savingAccountNote) return;
+    setSavingAccountNote(true);
+    setAccountNoteError(null);
+    try {
+      await codexService.updateCodexAccountNote(
+        editingAccountNoteId,
+        editingAccountNoteValue,
+      );
+      await fetchAccounts();
+      setEditingAccountNoteId(null);
+      setEditingAccountNoteValue("");
+    } catch (error) {
+      setAccountNoteError(
+        t("codex.accountNote.saveFailed", {
+          defaultValue: "保存备注失败：{{error}}",
+          error: String(error),
+        }),
+      );
+    } finally {
+      setSavingAccountNote(false);
+    }
+  }, [
+    editingAccountNoteId,
+    editingAccountNoteValue,
+    fetchAccounts,
+    setAccountNoteError,
+    savingAccountNote,
+    t,
+  ]);
+
+  const handleSubmitAccountPhone = useCallback(async () => {
+    if (!editingAccountPhoneId || savingAccountPhone) return;
+    setSavingAccountPhone(true);
+    setAccountPhoneError(null);
+    try {
+      await codexService.updateCodexAccountPhone(
+        editingAccountPhoneId,
+        editingAccountPhoneValue,
+      );
+      await fetchAccounts();
+      setEditingAccountPhoneId(null);
+      setEditingAccountPhoneValue("");
+    } catch (error) {
+      setAccountPhoneError(
+        t("codex.accountPhone.saveFailed", {
+          defaultValue: "保存手机号失败：{{error}}",
+          error: String(error),
+        }),
+      );
+    } finally {
+      setSavingAccountPhone(false);
+    }
+  }, [
+    editingAccountPhoneId,
+    editingAccountPhoneValue,
+    fetchAccounts,
+    setAccountPhoneError,
+    savingAccountPhone,
+    t,
+  ]);
+
   const loadApiServiceAppSpeed = useCallback(async () => {
     try {
       const config = await codexService.getCodexApiServiceAppSpeedConfig();
@@ -2802,7 +2865,13 @@ export function CodexAccountsPage() {
     [savingAppSpeedId, setMessage, t, updateAccountAppSpeed],
   );
 
-  return (
+  const renderAccountNoteButton = useCallback(
+    (
+      account: CodexAccount,
+      className = "codex-account-note-chip",
+    ) => {
+      const hasNote = Boolean(account.account_note?.trim());
+      return (
         <button
           type="button"
           className={`${className} ${hasNote ? "has-note" : "empty-note"}`}
@@ -2823,6 +2892,20 @@ export function CodexAccountsPage() {
       );
     },
     [openAccountNoteModal, t],
+  );
+
+  const renderAccountSpeedSelect = useCallback(
+    (account: CodexAccount, compact?: boolean) => {
+      return (
+        <CodexSpeedSelect
+          value={account.app_speed}
+          onChange={(speed) => void handleAccountAppSpeedChange(account, speed)}
+          disabled={savingAppSpeedId === account.id}
+          compact={compact}
+        />
+      );
+    },
+    [handleAccountAppSpeedChange, savingAppSpeedId],
   );
 
   const renderAccountPhoneButton = useCallback(
@@ -6701,12 +6784,6 @@ export function CodexAccountsPage() {
     async (field: "baseUrl" | "apiKey", value: string) => {
       try {
         await navigator.clipboard.writeText(value);
-        setLocalAccessCopiedField(field);
-        window.setTimeout(() => {
-          setLocalAccessCopiedField((current) =>
-            current === field ? null : current,
-          );
-        }, 1200);
       } catch (error) {
         console.error("Failed to copy local access value:", error);
         setMessage({
@@ -7462,9 +7539,6 @@ export function CodexAccountsPage() {
     }) => {
       setLocalAccessSaving(true);
       try {
-        if (payload.credentialMode === "cpa") {
-          await ensureCpaServiceRunning();
-        }
         const nextState =
           await codexLocalAccessService.updateCodexLocalAccessCredentials(
             payload.credentialMode,
@@ -7512,7 +7586,6 @@ export function CodexAccountsPage() {
       }
     },
     [
-      ensureCpaServiceRunning,
       fetchCurrentAccount,
       localAccessLaunchCurrent,
       setMessage,
@@ -7591,16 +7664,13 @@ export function CodexAccountsPage() {
 
     setLocalAccessTesting(true);
     try {
-      if (localAccessCollection.credentialMode === "cpa") {
-        await ensureCpaServiceRunning();
-      }
       return await codexLocalAccessService.testCodexLocalAccess();
     } catch (error) {
       throw new Error(String(error).replace(/^Error:\s*/, ""));
     } finally {
       setLocalAccessTesting(false);
     }
-  }, [ensureCpaServiceRunning, localAccessCollection, t]);
+  }, [localAccessCollection, t]);
 
   const handleActivateLocalAccess = useCallback(
     async (options?: { showSuccessMessage?: boolean }) => {
@@ -7636,9 +7706,6 @@ export function CodexAccountsPage() {
       if (!confirmed) return;
       setLocalAccessStarting(true);
       try {
-        if (localAccessCollection.credentialMode === "cpa") {
-          await ensureCpaServiceRunning();
-        }
         const nextState =
           await codexLocalAccessService.activateCodexLocalAccess();
         setLocalAccessState(nextState);
@@ -7657,7 +7724,6 @@ export function CodexAccountsPage() {
       }
     },
     [
-      ensureCpaServiceRunning,
       fetchCurrentAccount,
       localAccessCollection,
       requestLocalAccessRiskNotice,
