@@ -18,6 +18,7 @@ use crate::modules::{
     openclaw_auth, opencode_auth, process,
 };
 use serde::Serialize;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
@@ -26,44 +27,47 @@ use tauri_plugin_opener::OpenerExt;
 
 static CODEX_POST_REFRESH_CHECK_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
-fn codex_launch_credential_kind_for_provider(provider: &str) -> &'static str {
-    if provider == "openai" {
-        "account"
-    } else {
-        "api"
-    }
-}
-
-fn repair_codex_session_visibility_after_provider_change(
+fn sync_codex_session_visibility_for_provider(
     context: &str,
-    before_provider: Option<String>,
-    after_provider: Option<String>,
-) -> Result<(), String> {
-    let (Some(before), Some(after)) = (before_provider, after_provider) else {
-        return Ok(());
+    data_dir: &Path,
+    target_provider: Option<&str>,
+) {
+    let Some(target_provider) = target_provider
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
     };
-    if before == after {
-        return Ok(());
-    }
-    if codex_launch_credential_kind_for_provider(&before)
-        == codex_launch_credential_kind_for_provider(&after)
-    {
-        return Ok(());
-    }
 
     let started = Instant::now();
-    let summary = codex_session_visibility::repair_session_visibility_across_instances()?;
-    logger::log_info(&format!(
-        "[Codex Session Visibility] {}: repaired after account switch, from_provider={}, to_provider={}, mutated_instances={}, rollout_files={}, sqlite_rows={}, elapsed_ms={}",
-        context,
-        before,
-        after,
-        summary.mutated_instance_count,
-        summary.changed_rollout_file_count,
-        summary.updated_sqlite_row_count,
-        started.elapsed().as_millis()
-    ));
-    Ok(())
+    match codex_session_visibility::repair_session_visibility_for_dir_with_provider(
+        data_dir,
+        target_provider,
+        "__default__",
+        "默认实例",
+    ) {
+        Ok(item) => {
+            logger::log_info(&format!(
+                "[Codex Session Visibility] {}: synced history provider={}, target_dir={}, rollout_files={}, sqlite_rows={}, session_index_entries={}, elapsed_ms={}",
+                context,
+                target_provider,
+                data_dir.display(),
+                item.changed_rollout_file_count,
+                item.updated_sqlite_row_count,
+                item.added_session_index_entry_count,
+                started.elapsed().as_millis()
+            ));
+        }
+        Err(error) => {
+            logger::log_warn(&format!(
+                "[Codex Session Visibility] {}: skipped automatic history sync for provider={} at {}: {}",
+                context,
+                target_provider,
+                data_dir.display(),
+                error
+            ));
+        }
+    }
 }
 
 fn restart_codex_specified_app_if_enabled(user_config: &config::UserConfig) {
@@ -217,14 +221,21 @@ pub async fn switch_codex_account(
     let codex_home = codex_account::get_codex_home();
     let previous_provider =
         codex_session_visibility::read_history_visibility_provider_for_dir(&codex_home).ok();
+    sync_codex_session_visibility_for_provider(
+        "switch-codex-account-pre",
+        &codex_home,
+        previous_provider.as_deref(),
+    );
 
     // 切换账号（写入 auth.json）
     let account = codex_account::switch_account_managed(&account_id).await?;
-    repair_codex_session_visibility_after_provider_change(
-        "switch-codex-account",
-        previous_provider,
-        codex_session_visibility::read_history_visibility_provider_for_dir(&codex_home).ok(),
-    )?;
+    let next_provider =
+        codex_session_visibility::read_history_visibility_provider_for_dir(&codex_home).ok();
+    sync_codex_session_visibility_for_provider(
+        "switch-codex-account-post",
+        &codex_home,
+        next_provider.as_deref(),
+    );
     let account_speed = account.app_speed.clone();
     codex_speed::write_official_app_speed(account_speed.clone())?;
 

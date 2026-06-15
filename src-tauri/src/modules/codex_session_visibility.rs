@@ -16,6 +16,7 @@ const DEFAULT_INSTANCE_ID: &str = "__default__";
 const DEFAULT_INSTANCE_NAME: &str = "默认实例";
 const DEFAULT_PROVIDER_ID: &str = "openai";
 const STATE_DB_FILE: &str = "state_5.sqlite";
+const STATE_DB_RELATIVE_PATHS: [&str; 2] = [STATE_DB_FILE, "sqlite/state_5.sqlite"];
 const CONFIG_FILE_NAME: &str = "config.toml";
 const SESSION_INDEX_FILE: &str = "session_index.jsonl";
 const SESSION_DIRS: [&str; 2] = ["sessions", "archived_sessions"];
@@ -88,6 +89,12 @@ struct SqliteThreadIndexRow {
     updated_at: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+struct RepairInstanceOutcome {
+    item: CodexSessionVisibilityRepairItem,
+    backup_dir: Option<String>,
+}
+
 pub fn repair_session_visibility_across_instances(
 ) -> Result<CodexSessionVisibilityRepairSummary, String> {
     let instances = collect_instances()?;
@@ -102,98 +109,31 @@ pub fn repair_session_visibility_across_instances(
     let mut mutated_running_instance_count = 0usize;
 
     for instance in &instances {
-        let running = is_instance_running(instance, &process_entries);
         let target_provider = read_target_provider(&instance.data_dir)?;
-        let rollout_changes =
-            collect_rollout_provider_changes(&instance.data_dir, &target_provider)?;
-        let sqlite_scan = count_sqlite_rows_to_update(&instance.data_dir, &target_provider)?;
-        let sqlite_rows_to_update = sqlite_scan.rows_to_update;
-        let missing_session_index_entries =
-            count_missing_session_index_entries(&instance.data_dir)?;
-        if sqlite_scan.skipped_unusable_database {
+        let outcome =
+            repair_instance_visibility_to_provider(instance, target_provider, &process_entries)?;
+        let item = outcome.item;
+
+        if item.skipped_sqlite_file {
             skipped_sqlite_file_count += 1;
         }
 
-        if rollout_changes.is_empty()
-            && sqlite_rows_to_update == 0
-            && missing_session_index_entries == 0
-        {
-            items.push(CodexSessionVisibilityRepairItem {
-                instance_id: instance.id.clone(),
-                instance_name: instance.name.clone(),
-                target_provider,
-                changed_rollout_file_count: 0,
-                updated_sqlite_row_count: 0,
-                added_session_index_entry_count: 0,
-                skipped_sqlite_file: sqlite_scan.skipped_unusable_database,
-                backup_dir: None,
-                running,
-            });
-            continue;
-        }
-
-        let backup_dir = backup_instance_files(
-            &instance.data_dir,
-            &rollout_changes,
-            sqlite_rows_to_update > 0,
-            missing_session_index_entries > 0,
-            &instance.id,
-            &target_provider,
-        )?;
-        let backup_dir_string = backup_dir.to_string_lossy().to_string();
-
-        let repaired = repair_single_instance(
-            &instance.data_dir,
-            &target_provider,
-            &rollout_changes,
-            sqlite_rows_to_update > 0,
-            missing_session_index_entries > 0,
-        );
-        let (sqlite_rows_updated, session_index_entries_added) = match repaired {
-            Ok(value) => value,
-            Err(error) => {
-                let restore_result = restore_instance_files_from_backup(
-                    &instance.data_dir,
-                    &backup_dir,
-                    sqlite_rows_to_update > 0,
-                );
-                if let Err(restore_error) = restore_result {
-                    return Err(format!(
-                        "修复实例历史会话可见性失败 ({}): {}；自动回滚也失败: {}；备份目录: {}",
-                        instance.name,
-                        error,
-                        restore_error,
-                        backup_dir.display()
-                    ));
-                }
-                return Err(format!(
-                    "修复实例历史会话可见性失败 ({}): {}；已自动回滚，备份目录: {}",
-                    instance.name,
-                    error,
-                    backup_dir.display()
-                ));
+        let item_mutated = item.changed_rollout_file_count > 0
+            || item.updated_sqlite_row_count > 0
+            || item.added_session_index_entry_count > 0;
+        if item_mutated {
+            mutated_instance_count += 1;
+            changed_rollout_file_count += item.changed_rollout_file_count;
+            updated_sqlite_row_count += item.updated_sqlite_row_count;
+            added_session_index_entry_count += item.added_session_index_entry_count;
+            if item.running {
+                mutated_running_instance_count += 1;
             }
-        };
-
-        mutated_instance_count += 1;
-        changed_rollout_file_count += rollout_changes.len();
-        updated_sqlite_row_count += sqlite_rows_updated;
-        added_session_index_entry_count += session_index_entries_added;
-        if running {
-            mutated_running_instance_count += 1;
         }
-        backup_dirs.push(backup_dir_string.clone());
-        items.push(CodexSessionVisibilityRepairItem {
-            instance_id: instance.id.clone(),
-            instance_name: instance.name.clone(),
-            target_provider,
-            changed_rollout_file_count: rollout_changes.len(),
-            updated_sqlite_row_count: sqlite_rows_updated,
-            added_session_index_entry_count: session_index_entries_added,
-            skipped_sqlite_file: sqlite_scan.skipped_unusable_database,
-            backup_dir: Some(backup_dir_string),
-            running,
-        });
+        if let Some(backup_dir) = &outcome.backup_dir {
+            backup_dirs.push(backup_dir.clone());
+        }
+        items.push(item);
     }
 
     prune_session_visibility_repair_backups(&instances);
@@ -222,6 +162,123 @@ pub fn repair_session_visibility_across_instances(
 
 pub fn read_history_visibility_provider_for_dir(data_dir: &Path) -> Result<String, String> {
     read_target_provider(data_dir)
+}
+
+pub fn repair_session_visibility_for_dir_with_provider(
+    data_dir: &Path,
+    target_provider: &str,
+    instance_id: &str,
+    instance_name: &str,
+) -> Result<CodexSessionVisibilityRepairItem, String> {
+    let target_provider = target_provider.trim();
+    if target_provider.is_empty() || target_provider.eq_ignore_ascii_case("missing") {
+        return Err("缺少目标 provider，无法同步 Codex 历史会话可见性".to_string());
+    }
+
+    let instance = CodexSyncInstance {
+        id: instance_id.to_string(),
+        name: instance_name.to_string(),
+        data_dir: data_dir.to_path_buf(),
+        last_pid: None,
+    };
+    let process_entries = modules::process::collect_codex_process_entries();
+    let outcome = repair_instance_visibility_to_provider(
+        &instance,
+        target_provider.to_string(),
+        &process_entries,
+    )?;
+    prune_session_visibility_repair_backups(&[instance]);
+    Ok(outcome.item)
+}
+
+fn repair_instance_visibility_to_provider(
+    instance: &CodexSyncInstance,
+    target_provider: String,
+    process_entries: &[(u32, Option<String>)],
+) -> Result<RepairInstanceOutcome, String> {
+    let running = is_instance_running(instance, process_entries);
+    let rollout_changes = collect_rollout_provider_changes(&instance.data_dir, &target_provider)?;
+    let sqlite_scan = count_sqlite_rows_to_update(&instance.data_dir, &target_provider)?;
+    let sqlite_rows_to_update = sqlite_scan.rows_to_update;
+    let missing_session_index_entries = count_missing_session_index_entries(&instance.data_dir)?;
+
+    if rollout_changes.is_empty()
+        && sqlite_rows_to_update == 0
+        && missing_session_index_entries == 0
+    {
+        return Ok(RepairInstanceOutcome {
+            item: CodexSessionVisibilityRepairItem {
+                instance_id: instance.id.clone(),
+                instance_name: instance.name.clone(),
+                target_provider,
+                changed_rollout_file_count: 0,
+                updated_sqlite_row_count: 0,
+                added_session_index_entry_count: 0,
+                skipped_sqlite_file: sqlite_scan.skipped_unusable_database,
+                backup_dir: None,
+                running,
+            },
+            backup_dir: None,
+        });
+    }
+
+    let backup_dir = backup_instance_files(
+        &instance.data_dir,
+        &rollout_changes,
+        sqlite_rows_to_update > 0,
+        missing_session_index_entries > 0,
+        &instance.id,
+        &target_provider,
+    )?;
+    let backup_dir_string = backup_dir.to_string_lossy().to_string();
+
+    let repaired = repair_single_instance(
+        &instance.data_dir,
+        &target_provider,
+        &rollout_changes,
+        sqlite_rows_to_update > 0,
+        missing_session_index_entries > 0,
+    );
+    let (sqlite_rows_updated, session_index_entries_added) = match repaired {
+        Ok(value) => value,
+        Err(error) => {
+            let restore_result = restore_instance_files_from_backup(
+                &instance.data_dir,
+                &backup_dir,
+                sqlite_rows_to_update > 0,
+            );
+            if let Err(restore_error) = restore_result {
+                return Err(format!(
+                    "修复实例历史会话可见性失败 ({}): {}；自动回滚也失败: {}；备份目录: {}",
+                    instance.name,
+                    error,
+                    restore_error,
+                    backup_dir.display()
+                ));
+            }
+            return Err(format!(
+                "修复实例历史会话可见性失败 ({}): {}；已自动回滚，备份目录: {}",
+                instance.name,
+                error,
+                backup_dir.display()
+            ));
+        }
+    };
+
+    Ok(RepairInstanceOutcome {
+        item: CodexSessionVisibilityRepairItem {
+            instance_id: instance.id.clone(),
+            instance_name: instance.name.clone(),
+            target_provider,
+            changed_rollout_file_count: rollout_changes.len(),
+            updated_sqlite_row_count: sqlite_rows_updated,
+            added_session_index_entry_count: session_index_entries_added,
+            skipped_sqlite_file: sqlite_scan.skipped_unusable_database,
+            backup_dir: Some(backup_dir_string.clone()),
+            running,
+        },
+        backup_dir: Some(backup_dir_string),
+    })
 }
 
 fn repair_single_instance(
@@ -567,16 +624,53 @@ fn count_missing_session_index_entries(data_dir: &Path) -> Result<usize, String>
         .count())
 }
 
+fn state_db_paths(data_dir: &Path) -> Vec<PathBuf> {
+    STATE_DB_RELATIVE_PATHS
+        .iter()
+        .map(|relative| data_dir.join(relative))
+        .collect()
+}
+
 fn load_sqlite_thread_index_rows(data_dir: &Path) -> Result<Vec<SqliteThreadIndexRow>, String> {
-    let db_path = data_dir.join(STATE_DB_FILE);
+    let mut rows_by_id: HashMap<String, SqliteThreadIndexRow> = HashMap::new();
+    for db_path in state_db_paths(data_dir) {
+        for row in load_sqlite_thread_index_rows_from_db(&db_path)? {
+            let should_replace = rows_by_id
+                .get(&row.id)
+                .map(|current| {
+                    sqlite_thread_updated_at_ms(&row) > sqlite_thread_updated_at_ms(current)
+                })
+                .unwrap_or(true);
+            if should_replace {
+                rows_by_id.insert(row.id.clone(), row);
+            }
+        }
+    }
+
+    let mut rows: Vec<SqliteThreadIndexRow> = rows_by_id.into_values().collect();
+    rows.sort_by(|left, right| {
+        sqlite_thread_updated_at_ms(right).cmp(&sqlite_thread_updated_at_ms(left))
+    });
+    Ok(rows)
+}
+
+fn sqlite_thread_updated_at_ms(row: &SqliteThreadIndexRow) -> i128 {
+    row.updated_at
+        .map(normalize_codex_timestamp_ms)
+        .unwrap_or(0)
+}
+
+fn load_sqlite_thread_index_rows_from_db(
+    db_path: &Path,
+) -> Result<Vec<SqliteThreadIndexRow>, String> {
     if !db_path.exists() {
         return Ok(Vec::new());
     }
 
-    let connection = match Connection::open(&db_path) {
+    let connection = match Connection::open(db_path) {
         Ok(connection) => connection,
         Err(error) if modules::db::is_unusable_sqlite_database_error(&error) => {
-            log_skipped_sqlite_database(&db_path, &error.to_string());
+            log_skipped_sqlite_database(db_path, &error.to_string());
             return Ok(Vec::new());
         }
         Err(error) => {
@@ -593,7 +687,7 @@ fn load_sqlite_thread_index_rows(data_dir: &Path) -> Result<Vec<SqliteThreadInde
         Err(error) if is_missing_threads_table_error(&error) => return Ok(Vec::new()),
         Err(error) => {
             return Err(format_sqlite_read_error(
-                &db_path,
+                db_path,
                 "读取 SQLite threads 表结构失败",
                 &error,
             ));
@@ -602,12 +696,12 @@ fn load_sqlite_thread_index_rows(data_dir: &Path) -> Result<Vec<SqliteThreadInde
     let rows = statement
         .query_map([], |row| row.get::<usize, String>(1))
         .map_err(|error| {
-            format_sqlite_read_error(&db_path, "读取 SQLite threads 表结构失败", &error)
+            format_sqlite_read_error(db_path, "读取 SQLite threads 表结构失败", &error)
         })?;
     let mut names = HashSet::new();
     for row in rows {
         names.insert(row.map_err(|error| {
-            format_sqlite_read_error(&db_path, "读取 SQLite threads 表结构失败", &error)
+            format_sqlite_read_error(db_path, "读取 SQLite threads 表结构失败", &error)
         })?);
     }
     if !names.contains("id") {
@@ -624,8 +718,12 @@ fn load_sqlite_thread_index_rows(data_dir: &Path) -> Result<Vec<SqliteThreadInde
     } else {
         "NULL"
     };
-    let sql =
-        format!("SELECT id, {title_expr}, {updated_at_expr} FROM threads ORDER BY updated_at DESC");
+    let order_clause = if names.contains("updated_at") {
+        " ORDER BY updated_at DESC"
+    } else {
+        ""
+    };
+    let sql = format!("SELECT id, {title_expr}, {updated_at_expr} FROM threads{order_clause}");
     let mut statement = connection.prepare(sql.as_str()).map_err(|error| {
         format!(
             "准备 SQLite 会话索引查询失败 ({}): {}",
@@ -662,8 +760,11 @@ fn load_sqlite_thread_index_rows(data_dir: &Path) -> Result<Vec<SqliteThreadInde
 }
 
 fn format_thread_updated_at_iso(updated_at: Option<i64>) -> String {
-    let seconds = updated_at.unwrap_or_else(|| Utc::now().timestamp());
-    Utc.timestamp_opt(seconds, 0)
+    let timestamp_ms = updated_at
+        .map(normalize_codex_timestamp_ms)
+        .unwrap_or_else(|| Utc::now().timestamp_millis() as i128);
+    let timestamp_ms = timestamp_ms.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
+    Utc.timestamp_millis_opt(timestamp_ms)
         .single()
         .unwrap_or_else(Utc::now)
         .to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
@@ -815,7 +916,23 @@ fn count_sqlite_rows_to_update(
     data_dir: &Path,
     target_provider: &str,
 ) -> Result<SqliteProviderScan, String> {
-    let db_path = data_dir.join(STATE_DB_FILE);
+    let mut rows_to_update = 0usize;
+    let mut skipped_unusable_database = false;
+    for db_path in state_db_paths(data_dir) {
+        let scan = count_sqlite_rows_to_update_in_db(&db_path, target_provider)?;
+        rows_to_update += scan.rows_to_update;
+        skipped_unusable_database |= scan.skipped_unusable_database;
+    }
+    Ok(SqliteProviderScan {
+        rows_to_update,
+        skipped_unusable_database,
+    })
+}
+
+fn count_sqlite_rows_to_update_in_db(
+    db_path: &Path,
+    target_provider: &str,
+) -> Result<SqliteProviderScan, String> {
     if !db_path.exists() {
         return Ok(SqliteProviderScan {
             rows_to_update: 0,
@@ -823,10 +940,10 @@ fn count_sqlite_rows_to_update(
         });
     }
 
-    let connection = match Connection::open(&db_path) {
+    let connection = match Connection::open(db_path) {
         Ok(connection) => connection,
         Err(error) if modules::db::is_unusable_sqlite_database_error(&error) => {
-            log_skipped_sqlite_database(&db_path, &error.to_string());
+            log_skipped_sqlite_database(db_path, &error.to_string());
             return Ok(SqliteProviderScan {
                 rows_to_update: 0,
                 skipped_unusable_database: true,
@@ -843,7 +960,7 @@ fn count_sqlite_rows_to_update(
     let columns = match read_threads_table_columns(&connection) {
         Ok(columns) => columns,
         Err(error) if modules::db::is_unusable_sqlite_database_error(&error) => {
-            log_skipped_sqlite_database(&db_path, &error.to_string());
+            log_skipped_sqlite_database(db_path, &error.to_string());
             return Ok(SqliteProviderScan {
                 rows_to_update: 0,
                 skipped_unusable_database: true,
@@ -851,7 +968,7 @@ fn count_sqlite_rows_to_update(
         }
         Err(error) => {
             return Err(format_sqlite_read_error(
-                &db_path,
+                db_path,
                 "读取 SQLite threads 表结构失败",
                 &error,
             ));
@@ -880,7 +997,7 @@ fn count_sqlite_rows_to_update(
     let count = match count_result {
         Ok(count) => count,
         Err(error) if modules::db::is_unusable_sqlite_database_error(&error) => {
-            log_skipped_sqlite_database(&db_path, &error.to_string());
+            log_skipped_sqlite_database(db_path, &error.to_string());
             return Ok(SqliteProviderScan {
                 rows_to_update: 0,
                 skipped_unusable_database: true,
@@ -907,15 +1024,22 @@ fn count_sqlite_rows_to_update(
 }
 
 fn update_sqlite_provider(data_dir: &Path, target_provider: &str) -> Result<usize, String> {
-    let db_path = data_dir.join(STATE_DB_FILE);
+    let mut updated_rows = 0usize;
+    for db_path in state_db_paths(data_dir) {
+        updated_rows += update_sqlite_provider_in_db(&db_path, target_provider)?;
+    }
+    Ok(updated_rows)
+}
+
+fn update_sqlite_provider_in_db(db_path: &Path, target_provider: &str) -> Result<usize, String> {
     if !db_path.exists() {
         return Ok(0);
     }
 
-    let mut connection = match Connection::open(&db_path) {
+    let mut connection = match Connection::open(db_path) {
         Ok(connection) => connection,
         Err(error) if modules::db::is_unusable_sqlite_database_error(&error) => {
-            log_skipped_sqlite_database(&db_path, &error.to_string());
+            log_skipped_sqlite_database(db_path, &error.to_string());
             return Ok(0);
         }
         Err(error) => {
@@ -938,12 +1062,12 @@ fn update_sqlite_provider(data_dir: &Path, target_provider: &str) -> Result<usiz
     let columns = match read_threads_table_columns(&connection) {
         Ok(columns) => columns,
         Err(error) if modules::db::is_unusable_sqlite_database_error(&error) => {
-            log_skipped_sqlite_database(&db_path, &error.to_string());
+            log_skipped_sqlite_database(db_path, &error.to_string());
             return Ok(0);
         }
         Err(error) => {
             return Err(format_sqlite_read_error(
-                &db_path,
+                db_path,
                 "读取 SQLite threads 表结构失败",
                 &error,
             ));
@@ -958,7 +1082,7 @@ fn update_sqlite_provider(data_dir: &Path, target_provider: &str) -> Result<usiz
     let set_clause = build_threads_repair_set_clause(columns);
     let transaction = connection
         .transaction()
-        .map_err(|error| format_sqlite_write_error(&db_path, &error))?;
+        .map_err(|error| format_sqlite_write_error(db_path, &error))?;
     let sql = format!("UPDATE threads SET {set_clause} WHERE {where_clause}");
     let update_result = if columns.model_provider {
         transaction.execute(sql.as_str(), [target_provider])
@@ -968,20 +1092,20 @@ fn update_sqlite_provider(data_dir: &Path, target_provider: &str) -> Result<usiz
     let updated_rows = match update_result {
         Ok(updated_rows) => updated_rows,
         Err(error) if modules::db::is_unusable_sqlite_database_error(&error) => {
-            log_skipped_sqlite_database(&db_path, &error.to_string());
+            log_skipped_sqlite_database(db_path, &error.to_string());
             return Ok(0);
         }
         Err(error) if is_missing_threads_table_error(&error) => {
             return Ok(0);
         }
-        Err(error) => return Err(format_sqlite_write_error(&db_path, &error)),
+        Err(error) => return Err(format_sqlite_write_error(db_path, &error)),
     };
     if let Err(error) = transaction.commit() {
         if modules::db::is_unusable_sqlite_database_error(&error) {
-            log_skipped_sqlite_database(&db_path, &error.to_string());
+            log_skipped_sqlite_database(db_path, &error.to_string());
             return Ok(0);
         }
-        return Err(format_sqlite_write_error(&db_path, &error));
+        return Err(format_sqlite_write_error(db_path, &error));
     }
     Ok(updated_rows)
 }
@@ -1151,13 +1275,26 @@ fn remove_sqlite_sidecar_files(db_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn backup_sqlite_database(data_dir: &Path, backup_dir: &Path) -> Result<bool, String> {
-    let db_path = data_dir.join(STATE_DB_FILE);
+fn backup_sqlite_database(
+    data_dir: &Path,
+    backup_dir: &Path,
+    relative_path: &str,
+) -> Result<bool, String> {
+    let db_path = data_dir.join(relative_path);
     if !db_path.exists() {
         return Ok(false);
     }
 
-    let backup_db_path = backup_dir.join(STATE_DB_FILE);
+    let backup_db_path = backup_dir.join(relative_path);
+    if let Some(parent) = backup_db_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "创建 state_5.sqlite 备份目录失败 ({}): {}",
+                parent.display(),
+                error
+            )
+        })?;
+    }
     let connection = Connection::open(&db_path).map_err(|error| {
         format!(
             "打开 state_5.sqlite 以创建一致备份失败 ({}): {}",
@@ -1198,20 +1335,34 @@ fn backup_sqlite_database(data_dir: &Path, backup_dir: &Path) -> Result<bool, St
     Ok(true)
 }
 
-fn restore_sqlite_database_from_backup(data_dir: &Path, backup_dir: &Path) -> Result<bool, String> {
-    let backup_db_path = backup_dir.join(STATE_DB_FILE);
+fn backup_sqlite_databases(data_dir: &Path, backup_dir: &Path) -> Result<bool, String> {
+    let mut any_backup_created = false;
+    for relative_path in STATE_DB_RELATIVE_PATHS {
+        any_backup_created |= backup_sqlite_database(data_dir, backup_dir, relative_path)?;
+    }
+    Ok(any_backup_created)
+}
+
+fn restore_sqlite_database_from_backup(
+    data_dir: &Path,
+    backup_dir: &Path,
+    relative_path: &str,
+) -> Result<bool, String> {
+    let backup_db_path = backup_dir.join(relative_path);
     if !backup_db_path.exists() {
         return Ok(false);
     }
 
-    let target_db_path = data_dir.join(STATE_DB_FILE);
-    fs::create_dir_all(data_dir).map_err(|error| {
-        format!(
-            "创建 state_5.sqlite 恢复目录失败 ({}): {}",
-            data_dir.display(),
-            error
-        )
-    })?;
+    let target_db_path = data_dir.join(relative_path);
+    if let Some(parent) = target_db_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "创建 state_5.sqlite 恢复目录失败 ({}): {}",
+                parent.display(),
+                error
+            )
+        })?;
+    }
     remove_sqlite_sidecar_files(&target_db_path)?;
     fs::copy(&backup_db_path, &target_db_path).map_err(|error| {
         format!(
@@ -1223,6 +1374,17 @@ fn restore_sqlite_database_from_backup(data_dir: &Path, backup_dir: &Path) -> Re
     })?;
     remove_sqlite_sidecar_files(&target_db_path)?;
     Ok(true)
+}
+
+fn restore_sqlite_databases_from_backup(
+    data_dir: &Path,
+    backup_dir: &Path,
+) -> Result<bool, String> {
+    let mut any_restored = false;
+    for relative_path in STATE_DB_RELATIVE_PATHS {
+        any_restored |= restore_sqlite_database_from_backup(data_dir, backup_dir, relative_path)?;
+    }
+    Ok(any_restored)
 }
 
 fn backup_instance_files(
@@ -1272,7 +1434,7 @@ fn backup_instance_files(
     }
 
     if include_sqlite {
-        sqlite_backup_created = backup_sqlite_database(data_dir, &backup_dir)?;
+        sqlite_backup_created = backup_sqlite_databases(data_dir, &backup_dir)?;
     }
 
     let mut session_index_backup_created = false;
@@ -1425,7 +1587,7 @@ fn restore_instance_files_from_backup(
     }
 
     if include_sqlite {
-        let _ = restore_sqlite_database_from_backup(data_dir, backup_dir)?;
+        let _ = restore_sqlite_databases_from_backup(data_dir, backup_dir)?;
     }
 
     Ok(())
@@ -1696,6 +1858,95 @@ mod tests {
     }
 
     #[test]
+    fn direct_provider_sync_updates_rollout_and_sqlite_like_oc_codex_switcher() {
+        let data_dir = make_temp_dir("codex-session-visibility-oc-switch-test");
+        let rollout_dir = data_dir.join("sessions").join("2026").join("06").join("08");
+        fs::create_dir_all(&rollout_dir).expect("create rollout dir");
+        let rollout_path = rollout_dir.join("rollout-thread-a.jsonl");
+        fs::write(
+            &rollout_path,
+            "{\"timestamp\":\"2026-06-08T00:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"thread-a\",\"cwd\":\"C:\\\\Work\",\"source\":\"cli\",\"model_provider\":\"openai\"}}\n{\"type\":\"event\"}\n",
+        )
+        .expect("write rollout");
+
+        let db_path = data_dir.join(STATE_DB_FILE);
+        let connection = Connection::open(&db_path).expect("open sqlite");
+        connection
+            .execute(
+                "CREATE TABLE threads(id TEXT PRIMARY KEY, model_provider TEXT, archived INTEGER DEFAULT 0)",
+                [],
+            )
+            .expect("create threads table");
+        connection
+            .execute(
+                "INSERT INTO threads(id, model_provider, archived) VALUES('thread-a', 'openai', 0)",
+                [],
+            )
+            .expect("insert thread");
+        drop(connection);
+
+        let secondary_db_path = data_dir.join("sqlite").join(STATE_DB_FILE);
+        fs::create_dir_all(secondary_db_path.parent().expect("secondary db parent"))
+            .expect("create secondary sqlite dir");
+        let connection = Connection::open(&secondary_db_path).expect("open secondary sqlite");
+        connection
+            .execute(
+                "CREATE TABLE threads(
+                    id TEXT PRIMARY KEY,
+                    model_provider TEXT,
+                    has_user_event INTEGER,
+                    first_user_message TEXT,
+                    thread_source TEXT
+                )",
+                [],
+            )
+            .expect("create secondary threads table");
+        connection
+            .execute(
+                "INSERT INTO threads(id, model_provider, has_user_event, first_user_message, thread_source)
+                 VALUES('thread-a', 'codex_local_access', 0, 'hello', 'user')",
+                [],
+            )
+            .expect("insert secondary thread");
+        drop(connection);
+
+        let item = repair_session_visibility_for_dir_with_provider(
+            &data_dir,
+            "CPA",
+            "__test__",
+            "测试实例",
+        )
+        .expect("sync provider");
+        assert_eq!(item.changed_rollout_file_count, 1);
+        assert_eq!(item.updated_sqlite_row_count, 2);
+
+        let content = fs::read_to_string(&rollout_path).expect("read repaired rollout");
+        assert!(content.contains("\"model_provider\":\"CPA\""));
+
+        let connection = Connection::open(&db_path).expect("reopen sqlite");
+        let provider = connection
+            .query_row(
+                "SELECT model_provider FROM threads WHERE id = 'thread-a'",
+                [],
+                |row| row.get::<usize, String>(0),
+            )
+            .expect("read sqlite provider");
+        assert_eq!(provider, "CPA");
+
+        let connection = Connection::open(&secondary_db_path).expect("reopen secondary sqlite");
+        let secondary = connection
+            .query_row(
+                "SELECT model_provider, has_user_event FROM threads WHERE id = 'thread-a'",
+                [],
+                |row| Ok((row.get::<usize, String>(0)?, row.get::<usize, i64>(1)?)),
+            )
+            .expect("read secondary sqlite provider");
+        assert_eq!(secondary, ("CPA".to_string(), 1));
+
+        fs::remove_dir_all(&data_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
     fn sqlite_backup_restore_replaces_db_and_clears_sidecars() {
         let data_dir = make_temp_dir("codex-session-visibility-sqlite-backup-test");
         let db_path = data_dir.join(STATE_DB_FILE);
@@ -1714,6 +1965,24 @@ mod tests {
             .expect("insert old row");
         drop(connection);
 
+        let secondary_db_path = data_dir.join("sqlite").join(STATE_DB_FILE);
+        fs::create_dir_all(secondary_db_path.parent().expect("secondary db parent"))
+            .expect("create secondary sqlite dir");
+        let connection = Connection::open(&secondary_db_path).expect("open secondary sqlite");
+        connection
+            .execute(
+                "CREATE TABLE threads (id TEXT PRIMARY KEY, model_provider TEXT)",
+                [],
+            )
+            .expect("create secondary threads table");
+        connection
+            .execute(
+                "INSERT INTO threads (id, model_provider) VALUES ('thread-2', 'secondary-old')",
+                [],
+            )
+            .expect("insert secondary old row");
+        drop(connection);
+
         let backup_dir = backup_instance_files(&data_dir, &[], true, false, "default", "relay")
             .expect("backup db");
 
@@ -1728,12 +1997,30 @@ mod tests {
         for path in sqlite_sidecar_paths(&db_path) {
             fs::write(path, b"stale wal/shm").expect("write stale sidecar");
         }
+        let connection = Connection::open(&secondary_db_path).expect("reopen secondary sqlite");
+        connection
+            .execute(
+                "UPDATE threads SET model_provider = 'secondary-new' WHERE id = 'thread-2'",
+                [],
+            )
+            .expect("mutate secondary db after backup");
+        drop(connection);
+        for path in sqlite_sidecar_paths(&secondary_db_path) {
+            fs::write(path, b"stale wal/shm").expect("write stale secondary sidecar");
+        }
 
         restore_instance_files_from_backup(&data_dir, &backup_dir, true).expect("restore db");
         for path in sqlite_sidecar_paths(&db_path) {
             assert!(
                 !path.exists(),
                 "stale sidecar should be removed: {:?}",
+                path
+            );
+        }
+        for path in sqlite_sidecar_paths(&secondary_db_path) {
+            assert!(
+                !path.exists(),
+                "stale secondary sidecar should be removed: {:?}",
                 path
             );
         }
@@ -1748,7 +2035,67 @@ mod tests {
             .expect("read restored provider");
         assert_eq!(provider, "old");
 
+        let connection =
+            Connection::open(&secondary_db_path).expect("open restored secondary sqlite");
+        let provider = connection
+            .query_row(
+                "SELECT model_provider FROM threads WHERE id = 'thread-2'",
+                [],
+                |row| row.get::<usize, String>(0),
+            )
+            .expect("read restored secondary provider");
+        assert_eq!(provider, "secondary-old");
+
         fs::remove_dir_all(&data_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn session_index_repair_handles_threads_table_without_updated_at() {
+        let data_dir = make_temp_dir("codex-session-visibility-index-no-updated-at-test");
+        let db_path = data_dir.join(STATE_DB_FILE);
+        let connection = Connection::open(&db_path).expect("open sqlite");
+        connection
+            .execute("CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT)", [])
+            .expect("create threads table");
+        connection
+            .execute(
+                "INSERT INTO threads (id, title) VALUES ('missing-thread', 'Missing chat')",
+                [],
+            )
+            .expect("insert row");
+        drop(connection);
+
+        let missing =
+            count_missing_session_index_entries(&data_dir).expect("count missing index entries");
+        assert_eq!(missing, 1);
+
+        let added = reconcile_session_index_from_sqlite(&data_dir).expect("reconcile index");
+        assert_eq!(added, 1);
+        let index_map = read_session_index_map(&data_dir).expect("read session index");
+        assert!(index_map.contains_key("missing-thread"));
+
+        fs::remove_dir_all(&data_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn session_index_repair_formats_seconds_millis_and_micros_timestamps() {
+        let seconds = chrono::DateTime::parse_from_rfc3339(&format_thread_updated_at_iso(Some(
+            1_800_000_000,
+        )))
+        .expect("parse seconds timestamp");
+        assert_eq!(seconds.timestamp_millis(), 1_800_000_000_000);
+
+        let millis = chrono::DateTime::parse_from_rfc3339(&format_thread_updated_at_iso(Some(
+            1_800_000_000_000,
+        )))
+        .expect("parse millis timestamp");
+        assert_eq!(millis.timestamp_millis(), 1_800_000_000_000);
+
+        let micros = chrono::DateTime::parse_from_rfc3339(&format_thread_updated_at_iso(Some(
+            1_800_000_000_000_000,
+        )))
+        .expect("parse micros timestamp");
+        assert_eq!(micros.timestamp_millis(), 1_800_000_000_000);
     }
 
     #[test]

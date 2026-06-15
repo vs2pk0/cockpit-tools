@@ -280,6 +280,7 @@ fn sync_codex_threads_across_idle_instances(context: &str) {
 
 fn repair_session_visibility_before_launch(
     context: &str,
+    data_dir: &Path,
     launch_provider_change: &Option<CodexLaunchProviderChange>,
 ) -> Result<(), String> {
     let Some(change) = launch_provider_change else {
@@ -287,15 +288,21 @@ fn repair_session_visibility_before_launch(
     };
 
     let started = Instant::now();
-    let summary = modules::codex_session_visibility::repair_session_visibility_across_instances()?;
+    let item = modules::codex_session_visibility::repair_session_visibility_for_dir_with_provider(
+        data_dir,
+        &change.to_provider,
+        "__launch__",
+        "启动实例",
+    )?;
     modules::logger::log_info(&format!(
-        "[Codex Session Visibility] {}: repaired before launch, from_provider={}, to_provider={}, mutated_instances={}, rollout_files={}, sqlite_rows={}, elapsed_ms={}",
+        "[Codex Session Visibility] {}: repaired before launch, from_provider={}, to_provider={}, target_dir={}, rollout_files={}, sqlite_rows={}, session_index_entries={}, elapsed_ms={}",
         context,
         change.from_provider,
         change.to_provider,
-        summary.mutated_instance_count,
-        summary.changed_rollout_file_count,
-        summary.updated_sqlite_row_count,
+        data_dir.display(),
+        item.changed_rollout_file_count,
+        item.updated_sqlite_row_count,
+        item.added_session_index_entry_count,
         started.elapsed().as_millis()
     ));
     Ok(())
@@ -320,7 +327,7 @@ async fn apply_bound_account_to_initialized_profile(
         previous_provider,
         read_launch_provider_for_dir(profile_dir),
     );
-    repair_session_visibility_before_launch(context, &launch_provider_change)?;
+    repair_session_visibility_before_launch(context, profile_dir, &launch_provider_change)?;
     Ok(launch_provider_change.and_then(|change| change.credential_change))
 }
 
@@ -876,7 +883,11 @@ async fn codex_start_instance_internal(
             previous_provider,
             read_launch_provider_for_dir(&default_dir),
         );
-        repair_session_visibility_before_launch("before-start-default", &launch_provider_change)?;
+        repair_session_visibility_before_launch(
+            "before-start-default",
+            &default_dir,
+            &launch_provider_change,
+        )?;
         let launch_credential_change = launch_provider_change
             .as_ref()
             .and_then(|change| change.credential_change.clone());
@@ -962,7 +973,11 @@ async fn codex_start_instance_internal(
         read_launch_provider_for_dir(instance_dir),
     );
     modules::codex_speed::write_app_speed_for_dir(instance_dir, instance.app_speed.clone())?;
-    repair_session_visibility_before_launch("before-start-instance", &launch_provider_change)?;
+    repair_session_visibility_before_launch(
+        "before-start-instance",
+        instance_dir,
+        &launch_provider_change,
+    )?;
     let launch_credential_change = launch_provider_change
         .as_ref()
         .and_then(|change| change.credential_change.clone());
