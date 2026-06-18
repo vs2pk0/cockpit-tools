@@ -1613,7 +1613,7 @@ export function ZedAccountsPage() {
       />
 
       {deleteConfirm && (
-        <div className="modal-overlay" onClick={() => !deleting && setDeleteConfirm(null)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h2>{t('common.confirm')}</h2>
@@ -1642,7 +1642,7 @@ export function ZedAccountsPage() {
       )}
 
       {tagDeleteConfirm && (
-        <div className="modal-overlay" onClick={() => !deletingTag && setTagDeleteConfirm(null)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h2>{t('common.confirm')}</h2>

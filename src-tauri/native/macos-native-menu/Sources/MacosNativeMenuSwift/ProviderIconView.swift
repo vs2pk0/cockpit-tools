@@ -35,6 +35,8 @@ enum ProviderIconRegistry {
             return ProviderIconResource(name: "antigravity-menu", ext: "png", renderingMode: .original)
         case "codex":
             return ProviderIconResource(name: "codex", ext: "svg", renderingMode: .template)
+        case "claude_manager":
+            return ProviderIconResource(name: "claude", ext: "png", renderingMode: .original)
         case "cursor":
             return ProviderIconResource(name: "cursor-menu", ext: "png", renderingMode: .original)
         case "gemini":

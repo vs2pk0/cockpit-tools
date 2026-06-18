@@ -151,6 +151,7 @@ function isAllowedEnglishReuse(key, value) {
   const allowedBrandKeys = new Set([
     'nav.codebuddy',
     'nav.codebuddyCn',
+    'nav.claude',
     'nav.gemini',
     'nav.qoder',
   ]);
@@ -208,6 +209,7 @@ function isAllowedEnglishReuse(key, value) {
     '{{days}}d {{hours}}h',
     '{{hours}}h {{minutes}}m',
     '5h',
+    'Weekly',
   ]);
 
   if (allowedExactValues.has(normalized)) {

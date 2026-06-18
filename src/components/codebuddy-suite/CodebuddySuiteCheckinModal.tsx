@@ -111,7 +111,7 @@ export function CodebuddySuiteCheckinModal<TAccount extends CodebuddySuiteAccoun
   const platformLabel = 'WorkBuddy';
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal-content checkin-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <button className="btn btn-secondary icon-only" onClick={onClose} title={t('common.back', '返回')} aria-label={t('common.back', '返回')}><ChevronLeft size={14} /></button>

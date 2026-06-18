@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { InstancesManager } from '../components/InstancesManager';
 import { OverviewTabsHeader } from '../components/OverviewTabsHeader';
+import { useAntigravityRuntimeTarget } from '../hooks/useAntigravityRuntimeTarget';
 import { useAccountStore } from '../stores/useAccountStore';
+import { useAntigravityLegacyInstanceStore } from '../stores/useAntigravityLegacyInstanceStore';
 import { useInstanceStore } from '../stores/useInstanceStore';
 import type { Account } from '../types/account';
 import { Page } from '../types/navigation';
@@ -25,7 +27,11 @@ interface InstancesPageProps {
 
 export function InstancesPage({ onNavigate }: InstancesPageProps) {
   const { t } = useTranslation();
-  const instanceStore = useInstanceStore();
+  const runtimeTarget = useAntigravityRuntimeTarget();
+  const legacyInstanceStore = useAntigravityLegacyInstanceStore();
+  const ideInstanceStore = useInstanceStore();
+  const instanceStore =
+    runtimeTarget === 'antigravity' ? legacyInstanceStore : ideInstanceStore;
   const { accounts, currentAccount, fetchAccounts } = useAccountStore();
   const [displayGroups, setDisplayGroups] = useState<DisplayGroup[]>([]);
   const [sortBy] = useState(() =>
@@ -106,7 +112,7 @@ export function InstancesPage({ onNavigate }: InstancesPageProps) {
           const presentation = buildAntigravityAccountPresentation(account, displayGroups, t);
           return `${presentation.displayName} ${presentation.planLabel} ${account.name ?? ''}`;
         }}
-        appType="antigravity"
+        appType={runtimeTarget}
       />
     </div>
   );

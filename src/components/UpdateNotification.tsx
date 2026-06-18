@@ -196,7 +196,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({
       : t('common.loading');
 
     return (
-      <div className="modal-overlay update-overlay" onClick={handleClose}>
+      <div className="modal-overlay update-overlay">
         <div className="modal update-modal" onClick={(event) => event.stopPropagation()}>
           <div className="modal-header">
             <h2 className="update-modal-title">
@@ -235,7 +235,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({
   }
 
   return (
-    <div className="modal-overlay update-overlay" onClick={handleClose}>
+    <div className="modal-overlay update-overlay">
       <div className="modal update-modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <h2 className="update-modal-title">

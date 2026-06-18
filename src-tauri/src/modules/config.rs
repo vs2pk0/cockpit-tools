@@ -103,6 +103,9 @@ pub struct UserConfig {
     /// Gemini 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_gemini_auto_refresh")]
     pub gemini_auto_refresh_minutes: i32,
+    /// Claude 自动刷新间隔（分钟），-1 表示禁用
+    #[serde(default = "default_claude_auto_refresh")]
+    pub claude_auto_refresh_minutes: i32,
     /// Gemini 切号时是否同步覆盖 WSL 配置 (Windows Only)
     #[serde(default = "default_gemini_sync_wsl")]
     pub gemini_sync_wsl: bool,
@@ -220,6 +223,9 @@ pub struct UserConfig {
     /// Codex 启动路径（为空则使用默认路径）
     #[serde(default = "default_codex_app_path")]
     pub codex_app_path: String,
+    /// Claude 桌面应用启动路径（为空则使用默认路径）
+    #[serde(default = "default_claude_app_path")]
+    pub claude_app_path: String,
     /// 切换 Codex 后需联动重启的指定应用路径
     #[serde(default = "default_codex_specified_app_path")]
     pub codex_specified_app_path: String,
@@ -379,6 +385,12 @@ pub struct UserConfig {
     /// Gemini 配额预警阈值（百分比）
     #[serde(default = "default_gemini_quota_alert_threshold")]
     pub gemini_quota_alert_threshold: i32,
+    /// 是否启用 Claude 配额预警通知
+    #[serde(default = "default_claude_quota_alert_enabled")]
+    pub claude_quota_alert_enabled: bool,
+    /// Claude 配额预警阈值（百分比）
+    #[serde(default = "default_claude_quota_alert_threshold")]
+    pub claude_quota_alert_threshold: i32,
     /// 是否启用 CodeBuddy 配额预警通知
     #[serde(default = "default_codebuddy_quota_alert_enabled")]
     pub codebuddy_quota_alert_enabled: bool,
@@ -543,6 +555,9 @@ fn default_cursor_auto_refresh() -> i32 {
 fn default_gemini_auto_refresh() -> i32 {
     10
 }
+fn default_claude_auto_refresh() -> i32 {
+    10
+}
 fn default_gemini_sync_wsl() -> bool {
     true
 }
@@ -656,6 +671,9 @@ fn default_antigravity_app_path() -> String {
     String::new()
 }
 fn default_codex_app_path() -> String {
+    String::new()
+}
+fn default_claude_app_path() -> String {
     String::new()
 }
 fn default_codex_specified_app_path() -> String {
@@ -817,6 +835,12 @@ fn default_gemini_quota_alert_enabled() -> bool {
 fn default_gemini_quota_alert_threshold() -> i32 {
     20
 }
+fn default_claude_quota_alert_enabled() -> bool {
+    false
+}
+fn default_claude_quota_alert_threshold() -> i32 {
+    20
+}
 fn default_codebuddy_quota_alert_enabled() -> bool {
     false
 }
@@ -873,6 +897,7 @@ impl Default for UserConfig {
             kiro_auto_refresh_minutes: default_kiro_auto_refresh(),
             cursor_auto_refresh_minutes: default_cursor_auto_refresh(),
             gemini_auto_refresh_minutes: default_gemini_auto_refresh(),
+            claude_auto_refresh_minutes: default_claude_auto_refresh(),
             gemini_sync_wsl: default_gemini_sync_wsl(),
             codebuddy_auto_refresh_minutes: default_codebuddy_auto_refresh(),
             codebuddy_cn_auto_refresh_minutes: default_codebuddy_cn_auto_refresh(),
@@ -913,6 +938,7 @@ impl Default for UserConfig {
             opencode_app_path: default_opencode_app_path(),
             antigravity_app_path: default_antigravity_app_path(),
             codex_app_path: default_codex_app_path(),
+            claude_app_path: default_claude_app_path(),
             codex_specified_app_path: default_codex_specified_app_path(),
             zed_app_path: default_zed_app_path(),
             vscode_app_path: default_vscode_app_path(),
@@ -969,6 +995,8 @@ impl Default for UserConfig {
             cursor_quota_alert_threshold: default_cursor_quota_alert_threshold(),
             gemini_quota_alert_enabled: default_gemini_quota_alert_enabled(),
             gemini_quota_alert_threshold: default_gemini_quota_alert_threshold(),
+            claude_quota_alert_enabled: default_claude_quota_alert_enabled(),
+            claude_quota_alert_threshold: default_claude_quota_alert_threshold(),
             codebuddy_quota_alert_enabled: default_codebuddy_quota_alert_enabled(),
             codebuddy_quota_alert_threshold: default_codebuddy_quota_alert_threshold(),
             codebuddy_cn_quota_alert_enabled: default_codebuddy_cn_quota_alert_enabled(),
@@ -1206,6 +1234,19 @@ pub fn load_user_config() -> Result<UserConfig, String> {
                 .unwrap_or_else(default_gemini_auto_refresh);
             obj.insert(
                 "gemini_auto_refresh_minutes".to_string(),
+                json!(inherited_refresh),
+            );
+        }
+
+        if !obj.contains_key("claude_auto_refresh_minutes") {
+            let inherited_refresh = obj
+                .get("gemini_auto_refresh_minutes")
+                .or_else(|| obj.get("codex_auto_refresh_minutes"))
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32)
+                .unwrap_or_else(default_claude_auto_refresh);
+            obj.insert(
+                "claude_auto_refresh_minutes".to_string(),
                 json!(inherited_refresh),
             );
         }
@@ -1688,6 +1729,18 @@ pub fn load_user_config() -> Result<UserConfig, String> {
         if !obj.contains_key("gemini_quota_alert_threshold") {
             obj.insert(
                 "gemini_quota_alert_threshold".to_string(),
+                json!(legacy_threshold),
+            );
+        }
+        if !obj.contains_key("claude_quota_alert_enabled") {
+            obj.insert(
+                "claude_quota_alert_enabled".to_string(),
+                json!(legacy_enabled),
+            );
+        }
+        if !obj.contains_key("claude_quota_alert_threshold") {
+            obj.insert(
+                "claude_quota_alert_threshold".to_string(),
                 json!(legacy_threshold),
             );
         }

@@ -79,11 +79,18 @@ function resolveBoundPhone(account: CodexAccount): string | undefined {
   return toStringValue(account.bound_phone);
 }
 
-function appendBoundPhoneMetadata(payload: Record<string, unknown>, account: CodexAccount): void {
+function appendAccountMetadata(payload: JsonRecord, account: CodexAccount): void {
   const phone = resolveBoundPhone(account);
-  if (!phone) return;
-  payload.bound_phone = phone;
-  payload.phone = phone;
+  if (phone) {
+    payload.bound_phone = phone;
+    payload.phone = phone;
+  }
+  if (account.account_note?.trim()) {
+    payload.account_note = account.account_note.trim();
+  }
+  if (account.tags && account.tags.length > 0) {
+    payload.tags = [...account.tags];
+  }
 }
 
 function sanitizeFileNameSegment(input: string | undefined, fallback: string): string {
@@ -178,6 +185,10 @@ function resolveSubscriptionExpiresAt(account: CodexAccount): string | undefined
 }
 
 function resolveAccessTokenExpiry(account: CodexAccount): string | undefined {
+  const storedExpiry = normalizeTimestampToIso(account.access_token_expires_at);
+  if (storedExpiry) {
+    return storedExpiry;
+  }
   const accessTokenPayload = decodeJwtPayload(account.tokens?.access_token);
   const idTokenPayload = decodeJwtPayload(account.tokens?.id_token);
   const accessExp = toNumberValue(accessTokenPayload?.exp);
@@ -211,7 +222,7 @@ function buildSub2apiCredentials(account: CodexAccount): JsonRecord {
   if (account.email?.trim()) {
     credentials.email = account.email.trim();
   }
-  appendBoundPhoneMetadata(credentials, account);
+  appendAccountMetadata(credentials, account);
 
   const chatgptAccountId = resolveAccountId(account);
   if (chatgptAccountId) {
@@ -263,13 +274,7 @@ function toPortableTokenStorage(account: CodexAccount): CodexPortableTokenStorag
     type: 'codex',
     expired: resolveAccessTokenExpiry(account) || '',
   };
-  appendBoundPhoneMetadata(payload, account);
-  if (account.account_note?.trim()) {
-    payload.account_note = account.account_note.trim();
-  }
-  if (account.tags && account.tags.length > 0) {
-    payload.tags = [...account.tags];
-  }
+  appendAccountMetadata(payload, account);
   return payload;
 }
 
@@ -293,13 +298,7 @@ function toPortableApiKeyStorage(account: CodexAccount): JsonRecord {
   if (account.api_provider_name?.trim()) {
     payload.api_provider_name = account.api_provider_name.trim();
   }
-  appendBoundPhoneMetadata(payload, account);
-  if (account.account_note?.trim()) {
-    payload.account_note = account.account_note.trim();
-  }
-  if (account.tags && account.tags.length > 0) {
-    payload.tags = [...account.tags];
-  }
+  appendAccountMetadata(payload, account);
 
   return payload;
 }

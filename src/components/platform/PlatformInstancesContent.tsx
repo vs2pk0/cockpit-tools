@@ -2,7 +2,7 @@ import { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus } from 'lucide-react';
 import type { InstanceStoreState } from '../../stores/createInstanceStore';
-import type { InstanceProfile } from '../../types/instance';
+import type { InstanceLaunchMode, InstanceProfile } from '../../types/instance';
 import { InstancesManager } from '../InstancesManager';
 
 type AccountLike = {
@@ -12,7 +12,9 @@ type AccountLike = {
 
 type InstancesAppType =
   | 'antigravity'
+  | 'antigravity_ide'
   | 'codex'
+  | 'claude'
   | 'vscode'
   | 'windsurf'
   | 'kiro'
@@ -39,6 +41,7 @@ interface PlatformInstancesContentProps<TAccount extends AccountLike> {
   unsupportedDescDefault: string;
   onInstanceStarted?: (instance: InstanceProfile) => void | Promise<void>;
   resolveStartSuccessMessage?: (instance: InstanceProfile) => string;
+  isAccountAllowedForLaunchMode?: (account: TAccount, launchMode: InstanceLaunchMode) => boolean;
   toolbarExtraActions?: ReactNode;
 }
 
@@ -57,6 +60,7 @@ export function PlatformInstancesContent<TAccount extends AccountLike>({
   unsupportedDescDefault,
   onInstanceStarted,
   resolveStartSuccessMessage,
+  isAccountAllowedForLaunchMode,
   toolbarExtraActions,
 }: PlatformInstancesContentProps<TAccount>) {
   const { t } = useTranslation();
@@ -88,6 +92,7 @@ export function PlatformInstancesContent<TAccount extends AccountLike>({
         appType={appType}
         onInstanceStarted={onInstanceStarted}
         resolveStartSuccessMessage={resolveStartSuccessMessage}
+        isAccountAllowedForLaunchMode={isAccountAllowedForLaunchMode}
         toolbarExtraActions={toolbarExtraActions}
       />
     </div>

@@ -89,7 +89,7 @@ export const VersionJumpNotification: React.FC<VersionJumpNotificationProps> = (
   }, [releaseNotes]);
 
   return (
-    <div className="modal-overlay update-overlay" onClick={onClose}>
+    <div className="modal-overlay update-overlay">
       <div className="modal update-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="update-modal-title">

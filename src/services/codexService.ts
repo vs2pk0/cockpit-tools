@@ -24,14 +24,6 @@ export async function getCurrentCodexAccount(): Promise<CodexAccount | null> {
   return await invoke('get_current_codex_account');
 }
 
-export async function getCodexCustomSortOrder(): Promise<string[]> {
-  return await invoke('get_codex_custom_sort_order');
-}
-
-export async function saveCodexCustomSortOrder(order: string[]): Promise<string[]> {
-  return await invoke('save_codex_custom_sort_order', { order });
-}
-
 /** 获取当前 Codex config.toml 路径 */
 export async function getCodexConfigTomlPath(): Promise<string> {
   return await invoke('get_codex_config_toml_path');
@@ -89,8 +81,24 @@ export async function refreshCodexAccountProfile(accountId: string): Promise<Cod
 }
 
 /** 切换 Codex 账号 */
-export async function switchCodexAccount(accountId: string): Promise<CodexAccount> {
-  return await invoke('switch_codex_account', { accountId });
+export async function switchCodexAccount(
+  accountId: string,
+): Promise<CodexAccount> {
+  const startedAt = performance.now();
+  console.info('[Codex Switch][Service] invoke switch_codex_account started', {
+    accountId,
+  });
+  try {
+    return await invoke('switch_codex_account', {
+      accountId,
+      autoRepairMode: null,
+    });
+  } finally {
+    console.info('[Codex Switch][Service] invoke switch_codex_account finished', {
+      accountId,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    });
+  }
 }
 
 /** 删除 Codex 账号 */
@@ -116,157 +124,6 @@ export async function importCodexFromJson(jsonContent: string): Promise<CodexAcc
 /** 导出 Codex 账号 */
 export async function exportCodexAccounts(accountIds: string[]): Promise<string> {
   return await invoke('export_codex_accounts', { accountIds });
-}
-
-export interface CodexCpaWrittenFile {
-  account_id: string;
-  email: string;
-  file_name: string;
-  path: string;
-}
-
-export interface CodexCpaWriteResult {
-  directory: string;
-  written: CodexCpaWrittenFile[];
-}
-
-export interface CodexCpaAccountFile {
-  file_name: string;
-  path: string;
-  email?: string | null;
-  account_id?: string | null;
-  phone?: string | null;
-  modified_at?: number | null;
-  size_bytes?: number | null;
-  valid: boolean;
-  error?: string | null;
-}
-
-export interface CodexCpaDeleteResult {
-  directory: string;
-  deleted: number;
-  deleted_files: string[];
-}
-
-export interface CodexCpaRuntimeInfo {
-  version: string;
-  platform: string;
-  path: string;
-  packageName?: string | null;
-  importedAt?: string | null;
-  current: boolean;
-}
-
-export interface CodexCpaUpdateInfo {
-  sourceUrl: string;
-  releasesUrl: string;
-  latestVersion?: string | null;
-  currentVersion?: string | null;
-  updateAvailable: boolean;
-  assetName?: string | null;
-  downloadUrl?: string | null;
-}
-
-export interface CodexCpaServiceState {
-  running: boolean;
-  pid?: number | null;
-  runtimeInstalled: boolean;
-  runtimeVersion?: string | null;
-  installedRuntimes: CodexCpaRuntimeInfo[];
-  sourceUrl: string;
-  releasesUrl: string;
-  port: number;
-  baseUrl: string;
-  apiKey: string;
-  managementUrl: string;
-  managementPassword: string;
-  authDir: string;
-  configPath: string;
-  configContent?: string | null;
-  runtimePath: string;
-}
-
-/** 获取 CPA 默认目录 */
-export async function getCodexCpaDir(): Promise<string> {
-  return await invoke('codex_get_cpa_dir');
-}
-
-export async function getCodexCpaServiceState(): Promise<CodexCpaServiceState> {
-  return await invoke('codex_cpa_service_get_state');
-}
-
-export async function startCodexCpaService(): Promise<CodexCpaServiceState> {
-  return await invoke('codex_cpa_service_start');
-}
-
-export async function stopCodexCpaService(): Promise<CodexCpaServiceState> {
-  return await invoke('codex_cpa_service_stop');
-}
-
-export async function saveCodexCpaServiceConfig(
-  configContent: string,
-  managementPassword: string,
-): Promise<CodexCpaServiceState> {
-  return await invoke('codex_cpa_service_save_config', {
-    configContent,
-    managementPassword,
-  });
-}
-
-export async function restoreCodexCpaServiceDefaultConfig(): Promise<CodexCpaServiceState> {
-  return await invoke('codex_cpa_service_restore_default_config');
-}
-
-export async function listCodexCpaRuntimes(): Promise<CodexCpaRuntimeInfo[]> {
-  return await invoke('codex_cpa_runtime_list');
-}
-
-export async function importCodexCpaRuntime(packagePath: string): Promise<CodexCpaServiceState> {
-  return await invoke('codex_cpa_runtime_import', { packagePath });
-}
-
-export async function checkCodexCpaRuntimeUpdate(): Promise<CodexCpaUpdateInfo> {
-  return await invoke('codex_cpa_runtime_check_update');
-}
-
-export async function downloadLatestCodexCpaRuntime(): Promise<CodexCpaServiceState> {
-  return await invoke('codex_cpa_runtime_download_latest');
-}
-
-/** 打开 CPA 默认目录 */
-export async function openCodexCpaDir(path?: string): Promise<string> {
-  const directory = path || await getCodexCpaDir();
-  await invoke('open_folder', { path: directory });
-  return directory;
-}
-
-/** 读取 CPA 目录内的账号 JSON */
-export async function listCodexCpaAccounts(): Promise<CodexCpaAccountFile[]> {
-  return await invoke('codex_list_cpa_accounts');
-}
-
-/** 从 CPA 目录导入账号 */
-export async function importCodexFromCpaDir(): Promise<CodexFileImportResult> {
-  return await invoke('codex_import_from_cpa_dir');
-}
-
-/** 将账号导出到 CPA 默认目录 */
-export async function exportCodexAccountsToCpaDir(
-  accountIds: string[],
-): Promise<CodexCpaWriteResult> {
-  return await invoke('codex_export_accounts_to_cpa_dir', { accountIds });
-}
-
-/** 删除 CPA 目录中的指定账号 JSON */
-export async function deleteCodexCpaAccountFiles(
-  fileNames: string[],
-): Promise<CodexCpaDeleteResult> {
-  return await invoke('codex_delete_cpa_account_files', { fileNames });
-}
-
-/** 删除 CPA 目录中的全部账号 JSON */
-export async function deleteAllCodexCpaAccountFiles(): Promise<CodexCpaDeleteResult> {
-  return await invoke('codex_delete_all_cpa_account_files');
 }
 
 export interface CodexFileImportResult {

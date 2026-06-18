@@ -82,6 +82,29 @@ pub fn default_user_data_dir() -> Result<PathBuf, String> {
     Err("无法确定 Antigravity IDE 默认目录".to_string())
 }
 
+pub fn legacy_default_user_data_dir() -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let home = dirs::home_dir().ok_or("无法获取 Home 目录")?;
+        return Ok(home.join("Library/Application Support/Antigravity"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let roaming_dir = roaming_app_data_dir()?;
+        return Ok(roaming_dir.join("Antigravity"));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let home = dirs::home_dir().ok_or("无法获取 Home 目录")?;
+        return Ok(home.join(".config/Antigravity"));
+    }
+
+    #[allow(unreachable_code)]
+    Err("无法确定 Antigravity 默认目录".to_string())
+}
+
 pub fn managed_instances_root_dir() -> Result<PathBuf, String> {
     #[cfg(target_os = "macos")]
     {
@@ -105,6 +128,29 @@ pub fn managed_instances_root_dir() -> Result<PathBuf, String> {
     Err("无法确定默认实例目录".to_string())
 }
 
+pub fn legacy_managed_instances_root_dir() -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
+        return Ok(home.join(".antigravity_cockpit/instances/antigravity-legacy"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let roaming_dir = roaming_app_data_dir()?;
+        return Ok(roaming_dir.join(".antigravity_cockpit\\instances\\antigravity-legacy"));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
+        return Ok(home.join(".antigravity_cockpit/instances/antigravity-legacy"));
+    }
+
+    #[allow(unreachable_code)]
+    Err("无法确定 Antigravity 默认实例目录".to_string())
+}
+
 pub fn global_storage_dir() -> Result<PathBuf, String> {
     Ok(default_user_data_dir()?.join("User").join("globalStorage"))
 }
@@ -119,4 +165,14 @@ pub fn storage_json_path() -> Result<PathBuf, String> {
 
 pub fn machine_id_path() -> Result<PathBuf, String> {
     Ok(default_user_data_dir()?.join("machineid"))
+}
+
+pub fn legacy_global_storage_dir() -> Result<PathBuf, String> {
+    Ok(legacy_default_user_data_dir()?
+        .join("User")
+        .join("globalStorage"))
+}
+
+pub fn legacy_state_db_path() -> Result<PathBuf, String> {
+    Ok(legacy_global_storage_dir()?.join("state.vscdb"))
 }

@@ -22,6 +22,33 @@
 
 ---
 
+## 赞助商
+
+<table>
+  <tr>
+    <td width="120" align="center">
+      <a href="https://apikey.fun/register?aff=COCKPIT">
+        <img src="src/assets/icons/apikey-fun.png" alt="APIKEY.FUN" width="72" />
+      </a>
+    </td>
+    <td>
+      <a href="https://apikey.fun/register?aff=COCKPIT"><strong>APIKEY.FUN</strong></a> 是一家专业的企业级 AI 中转站，致力于为企业和个人开发者提供稳定、高效、低成本的 AI 模型 API 接入服务。平台支持 Claude、OpenAI、Gemini 等主流热门模型，价格低至官方原价的 7%。通过本项目 <a href="https://apikey.fun/register?aff=COCKPIT"><strong>专属链接</strong></a> 注册，还可享受最高 <strong>充值永久 95 折</strong> 专属优惠。
+    </td>
+  </tr>
+  <tr>
+    <td width="120" align="center">
+      <a href="https://roxybrowser.cn?code=0326VTDA">
+        <img src="src/assets/icons/roxybrowser.jpg" alt="RoxyBrowser" width="96" />
+      </a>
+    </td>
+    <td>
+      <a href="https://roxybrowser.cn?code=0326VTDA"><strong>RoxyBrowser（Roxy浏览器）</strong></a> 是面向多账号运营与 AI 自动化场景的指纹浏览器，支持独立浏览器指纹环境、Cookie / 存储隔离、Roxy 原生住宅 IP、团队协作与 API / MCP 自动化能力，适合需要管理 AI 账号矩阵、降低账号关联风险、提升长期使用稳定性的用户。通过 Cockpit <a href="https://roxybrowser.cn?code=0326VTDA"><strong>邀请链接</strong></a> 注册或购买，可享受 10% 粉丝折扣。
+    </td>
+  </tr>
+</table>
+
+---
+
 ## 功能概览
 
 ### 1. 仪表盘 (Dashboard)
@@ -61,7 +88,7 @@
 - **专属支持**：专为 Codex 优化的账号管理体验
 - **配额展示**：清晰展示 Hourly 和 Weekly 配额状态
 - **计划识别**：自动识别账号 Plan 类型 (Basic, Plus, Team 等)
-- **API 服务**：本地 Codex API 服务由内置 CLIProxyAPI sidecar 驱动，Cockpit Tools 负责账号同步、配置投影、状态与用量统计；同时保留自定义配置和 CPA 服务模式。CPA 运行时按需下载或导入，默认端口 `8317`，管理密码 `ab2026ab`，提供启动状态、配置编辑、版本更新/导入、模型列表获取和带二次确认的停止操作，并会与 `~/.cli-proxy-api` 账号 JSON 及当前 CPA 服务账号保持勾选/筛选同步。
+- **API 服务**：本地 Codex API 服务由内置 CLIProxyAPI sidecar 驱动，Cockpit Tools 负责账号同步、配置投影、状态与用量统计；Base URL、API Key 与用户操作方式保持不变。
 
 > ![Codex Accounts](docs/images/codex_list.png)
 
@@ -397,8 +424,9 @@ QQ 交流群、微信群或新建的 Telegram 畅聊群都可以加入。
 - Antigravity 账号切号逻辑参考：[Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager)
 - Codex API 服务参考并集成：[router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
 - Codex API 服务协议兼容方向参考：[codex-proxy](https://github.com/icebear0828/codex-proxy)
-- Codex 第三方供应商预设参考：[CC Switch](https://github.com/farion1231/cc-switch)
+- Codex 与 Claude CLI 第三方供应商预设参考：[CC Switch](https://github.com/farion1231/cc-switch)
 - Codex 模型目录与前端模型显示思路参考：[CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus)
+- Claude 可选登录 helper 运行时基于：[Electron](https://github.com/electron/electron)
 
 感谢项目作者的开源贡献！如果这些项目对你有帮助，也请给他们点个 ⭐ Star 支持一下！
 

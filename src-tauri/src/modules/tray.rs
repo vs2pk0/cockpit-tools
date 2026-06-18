@@ -162,6 +162,7 @@ pub fn apply_tray_icon_style<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<()
 pub(crate) enum PlatformId {
     Antigravity,
     Codex,
+    Claude,
     Zed,
     GitHubCopilot,
     Windsurf,
@@ -176,10 +177,11 @@ pub(crate) enum PlatformId {
 }
 
 impl PlatformId {
-    pub(crate) fn default_order() -> [Self; 13] {
+    pub(crate) fn default_order() -> [Self; 14] {
         [
-            Self::Antigravity,
+            Self::Claude,
             Self::Codex,
+            Self::Antigravity,
             Self::Zed,
             Self::GitHubCopilot,
             Self::Windsurf,
@@ -198,6 +200,7 @@ impl PlatformId {
         match value {
             crate::modules::tray_layout::PLATFORM_ANTIGRAVITY => Some(Self::Antigravity),
             crate::modules::tray_layout::PLATFORM_CODEX => Some(Self::Codex),
+            crate::modules::tray_layout::PLATFORM_CLAUDE_MANAGER => Some(Self::Claude),
             crate::modules::tray_layout::PLATFORM_ZED => Some(Self::Zed),
             crate::modules::tray_layout::PLATFORM_GITHUB_COPILOT => Some(Self::GitHubCopilot),
             crate::modules::tray_layout::PLATFORM_WINDSURF => Some(Self::Windsurf),
@@ -217,6 +220,7 @@ impl PlatformId {
         match self {
             Self::Antigravity => crate::modules::tray_layout::PLATFORM_ANTIGRAVITY,
             Self::Codex => crate::modules::tray_layout::PLATFORM_CODEX,
+            Self::Claude => crate::modules::tray_layout::PLATFORM_CLAUDE_MANAGER,
             Self::Zed => crate::modules::tray_layout::PLATFORM_ZED,
             Self::GitHubCopilot => crate::modules::tray_layout::PLATFORM_GITHUB_COPILOT,
             Self::Windsurf => crate::modules::tray_layout::PLATFORM_WINDSURF,
@@ -235,6 +239,7 @@ impl PlatformId {
         match self {
             Self::Antigravity => "Antigravity IDE",
             Self::Codex => "Codex",
+            Self::Claude => "Claude",
             Self::Zed => "Zed",
             Self::GitHubCopilot => "GitHub Copilot",
             Self::Windsurf => "Windsurf",
@@ -253,6 +258,7 @@ impl PlatformId {
         match self {
             Self::Antigravity => "overview",
             Self::Codex => "codex",
+            Self::Claude => "claude",
             Self::Zed => "zed",
             Self::GitHubCopilot => "github-copilot",
             Self::Windsurf => "windsurf",
@@ -776,6 +782,7 @@ fn get_account_display_info(platform: PlatformId, lang: &str) -> AccountDisplayI
     match platform {
         PlatformId::Antigravity => build_antigravity_display_info(lang),
         PlatformId::Codex => build_codex_display_info(lang),
+        PlatformId::Claude => build_claude_display_info(lang, true),
         PlatformId::Zed => build_zed_display_info(lang),
         PlatformId::GitHubCopilot => build_github_copilot_display_info(lang),
         PlatformId::Windsurf => build_windsurf_display_info(lang),
@@ -1016,6 +1023,71 @@ fn build_codex_display_info(lang: &str) -> AccountDisplayInfo {
 }
 
 #[cfg(not(target_os = "macos"))]
+fn is_claude_desktop_account(account: &crate::models::claude::ClaudeAccount) -> bool {
+    matches!(
+        account.auth_mode,
+        crate::models::claude::ClaudeAuthMode::DesktopOAuth
+            | crate::models::claude::ClaudeAuthMode::DesktopGateway
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn build_claude_display_info(lang: &str, desktop: bool) -> AccountDisplayInfo {
+    let accounts = crate::modules::claude_account::list_accounts()
+        .into_iter()
+        .filter(|account| is_claude_desktop_account(account) == desktop)
+        .collect::<Vec<_>>();
+    let current_platform = if desktop {
+        "claude_desktop_account"
+    } else {
+        "claude_code_account"
+    };
+    let Some(account) = crate::modules::claude_account::resolve_current_account_for_platform(
+        current_platform,
+        &accounts,
+    ) else {
+        return AccountDisplayInfo {
+            account: format!("📧 {}", get_text("not_logged_in", lang)),
+            quota_lines: vec!["—".to_string()],
+        };
+    };
+
+    let mut quota_lines = Vec::new();
+    if let Some(plan) = first_non_empty(&[
+        account.plan_type.as_deref(),
+        account.organization_name.as_deref(),
+    ]) {
+        quota_lines.push(format!("{}: {}", get_text("plan", lang), plan));
+    }
+
+    if let Some(quota) = &account.quota {
+        quota_lines.push(format_quota_line(
+            lang,
+            &get_text("claude_current_session", lang),
+            &format_percent_text(quota.five_hour_percentage),
+            Some(&format_reset_time_from_ts(lang, quota.five_hour_reset_time)),
+        ));
+        quota_lines.push(format_quota_line(
+            lang,
+            &get_text("claude_current_week_all_models", lang),
+            &format_percent_text(quota.seven_day_percentage),
+            Some(&format_reset_time_from_ts(lang, quota.seven_day_reset_time)),
+        ));
+    } else if let Some(error) = &account.quota_error {
+        quota_lines.push(error.message.clone());
+    }
+
+    if quota_lines.is_empty() {
+        quota_lines.push(get_text("loading", lang));
+    }
+
+    AccountDisplayInfo {
+        account: format!("📧 {}", account.email),
+        quota_lines,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
 fn build_github_copilot_display_info(lang: &str) -> AccountDisplayInfo {
     let accounts = crate::modules::github_copilot_account::list_accounts();
     let Some(account) = resolve_github_copilot_current_account(&accounts) else {
@@ -1240,28 +1312,33 @@ fn collect_gemini_bucket_remaining(
     let Some(raw) = account.gemini_usage_raw.as_ref() else {
         return Vec::new();
     };
-    let Some(buckets) = raw.get("buckets").and_then(|item| item.as_array()) else {
+    let Some(groups) = raw.get("groups").and_then(|item| item.as_array()) else {
         return Vec::new();
     };
 
     let mut values = Vec::new();
-    for bucket in buckets {
-        let model_id = bucket
-            .get("modelId")
-            .and_then(|item| item.as_str())
-            .map(|item| item.trim())
-            .filter(|item| !item.is_empty())
-            .map(|item| item.to_string());
-        let remaining = parse_gemini_remaining_percent(bucket.get("remainingFraction"));
-        let reset_at = bucket.get("resetTime").and_then(parse_timestamp_like);
-        let (Some(model_id), Some(remaining)) = (model_id, remaining) else {
+    for group in groups {
+        let Some(buckets) = group.get("buckets").and_then(|item| item.as_array()) else {
             continue;
         };
-        values.push(GeminiBucketRemaining {
-            model_id,
-            remaining_percent: remaining,
-            reset_at,
-        });
+        for bucket in buckets {
+            let model_id = bucket
+                .get("bucketId")
+                .and_then(|item| item.as_str())
+                .map(|item| item.trim())
+                .filter(|item| !item.is_empty())
+                .map(|item| item.to_string());
+            let remaining = parse_gemini_remaining_percent(bucket.get("remainingFraction"));
+            let reset_at = bucket.get("resetTime").and_then(parse_timestamp_like);
+            let (Some(model_id), Some(remaining)) = (model_id, remaining) else {
+                continue;
+            };
+            values.push(GeminiBucketRemaining {
+                model_id,
+                remaining_percent: remaining,
+                reset_at,
+            });
+        }
     }
 
     values.sort_by(|a, b| a.model_id.cmp(&b.model_id));
@@ -1342,13 +1419,18 @@ fn build_gemini_display_info(lang: &str) -> AccountDisplayInfo {
     }
 
     let buckets = collect_gemini_bucket_remaining(&account);
-    let pro_bucket =
-        pick_lowest_gemini_bucket(&buckets, |model_id| model_id.to_lowercase().contains("pro"));
-    let flash_bucket = pick_lowest_gemini_bucket(&buckets, |model_id| {
-        model_id.to_lowercase().contains("flash")
-    });
 
-    for (label, bucket) in [("Pro", pro_bucket), ("Flash", flash_bucket)] {
+    for (bucket_id, label_key, default_label) in [
+        ("gemini-5h", "gemini.quota.gemini5h", "Gemini 5h"),
+        (
+            "gemini-weekly",
+            "gemini.quota.geminiweekly",
+            "Gemini Weekly",
+        ),
+        ("3p-5h", "gemini.quota.3p5h", "Claude 5h"),
+        ("3p-weekly", "gemini.quota.3pweekly", "Claude Weekly"),
+    ] {
+        let bucket = buckets.iter().find(|b| b.model_id == bucket_id);
         let value_text = if let Some(item) = bucket {
             format!("{}% {}", item.remaining_percent, get_text("left", lang))
         } else {
@@ -1359,9 +1441,15 @@ fn build_gemini_display_info(lang: &str) -> AccountDisplayInfo {
         } else {
             get_text("reset_unknown", lang)
         };
+        let label = get_text(label_key, lang);
+        let label_ref = if label.is_empty() {
+            default_label
+        } else {
+            &label
+        };
         quota_lines.push(format_quota_line(
             lang,
-            label,
+            label_ref,
             &value_text,
             Some(&reset_text),
         ));
@@ -3530,6 +3618,8 @@ fn get_text(key: &str, lang: &str) -> String {
         ("left", "zh-cn") => "剩余".to_string(),
         ("usage_status", "zh-cn") => "用量状态".to_string(),
         ("plan", "zh-cn") => "订阅".to_string(),
+        ("claude_current_session", "zh-cn") => "Current session".to_string(),
+        ("claude_current_week_all_models", "zh-cn") => "Current week (all models)".to_string(),
         ("token_spend", "zh-cn") => "Token 消耗".to_string(),
         ("edit_predictions", "zh-cn") => "编辑预测".to_string(),
         ("overdue_field", "zh-cn") => "是否欠费".to_string(),
@@ -3564,6 +3654,8 @@ fn get_text(key: &str, lang: &str) -> String {
         ("left", "zh-tw") => "剩餘".to_string(),
         ("usage_status", "zh-tw") => "用量狀態".to_string(),
         ("plan", "zh-tw") => "訂閱".to_string(),
+        ("claude_current_session", "zh-tw") => "目前工作階段".to_string(),
+        ("claude_current_week_all_models", "zh-tw") => "本週（所有模型）".to_string(),
         ("token_spend", "zh-tw") => "Token 消耗".to_string(),
         ("edit_predictions", "zh-tw") => "編輯預測".to_string(),
         ("overdue_field", "zh-tw") => "是否欠費".to_string(),
@@ -3598,6 +3690,8 @@ fn get_text(key: &str, lang: &str) -> String {
         ("left", "en") => "left".to_string(),
         ("usage_status", "en") => "Usage Status".to_string(),
         ("plan", "en") => "Plan".to_string(),
+        ("claude_current_session", "en") => "Current session".to_string(),
+        ("claude_current_week_all_models", "en") => "Current week (all models)".to_string(),
         ("token_spend", "en") => "Token Spend".to_string(),
         ("edit_predictions", "en") => "Edit Predictions".to_string(),
         ("overdue_field", "en") => "Overdue".to_string(),
@@ -3632,6 +3726,8 @@ fn get_text(key: &str, lang: &str) -> String {
         ("left", "ja") => "残り".to_string(),
         ("usage_status", "ja") => "利用状況".to_string(),
         ("plan", "ja") => "プラン".to_string(),
+        ("claude_current_session", "ja") => "現在のセッション".to_string(),
+        ("claude_current_week_all_models", "ja") => "今週（全モデル）".to_string(),
         ("token_spend", "ja") => "Token Spend".to_string(),
         ("edit_predictions", "ja") => "Edit Predictions".to_string(),
         ("overdue_field", "ja") => "延滞有無".to_string(),
@@ -3668,6 +3764,8 @@ fn get_text(key: &str, lang: &str) -> String {
         ("left", "ru") => "осталось".to_string(),
         ("usage_status", "ru") => "Статус использования".to_string(),
         ("plan", "ru") => "План".to_string(),
+        ("claude_current_session", "ru") => "Текущая сессия".to_string(),
+        ("claude_current_week_all_models", "ru") => "Текущая неделя (все модели)".to_string(),
         ("token_spend", "ru") => "Token Spend".to_string(),
         ("edit_predictions", "ru") => "Edit Predictions".to_string(),
         ("overdue_field", "ru") => "Есть задолженность".to_string(),
@@ -3702,6 +3800,8 @@ fn get_text(key: &str, lang: &str) -> String {
         ("left", _) => "left".to_string(),
         ("usage_status", _) => "Usage Status".to_string(),
         ("plan", _) => "Plan".to_string(),
+        ("claude_current_session", _) => "Current session".to_string(),
+        ("claude_current_week_all_models", _) => "Current week (all models)".to_string(),
         ("token_spend", _) => "Token Spend".to_string(),
         ("edit_predictions", _) => "Edit Predictions".to_string(),
         ("overdue_field", _) => "Overdue".to_string(),

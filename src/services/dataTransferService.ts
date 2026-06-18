@@ -8,6 +8,7 @@ import {
   importAllAccountsFromTransferJson,
 } from './accountTransferService';
 import { ALL_PLATFORM_IDS, PlatformId } from '../types/platform';
+import * as claudeService from './claudeService';
 import { getGroupSettings, GroupSettings, saveGroupSettings } from './groupService';
 import {
   AccountGroup,
@@ -58,6 +59,7 @@ import * as qoderService from './qoderService';
 import * as traeService from './traeService';
 import * as workbuddyService from './workbuddyService';
 import type { InstanceLaunchMode } from '../types/instance';
+import type { ClaudeAccount } from '../types/claude';
 
 const DATA_TRANSFER_SCHEMA = 'cockpit-tools.data-transfer';
 const DATA_TRANSFER_VERSION = 1;
@@ -84,6 +86,18 @@ type TransferAccountRecord = Record<string, unknown> & { id: string };
 type AccountLoader = () => Promise<TransferAccountRecord[]>;
 type LegacyFormat = 'data_bundle' | 'account_bundle' | 'legacy_account_json';
 type DataTransferWarningCode = 'accounts_section_missing' | 'config_section_missing';
+
+async function listClaudeManagerTransferAccounts(): Promise<TransferAccountRecord[]> {
+  const accounts = await claudeService.listClaudeAccounts();
+  const seen = new Set<string>();
+  return accounts.filter((account: ClaudeAccount) => {
+    if (!account.id || seen.has(account.id)) {
+      return false;
+    }
+    seen.add(account.id);
+    return true;
+  }) as unknown as TransferAccountRecord[];
+}
 
 interface RawUserConfig extends Record<string, unknown> {
   auto_switch_selected_account_ids?: string[];
@@ -263,6 +277,7 @@ const ACCOUNT_LOADERS: Record<PlatformId, AccountLoader> = {
   antigravity_ide: async () =>
     (await accountService.listAccounts()) as unknown as TransferAccountRecord[],
   codex: async () => (await codexService.listCodexAccounts()) as unknown as TransferAccountRecord[],
+  claude_manager: listClaudeManagerTransferAccounts,
   zed: async () => (await zedService.listZedAccounts()) as unknown as TransferAccountRecord[],
   'github-copilot': async () =>
     (await githubCopilotService.listGitHubCopilotAccounts()) as unknown as TransferAccountRecord[],
@@ -282,6 +297,7 @@ const LEGACY_IMPORTERS: Record<PlatformId, ((jsonContent: string) => Promise<unk
   antigravity: accountService.importFromJson,
   antigravity_ide: accountService.importFromJson,
   codex: codexService.importCodexFromJson,
+  claude_manager: claudeService.importClaudeFromJson,
   zed: zedService.importZedFromJson,
   'github-copilot': githubCopilotService.importGitHubCopilotFromJson,
   windsurf: windsurfService.importWindsurfFromJson,

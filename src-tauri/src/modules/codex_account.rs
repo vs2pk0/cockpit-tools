@@ -58,12 +58,11 @@ const CODEX_AUTO_SWITCH_ACCOUNT_SCOPE_ALL: &str = "all_accounts";
 const CODEX_AUTO_SWITCH_ACCOUNT_SCOPE_SELECTED: &str = "selected_accounts";
 const DISK_FULL_ERROR_CODE: &str = "DISK_FULL";
 const CODEX_TOKEN_SOURCE_MANAGED: &str = "managed";
+const CODEX_MISSING_REFRESH_TOKEN_REAUTH_REASON: &str =
+    "Codex 登录授权缺少 refresh_token，无法自动续期；当前 access_token 已不可用，请重新登录。";
 const CODEX_PROACTIVE_REFRESH_INTERVAL_SECONDS: i64 = 8 * 24 * 60 * 60;
 const CODEX_AUTH_PROJECTION_FILE_NAME: &str = ".cockpit_codex_auth.json";
 const CODEX_AUTH_PROJECTION_WRITER: &str = "cockpit";
-const CPA_DIR_NAME: &str = ".cli-proxy-api";
-const CPA_EXPORT_FILE_PREFIX: &str = "codex_accounts_cpa";
-const CODEX_ACCOUNT_PREFERENCES_FILE_NAME: &str = "codex_account_preferences.json";
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -74,12 +73,6 @@ struct CodexManagedAuthProjection {
     email: String,
     token_generation: u64,
     written_at: i64,
-}
-
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-struct CodexAccountPreferences {
-    #[serde(default)]
-    custom_sort_order: Vec<String>,
 }
 
 fn is_auth_mode_apikey(value: Option<&str>) -> bool {
@@ -323,22 +316,6 @@ fn build_api_key_account_id(api_key: &str) -> String {
     format!("codex_apikey_{:x}", md5::compute(api_key.as_bytes()))
 }
 
-fn build_unique_api_key_account_id(api_key: &str, index: &CodexAccountIndex) -> String {
-    let base_id = build_api_key_account_id(api_key);
-    if !index.accounts.iter().any(|item| item.id == base_id) {
-        return base_id;
-    }
-
-    for suffix in 2..10_000 {
-        let candidate = format!("{}_{}", base_id, suffix);
-        if !index.accounts.iter().any(|item| item.id == candidate) {
-            return candidate;
-        }
-    }
-
-    format!("{}_{}", base_id, now_timestamp())
-}
-
 fn normalize_api_model_catalog(models: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut values = Vec::new();
@@ -423,7 +400,6 @@ fn apply_api_key_fields(
         access_token: String::new(),
         refresh_token: None,
     };
-    account.token_expired_at = None;
     account.user_id = None;
     account.subscription_active_until = None;
     account.account_id = None;
@@ -746,8 +722,7 @@ pub fn read_quick_config_from_config_toml(base_dir: &Path) -> Result<CodexQuickC
         });
     }
 
-    let doc = content
-        .parse::<Document>()
+    let doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(&content)
         .map_err(|e| format!("解析 config.toml 失败: {}", e))?;
     let detected_model_context_window =
         read_top_level_int_from_doc(&doc, CODEX_CONFIG_MODEL_CONTEXT_WINDOW_KEY);
@@ -786,8 +761,7 @@ fn write_quick_config_to_config_toml(
     let mut doc = if existing.trim().is_empty() {
         Document::new()
     } else {
-        existing
-            .parse::<Document>()
+        crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
             .map_err(|e| format!("解析 config.toml 失败: {}", e))?
     };
 
@@ -813,7 +787,7 @@ fn write_quick_config_to_config_toml(
         fs::create_dir_all(parent).map_err(|e| format!("创建 config.toml 目录失败: {}", e))?;
     }
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
-    crate::modules::atomic_write::write_string_atomic(&config_path, &content)
+    crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))?;
 
     read_quick_config_from_config_toml(base_dir)
@@ -852,7 +826,7 @@ fn read_api_provider_from_config_toml(base_dir: &Path) -> ApiProviderConfig {
         }
     };
 
-    let doc = match content.parse::<Document>() {
+    let doc = match crate::modules::codex_config_format::read_codex_config_doc_from_str(&content) {
         Ok(doc) => doc,
         Err(_) => {
             return ApiProviderConfig {
@@ -926,8 +900,7 @@ fn write_api_provider_to_config_toml(
     let mut doc = if existing.trim().is_empty() {
         Document::new()
     } else {
-        existing
-            .parse::<Document>()
+        crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
             .map_err(|e| format!("解析 config.toml 失败: {}", e))?
     };
 
@@ -989,7 +962,7 @@ fn write_api_provider_to_config_toml(
         fs::create_dir_all(parent).map_err(|e| format!("创建 config.toml 目录失败: {}", e))?;
     }
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
-    crate::modules::atomic_write::write_string_atomic(&config_path, &content)
+    crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))
 }
 
@@ -1080,8 +1053,7 @@ fn write_api_key_provider_to_config_toml(
     let mut doc = if existing.trim().is_empty() {
         Document::new()
     } else {
-        existing
-            .parse::<Document>()
+        crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
             .map_err(|e| format!("解析 config.toml 失败: {}", e))?
     };
 
@@ -1109,7 +1081,7 @@ fn write_api_key_provider_to_config_toml(
         fs::create_dir_all(parent).map_err(|e| format!("创建 config.toml 目录失败: {}", e))?;
     }
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
-    crate::modules::atomic_write::write_string_atomic(&config_path, &content)
+    crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))
 }
 
@@ -1199,17 +1171,6 @@ fn get_accounts_storage_path() -> PathBuf {
     fs::create_dir_all(&data_dir).ok();
     migrate_codex_data_if_needed(&data_dir);
     data_dir.join("codex_accounts.json")
-}
-
-fn get_account_preferences_path() -> PathBuf {
-    let data_dir = account::get_data_dir().unwrap_or_else(|_| {
-        dirs::home_dir()
-            .expect("无法获取用户目录")
-            .join(".antigravity_cockpit")
-    });
-    fs::create_dir_all(&data_dir).ok();
-    migrate_codex_data_if_needed(&data_dir);
-    data_dir.join(CODEX_ACCOUNT_PREFERENCES_FILE_NAME)
 }
 
 /// 获取账号详情存储目录（统一使用 ~/.antigravity_cockpit/codex_accounts/）
@@ -1437,10 +1398,22 @@ fn clear_stale_missing_refresh_token_reauth(account: &mut CodexAccount) -> Resul
     if !account.requires_reauth || !is_missing_refresh_token_reauth {
         return Ok(());
     }
+    if codex_oauth::is_token_expired(&account.tokens.access_token) {
+        return Ok(());
+    }
 
     account.requires_reauth = false;
     account.reauth_reason = None;
     save_account(account)
+}
+
+pub fn mark_access_token_only_account_requires_reauth(account_id: &str) -> Result<(), String> {
+    let mut account =
+        load_account(account_id).ok_or_else(|| format!("账号不存在: {}", account_id))?;
+    if account.is_api_key_auth() || account_has_refresh_token(&account) {
+        return Ok(());
+    }
+    mark_account_requires_reauth(&mut account, CODEX_MISSING_REFRESH_TOKEN_REAUTH_REASON)
 }
 
 fn retain_existing_refresh_token_if_missing(
@@ -1792,90 +1765,6 @@ pub fn save_account_index(index: &CodexAccountIndex) -> Result<(), String> {
     Ok(())
 }
 
-fn normalize_custom_sort_order_item(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
-fn load_account_preferences() -> CodexAccountPreferences {
-    let path = get_account_preferences_path();
-    let content = match fs::read_to_string(&path) {
-        Ok(content) if !content.trim().is_empty() => content,
-        Ok(_) => return CodexAccountPreferences::default(),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return CodexAccountPreferences::default();
-        }
-        Err(error) => {
-            logger::log_warn(&format!(
-                "[Codex Account Preferences] 读取失败，使用默认偏好: path={}, error={}",
-                path.display(),
-                error
-            ));
-            return CodexAccountPreferences::default();
-        }
-    };
-
-    match serde_json::from_str::<CodexAccountPreferences>(&content) {
-        Ok(mut preferences) => {
-            preferences.custom_sort_order = preferences
-                .custom_sort_order
-                .into_iter()
-                .filter_map(|item| normalize_custom_sort_order_item(&item))
-                .collect();
-            preferences
-        }
-        Err(error) => {
-            match crate::modules::atomic_write::quarantine_file(&path, "invalid-json") {
-                Ok(Some(backup_path)) => logger::log_warn(&format!(
-                    "[Codex Account Preferences] 解析失败，已隔离并使用默认偏好: path={}, backup={}, error={}",
-                    path.display(),
-                    backup_path.display(),
-                    error
-                )),
-                Ok(None) => logger::log_warn(&format!(
-                    "[Codex Account Preferences] 解析失败，文件已不存在，使用默认偏好: path={}, error={}",
-                    path.display(),
-                    error
-                )),
-                Err(backup_error) => logger::log_warn(&format!(
-                    "[Codex Account Preferences] 解析失败，隔离失败，使用默认偏好: path={}, parse_error={}, backup_error={}",
-                    path.display(),
-                    error,
-                    backup_error
-                )),
-            }
-            CodexAccountPreferences::default()
-        }
-    }
-}
-
-fn save_account_preferences(preferences: &CodexAccountPreferences) -> Result<(), String> {
-    let path = get_account_preferences_path();
-    let content =
-        serde_json::to_string_pretty(preferences).map_err(|e| format!("序列化账号偏好失败: {}", e))?;
-    write_string_atomic(&path, &content).map_err(|e| format!("写入账号偏好失败: {}", e))
-}
-
-pub fn load_custom_sort_order() -> Vec<String> {
-    load_account_preferences().custom_sort_order
-}
-
-pub fn save_custom_sort_order(order: Vec<String>) -> Result<Vec<String>, String> {
-    let mut seen = HashSet::new();
-    let custom_sort_order = order
-        .into_iter()
-        .filter_map(|item| normalize_custom_sort_order_item(&item))
-        .filter(|item| seen.insert(item.clone()))
-        .collect::<Vec<_>>();
-    let preferences = CodexAccountPreferences { custom_sort_order };
-    save_account_preferences(&preferences)?;
-    Ok(preferences.custom_sort_order)
-}
-
 fn repair_account_index_from_details(reason: &str) -> Option<CodexAccountIndex> {
     let index_path = get_accounts_storage_path();
     let accounts_dir = get_accounts_dir();
@@ -1990,48 +1879,9 @@ fn read_json_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> 
     normalize_optional_ref(Some(raw))
 }
 
-fn read_json_scalar_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+fn read_json_scalar(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     keys.iter()
         .find_map(|key| normalize_optional_json_scalar(value.get(*key)))
-}
-
-fn first_json_scalar_string(value: &serde_json::Value, paths: &[&[&str]]) -> Option<String> {
-    paths.iter().find_map(|path| {
-        let mut current = value;
-        for key in *path {
-            current = current.get(*key)?;
-        }
-        normalize_optional_json_scalar(Some(current))
-    })
-}
-
-fn read_token_expired_at_metadata(value: &serde_json::Value) -> Option<String> {
-    read_json_scalar_string(
-        value,
-        &[
-            "token_expired_at",
-            "tokenExpiredAt",
-            "token_expires_at",
-            "tokenExpiresAt",
-            "expired",
-            "expired_at",
-            "expiredAt",
-            "expires_at",
-            "expiresAt",
-        ],
-    )
-    .or_else(|| {
-        first_json_scalar_string(
-            value,
-            &[
-                &["tokens", "token_expired_at"],
-                &["tokens", "tokenExpiredAt"],
-                &["tokens", "expired"],
-                &["tokens", "expired_at"],
-                &["tokens", "expires_at"],
-            ],
-        )
-    })
 }
 
 fn read_json_i64(value: &serde_json::Value, keys: &[&str]) -> Option<i64> {
@@ -2085,15 +1935,18 @@ fn apply_compat_account_metadata(
         .or_else(|| account.account_structure.clone());
     account.account_note = read_json_string(value, &["account_note", "accountNote"])
         .or_else(|| account.account_note.clone());
-    if let Some(phone) = read_json_string(
+    account.bound_phone = read_json_string(
         value,
-        &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
-    ) {
-        account.bound_phone = Some(phone);
-    }
-    account.token_expired_at = read_token_expired_at_metadata(value)
-        .or_else(|| account.token_expired_at.clone())
-        .or_else(|| infer_token_expired_at_from_tokens(&account.tokens));
+        &[
+            "bound_phone",
+            "boundPhone",
+            "phone",
+            "phone_number",
+            "phoneNumber",
+            "mobile",
+        ],
+    )
+    .or_else(|| account.bound_phone.clone());
     account.auth_file_plan_type =
         read_json_string(value, &["auth_file_plan_type", "authFilePlanType"])
             .or_else(|| account.auth_file_plan_type.clone());
@@ -2115,6 +1968,18 @@ fn apply_compat_account_metadata(
     account.token_updated_at = read_json_i64(value, &["token_updated_at", "tokenUpdatedAt"])
         .or_else(|| parse_auth_file_last_refresh(value.get("last_refresh")))
         .or(account.token_updated_at);
+    account.access_token_expires_at = read_json_scalar(
+        value,
+        &[
+            "access_token_expires_at",
+            "accessTokenExpiresAt",
+            "expired",
+            "expires",
+            "expires_at",
+            "expiresAt",
+        ],
+    )
+    .or_else(|| account.access_token_expires_at.clone());
     account.tags = read_json_string_array(value, &["tags"]).or_else(|| account.tags.clone());
 }
 
@@ -2127,7 +1992,14 @@ fn apply_api_key_import_metadata(account: &mut CodexAccount, value: &serde_json:
     }
     if let Some(bound_phone) = read_json_string(
         value,
-        &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
+        &[
+            "bound_phone",
+            "boundPhone",
+            "phone",
+            "phone_number",
+            "phoneNumber",
+            "mobile",
+        ],
     ) {
         account.bound_phone = Some(bound_phone);
     }
@@ -2139,6 +2011,19 @@ fn apply_api_key_import_metadata(account: &mut CodexAccount, value: &serde_json:
         &["subscription_active_until", "subscriptionActiveUntil"],
     ) {
         account.subscription_active_until = Some(subscription_active_until);
+    }
+    if let Some(access_token_expires_at) = read_json_scalar(
+        value,
+        &[
+            "access_token_expires_at",
+            "accessTokenExpiresAt",
+            "expired",
+            "expires",
+            "expires_at",
+            "expiresAt",
+        ],
+    ) {
+        account.access_token_expires_at = Some(access_token_expires_at);
     }
     if let Some(auth_file_plan_type) =
         read_json_string(value, &["auth_file_plan_type", "authFilePlanType"])
@@ -2270,7 +2155,6 @@ fn load_account_with_summary(
     let content = fs::read_to_string(&path)
         .map_err(|error| format!("读取账号详情失败 ({}): {}", path.display(), error))?;
     if let Ok(mut account) = serde_json::from_str::<CodexAccount>(&content) {
-        ensure_account_token_expired_at(&mut account);
         if migrate_apikey_fun_wire_api(&mut account) {
             if let Err(error) = save_account(&account) {
                 logger::log_warn(&format!(
@@ -2439,26 +2323,72 @@ pub fn upsert_api_key_account(
         api_provider_id.as_deref(),
         api_provider_name.as_deref(),
     )?;
+    let account_id = build_api_key_account_id(&api_key);
     let account_name = normalize_optional_value(account_name);
     let mut index = load_account_index();
-    let account_id = build_unique_api_key_account_id(&api_key, &index);
+    let existing = index.accounts.iter().position(|item| item.id == account_id);
 
-    let mut account = CodexAccount::new_api_key(
-        account_id,
-        build_api_key_email(&api_key),
-        api_key,
-        provider_config.mode.clone(),
-        provider_config.base_url.clone(),
-        provider_config.provider_id.clone(),
-        provider_config.provider_name.clone(),
-        normalize_api_model_catalog(api_model_catalog.clone()),
-    );
-    account.plan_type = Some(API_KEY_LOGIN_PLAN_TYPE.to_string());
-    account.account_name = account_name;
-    account.api_wire_api = normalize_api_wire_api(api_wire_api.clone());
-    account.api_supports_vision = api_supports_vision;
-    account.api_model_vision_support = normalize_api_model_vision_support(api_model_vision_support);
-    account.api_vision_routing_model = normalize_optional_value(api_vision_routing_model);
+    let mut account = if let Some(pos) = existing {
+        let existing_id = index.accounts[pos].id.clone();
+        let mut acc = load_account(&existing_id).unwrap_or_else(|| {
+            CodexAccount::new_api_key(
+                existing_id,
+                build_api_key_email(&api_key),
+                api_key.clone(),
+                provider_config.mode.clone(),
+                provider_config.base_url.clone(),
+                provider_config.provider_id.clone(),
+                provider_config.provider_name.clone(),
+                normalize_api_model_catalog(api_model_catalog.clone()),
+            )
+        });
+        apply_api_key_fields(
+            &mut acc,
+            &api_key,
+            provider_config.clone(),
+            api_model_catalog.clone(),
+            api_wire_api.clone(),
+            api_supports_vision,
+            api_model_vision_support.clone(),
+            api_vision_routing_model.clone(),
+        );
+        if acc.email.trim().is_empty() {
+            acc.email = build_api_key_email(&api_key);
+        }
+        if let Some(name) = account_name.clone() {
+            if normalize_optional_ref(acc.account_name.as_deref()).is_none() {
+                acc.account_name = Some(name);
+            }
+        }
+        acc.update_last_used();
+        acc
+    } else {
+        let mut acc = CodexAccount::new_api_key(
+            account_id.clone(),
+            build_api_key_email(&api_key),
+            api_key,
+            provider_config.mode.clone(),
+            provider_config.base_url.clone(),
+            provider_config.provider_id.clone(),
+            provider_config.provider_name.clone(),
+            normalize_api_model_catalog(api_model_catalog.clone()),
+        );
+        acc.plan_type = Some(API_KEY_LOGIN_PLAN_TYPE.to_string());
+        acc.account_name = account_name;
+        acc.api_wire_api = normalize_api_wire_api(api_wire_api.clone());
+        acc.api_supports_vision = api_supports_vision;
+        acc.api_model_vision_support = normalize_api_model_vision_support(api_model_vision_support);
+        acc.api_vision_routing_model = normalize_optional_value(api_vision_routing_model);
+        index.accounts.push(CodexAccountSummary {
+            id: account_id.clone(),
+            email: acc.email.clone(),
+            plan_type: acc.plan_type.clone(),
+            subscription_active_until: acc.subscription_active_until.clone(),
+            created_at: acc.created_at,
+            last_used: acc.last_used,
+        });
+        acc
+    };
 
     account.auth_mode = CodexAuthMode::Apikey;
     save_account(&account)?;
@@ -2536,7 +2466,6 @@ fn upsert_account_with_hints(
         tokens = retain_existing_refresh_token_if_missing(tokens, Some(&acc));
         acc.tokens = tokens;
         mark_token_chain_updated(&mut acc);
-        acc.token_expired_at = infer_token_expired_at_from_tokens(&acc.tokens);
         acc.auth_mode = CodexAuthMode::OAuth;
         acc.openai_api_key = None;
         acc.api_base_url = None;
@@ -2556,7 +2485,6 @@ fn upsert_account_with_hints(
         tokens = retain_existing_refresh_token_if_missing(tokens, None);
         let mut acc = CodexAccount::new(existing_id.clone(), email.clone(), tokens);
         mark_token_chain_updated(&mut acc);
-        acc.token_expired_at = infer_token_expired_at_from_tokens(&acc.tokens);
         acc.auth_mode = CodexAuthMode::OAuth;
         acc.openai_api_key = None;
         acc.api_base_url = None;
@@ -3424,6 +3352,10 @@ fn read_managed_projection_from_dir(base_dir: &Path) -> Option<CodexManagedAuthP
     }
 }
 
+pub fn read_managed_projection_account_id_from_dir(base_dir: &Path) -> Option<String> {
+    read_managed_projection_from_dir(base_dir).map(|projection| projection.account_id)
+}
+
 fn ensure_directory_writable_for_import(path: &Path) -> Result<(), String> {
     fs::create_dir_all(path).map_err(|e| format_io_error("创建导入目录", path, &e))?;
     let probe_path = build_temp_file_path(path, path, "import-probe");
@@ -3615,6 +3547,7 @@ fn write_api_key_account_bundle_with_oauth_to_dir(
     write_prepared_account_bundle_to_dir(base_dir, oauth_account)?;
     let provider_config =
         write_api_key_provider_override_to_config_toml(base_dir, api_key_account)?;
+    write_managed_projection_to_dir(base_dir, api_key_account)?;
     logger::log_info(&format!(
         "[Codex切号] 已写入 API Key 账号绑定 OAuth 的组合配置: api_account_id={}, oauth_account_id={}, target_dir={}, has_base_url={}",
         api_key_account.id,
@@ -3870,6 +3803,7 @@ pub fn is_managed_auth_refresh_due(account: &CodexAccount) -> bool {
 async fn perform_managed_token_refresh(
     mut account: CodexAccount,
     reason: &str,
+    force: bool,
 ) -> Result<CodexAccount, String> {
     let refresh_token = match account
         .tokens
@@ -3883,6 +3817,13 @@ async fn perform_managed_token_refresh(
                 "Codex Token Authority 跳过刷新：账号缺少 refresh_token，按 access-token-only 模式继续使用当前 access_token: account_id={}, email={}, reason={}",
                 account.id, account.email, reason
             ));
+            if force || codex_oauth::is_token_expired(&account.tokens.access_token) {
+                mark_account_requires_reauth(
+                    &mut account,
+                    CODEX_MISSING_REFRESH_TOKEN_REAUTH_REASON,
+                )?;
+                return Err(CODEX_MISSING_REFRESH_TOKEN_REAUTH_REASON.to_string());
+            }
             return Ok(account);
         }
     };
@@ -3953,7 +3894,7 @@ async fn refresh_managed_account_locked(
         return Ok(account);
     }
 
-    perform_managed_token_refresh(account, reason).await
+    perform_managed_token_refresh(account, reason, force).await
 }
 
 async fn refresh_bound_oauth_account_for_api_key(
@@ -4019,7 +3960,7 @@ pub async fn keepalive_managed_account(
         return Ok(account);
     }
 
-    perform_managed_token_refresh(account, reason).await
+    perform_managed_token_refresh(account, reason, false).await
 }
 
 pub async fn execute_with_managed_account_projection<R, F>(
@@ -4326,6 +4267,10 @@ fn import_account_struct(account: CodexAccount) -> Result<CodexAccount, String> 
             api_acc.account_note = Some(note);
             changed = true;
         }
+        if let Some(phone) = account.bound_phone {
+            api_acc.bound_phone = Some(phone);
+            changed = true;
+        }
         if changed {
             save_account(&api_acc)?;
         }
@@ -4334,19 +4279,8 @@ fn import_account_struct(account: CodexAccount) -> Result<CodexAccount, String> 
 
     let imported_auth_file_plan_type =
         normalize_auth_file_plan_type(account.auth_file_plan_type.as_deref());
-    let imported_token_expired_at = account.token_expired_at.clone();
     let mut imported = upsert_account(account.tokens)?;
     let mut changed = apply_auth_file_plan_type(&mut imported, imported_auth_file_plan_type);
-
-    if imported_token_expired_at.is_some() {
-        imported.token_expired_at = imported_token_expired_at;
-        changed = true;
-    } else {
-        ensure_account_token_expired_at(&mut imported);
-        if imported.token_expired_at.is_some() {
-            changed = true;
-        }
-    }
 
     if let Some(tags) = account.tags {
         imported.tags = Some(tags);
@@ -4354,6 +4288,10 @@ fn import_account_struct(account: CodexAccount) -> Result<CodexAccount, String> 
     }
     if let Some(note) = account.account_note {
         imported.account_note = Some(note);
+        changed = true;
+    }
+    if let Some(phone) = account.bound_phone {
+        imported.bound_phone = Some(phone);
         changed = true;
     }
 
@@ -4375,7 +4313,7 @@ fn upsert_account_from_auth_tokens(tokens: CodexAuthTokens) -> Result<CodexAccou
     if normalize_optional_ref(Some(&tokens.id_token)).is_none()
         && decode_jwt_payload_value(&tokens.access_token).is_some()
     {
-        return upsert_account_from_access_token(tokens.access_token, None, None);
+        return upsert_account_from_access_token(tokens.access_token, None, None, None, None);
     }
 
     upsert_account_with_hints(tokens, account_id_hint, None)
@@ -4386,22 +4324,27 @@ enum CodexJsonImportCandidate {
         tokens: CodexTokens,
         account_id_hint: Option<String>,
         account_note: Option<String>,
-        token_expired_at: Option<String>,
         bound_phone: Option<String>,
+        access_token_expires_at: Option<String>,
+        tags: Option<Vec<String>>,
     },
     AccessToken {
         access_token: String,
         account_note: Option<String>,
-        token_expired_at: Option<String>,
+        bound_phone: Option<String>,
+        access_token_expires_at: Option<String>,
+        tags: Option<Vec<String>>,
     },
     RefreshToken {
         refresh_token: String,
         account_note: Option<String>,
-        token_expired_at: Option<String>,
+        bound_phone: Option<String>,
+        access_token_expires_at: Option<String>,
+        tags: Option<Vec<String>>,
     },
 }
 
-fn extract_account_note_from_value(value: &serde_json::Value) -> Option<String> {
+fn extract_account_note_from_current_value(value: &serde_json::Value) -> Option<String> {
     let obj = value.as_object()?;
     [
         "account_note",
@@ -4417,6 +4360,99 @@ fn extract_account_note_from_value(value: &serde_json::Value) -> Option<String> 
             .and_then(|value| value.as_str())
             .and_then(|value| normalize_optional_ref(Some(value)))
     })
+}
+
+fn extract_account_note_from_value(value: &serde_json::Value) -> Option<String> {
+    extract_account_note_from_current_value(value).or_else(|| {
+        value
+            .get("credentials")
+            .and_then(extract_account_note_from_current_value)
+    })
+}
+
+fn read_json_string_from_self_or_credentials(
+    value: &serde_json::Value,
+    keys: &[&str],
+) -> Option<String> {
+    read_json_string(value, keys).or_else(|| {
+        value
+            .get("credentials")
+            .and_then(|credentials| read_json_string(credentials, keys))
+    })
+}
+
+fn read_json_scalar_from_self_or_credentials(
+    value: &serde_json::Value,
+    keys: &[&str],
+) -> Option<String> {
+    read_json_scalar(value, keys).or_else(|| {
+        value
+            .get("credentials")
+            .and_then(|credentials| read_json_scalar(credentials, keys))
+    })
+}
+
+fn extract_bound_phone_from_value(value: &serde_json::Value) -> Option<String> {
+    read_json_string_from_self_or_credentials(
+        value,
+        &[
+            "bound_phone",
+            "boundPhone",
+            "phone",
+            "phone_number",
+            "phoneNumber",
+            "mobile",
+        ],
+    )
+}
+
+fn extract_access_token_expires_at_from_value(value: &serde_json::Value) -> Option<String> {
+    read_json_scalar_from_self_or_credentials(
+        value,
+        &[
+            "access_token_expires_at",
+            "accessTokenExpiresAt",
+            "expired",
+            "expires",
+            "expires_at",
+            "expiresAt",
+        ],
+    )
+}
+
+fn extract_tags_from_value(value: &serde_json::Value) -> Option<Vec<String>> {
+    read_json_string_array(value, &["tags"]).or_else(|| {
+        value
+            .get("credentials")
+            .and_then(|credentials| read_json_string_array(credentials, &["tags"]))
+    })
+}
+
+fn apply_import_metadata_fields(
+    account: &mut CodexAccount,
+    account_note: Option<String>,
+    bound_phone: Option<String>,
+    access_token_expires_at: Option<String>,
+    tags: Option<Vec<String>>,
+) -> bool {
+    let mut changed = false;
+    if account_note.is_some() {
+        account.account_note = account_note;
+        changed = true;
+    }
+    if bound_phone.is_some() {
+        account.bound_phone = bound_phone;
+        changed = true;
+    }
+    if access_token_expires_at.is_some() {
+        account.access_token_expires_at = access_token_expires_at;
+        changed = true;
+    }
+    if tags.is_some() {
+        account.tags = tags;
+        changed = true;
+    }
+    changed
 }
 
 fn is_codex_session_object(value: &serde_json::Value) -> bool {
@@ -4508,16 +4544,11 @@ fn extract_codex_session_candidate_from_value(
         account_id_hint,
         account_note: extract_account_note_from_value(value)
             .or_else(|| extract_account_note_from_value(&session)),
-        token_expired_at: read_token_expired_at_metadata(value)
-            .or_else(|| read_token_expired_at_metadata(&session)),
-        bound_phone: read_json_string(
-            value,
-            &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
-        )
-        .or_else(|| read_json_string(
-            &session,
-            &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
-        )),
+        bound_phone: extract_bound_phone_from_value(value)
+            .or_else(|| extract_bound_phone_from_value(&session)),
+        access_token_expires_at: extract_access_token_expires_at_from_value(value)
+            .or_else(|| extract_access_token_expires_at_from_value(&session)),
+        tags: extract_tags_from_value(value).or_else(|| extract_tags_from_value(&session)),
     })
 }
 
@@ -4571,11 +4602,9 @@ fn extract_codex_import_candidate_from_value(
             tokens,
             account_id_hint,
             account_note: extract_account_note_from_value(value),
-            token_expired_at: read_token_expired_at_metadata(value),
-            bound_phone: read_json_string(
-                value,
-                &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
-            ),
+            bound_phone: extract_bound_phone_from_value(value),
+            access_token_expires_at: extract_access_token_expires_at_from_value(value),
+            tags: extract_tags_from_value(value),
         });
     }
 
@@ -4583,7 +4612,9 @@ fn extract_codex_import_candidate_from_value(
         return Some(CodexJsonImportCandidate::RefreshToken {
             refresh_token,
             account_note: extract_account_note_from_value(value),
-            token_expired_at: read_token_expired_at_metadata(value),
+            bound_phone: extract_bound_phone_from_value(value),
+            access_token_expires_at: extract_access_token_expires_at_from_value(value),
+            tags: extract_tags_from_value(value),
         });
     }
 
@@ -4591,7 +4622,9 @@ fn extract_codex_import_candidate_from_value(
         CodexJsonImportCandidate::AccessToken {
             access_token,
             account_note: extract_account_note_from_value(value),
-            token_expired_at: read_token_expired_at_metadata(value),
+            bound_phone: extract_bound_phone_from_value(value),
+            access_token_expires_at: extract_access_token_expires_at_from_value(value),
+            tags: extract_tags_from_value(value),
         }
     })
 }
@@ -4599,15 +4632,19 @@ fn extract_codex_import_candidate_from_value(
 async fn upsert_account_from_refresh_token(
     refresh_token: String,
     account_note: Option<String>,
-    token_expired_at: Option<String>,
+    bound_phone: Option<String>,
+    access_token_expires_at: Option<String>,
+    tags: Option<Vec<String>>,
 ) -> Result<CodexAccount, String> {
     let tokens = codex_oauth::refresh_access_token(&refresh_token).await?;
     let mut account = upsert_account(tokens)?;
-    if account_note.is_some() || token_expired_at.is_some() {
-        account.account_note = account_note;
-        account.token_expired_at = token_expired_at
-            .or_else(|| account.token_expired_at.clone())
-            .or_else(|| infer_token_expired_at_from_tokens(&account.tokens));
+    if apply_import_metadata_fields(
+        &mut account,
+        account_note,
+        bound_phone,
+        access_token_expires_at,
+        tags,
+    ) {
         save_account(&account)?;
     }
     Ok(account)
@@ -4616,7 +4653,9 @@ async fn upsert_account_from_refresh_token(
 fn upsert_account_from_access_token(
     access_token: String,
     account_note: Option<String>,
-    token_expired_at: Option<String>,
+    bound_phone: Option<String>,
+    access_token_expires_at: Option<String>,
+    tags: Option<Vec<String>>,
 ) -> Result<CodexAccount, String> {
     let access_token =
         normalize_optional_value(Some(access_token)).ok_or("accessToken 不能为空")?;
@@ -4666,12 +4705,7 @@ fn upsert_account_from_access_token(
         acc.subscription_active_until = subscription_active_until.clone();
         acc.account_id = account_id.clone();
         acc.organization_id = organization_id.clone();
-        if account_note.is_some() {
-            acc.account_note = account_note;
-        }
-        acc.token_expired_at = token_expired_at
-            .clone()
-            .or_else(|| infer_token_expired_at_from_tokens(&acc.tokens));
+        apply_import_metadata_fields(&mut acc, account_note, bound_phone, access_token_expires_at, tags);
         acc.update_last_used();
         acc
     } else {
@@ -4690,10 +4724,7 @@ fn upsert_account_from_access_token(
         acc.subscription_active_until = subscription_active_until.clone();
         acc.account_id = account_id.clone();
         acc.organization_id = organization_id.clone();
-        acc.account_note = account_note;
-        acc.token_expired_at = token_expired_at
-            .clone()
-            .or_else(|| infer_token_expired_at_from_tokens(&acc.tokens));
+        apply_import_metadata_fields(&mut acc, account_note, bound_phone, access_token_expires_at, tags);
 
         index.accounts.retain(|item| item.id != existing_id);
         index.accounts.push(CodexAccountSummary {
@@ -4743,18 +4774,18 @@ async fn import_codex_candidate(
             tokens,
             account_id_hint,
             account_note,
-            token_expired_at,
             bound_phone,
+            access_token_expires_at,
+            tags,
         } => {
             let mut account = upsert_account_with_hints(tokens, account_id_hint, None)?;
-            if account_note.is_some() || token_expired_at.is_some() || bound_phone.is_some() {
-                account.account_note = account_note;
-                account.token_expired_at = token_expired_at
-                    .or_else(|| account.token_expired_at.clone())
-                    .or_else(|| infer_token_expired_at_from_tokens(&account.tokens));
-                if let Some(phone) = bound_phone {
-                    account.bound_phone = Some(phone);
-                }
+            if apply_import_metadata_fields(
+                &mut account,
+                account_note,
+                bound_phone,
+                access_token_expires_at,
+                tags,
+            ) {
                 save_account(&account)?;
             }
             Ok(account)
@@ -4762,13 +4793,32 @@ async fn import_codex_candidate(
         CodexJsonImportCandidate::AccessToken {
             access_token,
             account_note,
-            token_expired_at,
-        } => upsert_account_from_access_token(access_token, account_note, token_expired_at),
+            bound_phone,
+            access_token_expires_at,
+            tags,
+        } => upsert_account_from_access_token(
+            access_token,
+            account_note,
+            bound_phone,
+            access_token_expires_at,
+            tags,
+        ),
         CodexJsonImportCandidate::RefreshToken {
             refresh_token,
             account_note,
-            token_expired_at,
-        } => upsert_account_from_refresh_token(refresh_token, account_note, token_expired_at).await,
+            bound_phone,
+            access_token_expires_at,
+            tags,
+        } => {
+            upsert_account_from_refresh_token(
+                refresh_token,
+                account_note,
+                bound_phone,
+                access_token_expires_at,
+                tags,
+            )
+            .await
+        }
     }
 }
 
@@ -5008,14 +5058,7 @@ pub async fn import_from_json(json_content: &str) -> Result<Vec<CodexAccount>, S
         }
 
         if let Some(tokens) = auth_file.tokens {
-            let mut account = upsert_account_from_auth_tokens(tokens)?;
-            if let Some(value) = raw_value.as_ref() {
-                if let Some(token_expired_at) = read_token_expired_at_metadata(value) {
-                    account.token_expired_at = Some(token_expired_at);
-                }
-                apply_compat_account_metadata(&mut account, value, None);
-                save_account(&account)?;
-            }
+            let account = upsert_account_from_auth_tokens(tokens)?;
             return Ok(vec![account]);
         }
 
@@ -5106,517 +5149,6 @@ pub fn export_accounts(account_ids: &[String]) -> Result<String, String> {
         .collect();
 
     serde_json::to_string_pretty(&accounts).map_err(|e| format!("序列化失败: {}", e))
-}
-
-#[derive(serde::Serialize, Clone)]
-pub struct CodexCpaWrittenFile {
-    pub account_id: String,
-    pub email: String,
-    pub file_name: String,
-    pub path: String,
-}
-
-#[derive(serde::Serialize, Clone)]
-pub struct CodexCpaWriteResult {
-    pub directory: String,
-    pub written: Vec<CodexCpaWrittenFile>,
-}
-
-#[derive(serde::Serialize, Clone)]
-pub struct CodexCpaAccountFile {
-    pub file_name: String,
-    pub path: String,
-    pub email: Option<String>,
-    pub account_id: Option<String>,
-    pub phone: Option<String>,
-    pub modified_at: Option<i64>,
-    pub size_bytes: Option<u64>,
-    pub valid: bool,
-    pub error: Option<String>,
-}
-
-#[derive(serde::Serialize, Clone)]
-pub struct CodexCpaDeleteResult {
-    pub directory: String,
-    pub deleted: usize,
-    pub deleted_files: Vec<String>,
-}
-
-pub fn get_cpa_dir() -> Result<PathBuf, String> {
-    dirs::home_dir()
-        .map(|home| home.join(CPA_DIR_NAME))
-        .ok_or_else(|| "无法获取用户主目录".to_string())
-}
-
-pub fn get_cpa_dir_path() -> Result<String, String> {
-    Ok(ensure_cpa_dir()?.to_string_lossy().to_string())
-}
-
-fn ensure_cpa_dir() -> Result<PathBuf, String> {
-    let dir = get_cpa_dir()?;
-    fs::create_dir_all(&dir)
-        .map_err(|error| format!("创建 CPA 目录失败 ({}): {}", dir.display(), error))?;
-    Ok(dir)
-}
-
-fn format_timestamp_rfc3339(timestamp: i64) -> Option<String> {
-    chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0)
-        .map(|datetime| datetime.to_rfc3339())
-}
-
-fn infer_token_expired_at_from_tokens(tokens: &CodexTokens) -> Option<String> {
-    decode_jwt_payload_value(&tokens.access_token)
-        .and_then(|payload| payload.get("exp").and_then(|value| value.as_i64()))
-        .and_then(format_timestamp_rfc3339)
-        .or_else(|| {
-            decode_jwt_payload_value(&tokens.id_token)
-                .and_then(|payload| payload.get("exp").and_then(|value| value.as_i64()))
-                .and_then(format_timestamp_rfc3339)
-        })
-}
-
-fn ensure_account_token_expired_at(account: &mut CodexAccount) {
-    if normalize_optional_ref(account.token_expired_at.as_deref()).is_none() {
-        account.token_expired_at = infer_token_expired_at_from_tokens(&account.tokens);
-    }
-}
-
-fn format_cpa_last_refresh(account: &CodexAccount) -> String {
-    account
-        .token_updated_at
-        .and_then(format_timestamp_rfc3339)
-        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
-}
-
-fn resolve_cpa_account_id(account: &CodexAccount) -> Option<String> {
-    normalize_optional_value(
-        account
-            .account_id
-            .clone()
-            .or_else(|| extract_chatgpt_account_id_from_access_token(&account.tokens.access_token)),
-    )
-}
-
-fn resolve_cpa_expired(account: &CodexAccount) -> String {
-    normalize_optional_ref(account.token_expired_at.as_deref())
-        .or_else(|| infer_token_expired_at_from_tokens(&account.tokens))
-        .unwrap_or_default()
-}
-
-fn build_cpa_account_payload(account: &CodexAccount) -> Result<serde_json::Value, String> {
-    if account.is_api_key_auth() {
-        return Err(format!(
-            "CPA 格式仅支持 OAuth Token 账号，{} 是 API Key 账号",
-            account.email
-        ));
-    }
-    if account.tokens.id_token.trim().is_empty() || account.tokens.access_token.trim().is_empty() {
-        return Err(format!("{} 缺少 id_token 或 access_token", account.email));
-    }
-
-    let mut payload = serde_json::json!({
-        "id_token": account.tokens.id_token,
-        "access_token": account.tokens.access_token,
-        "refresh_token": account.tokens.refresh_token.clone().unwrap_or_default(),
-        "account_id": resolve_cpa_account_id(account).unwrap_or_default(),
-        "last_refresh": format_cpa_last_refresh(account),
-        "email": account.email,
-        "type": "codex",
-        "expired": resolve_cpa_expired(account),
-    });
-
-    if let Some(phone) = normalize_optional_ref(account.bound_phone.as_deref()) {
-        if let Some(record) = payload.as_object_mut() {
-            record.insert(
-                "bound_phone".to_string(),
-                serde_json::Value::String(phone.clone()),
-            );
-            record.insert("phone".to_string(), serde_json::Value::String(phone));
-        }
-    }
-
-    Ok(payload)
-}
-
-fn sanitize_cpa_file_segment(input: &str, fallback: &str) -> String {
-    let mut result = String::new();
-    let mut last_was_underscore = false;
-
-    for ch in input.trim().chars() {
-        let invalid = matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
-            || ch.is_control()
-            || ch.is_whitespace();
-        if invalid {
-            if !last_was_underscore {
-                result.push('_');
-                last_was_underscore = true;
-            }
-            continue;
-        }
-        result.push(ch);
-        last_was_underscore = false;
-    }
-
-    let trimmed = result.trim_matches('_');
-    if trimmed.is_empty() {
-        fallback.to_string()
-    } else {
-        trimmed.to_string()
-    }
-}
-
-fn build_cpa_account_file_name(account: &CodexAccount, index: usize) -> String {
-    let label = sanitize_cpa_file_segment(&account.email, &format!("account_{}", index + 1));
-    let account_id = resolve_cpa_account_id(account).unwrap_or_else(|| account.id.clone());
-    let suffix_source = sanitize_cpa_file_segment(&account_id, "");
-    let suffix = if suffix_source.is_empty() {
-        sanitize_cpa_file_segment(&account.id, "")
-    } else {
-        suffix_source
-    };
-    let short_suffix: String = suffix
-        .chars()
-        .rev()
-        .take(6)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    let today = chrono::Utc::now().format("%Y-%m-%d");
-
-    format!(
-        "{}_{:02}_{label}_{short_suffix}_{today}.json",
-        CPA_EXPORT_FILE_PREFIX,
-        index + 1
-    )
-}
-
-fn is_safe_cpa_json_file_name(file_name: &str) -> bool {
-    let trimmed = file_name.trim();
-    !trimmed.is_empty()
-        && trimmed == file_name
-        && trimmed.ends_with(".json")
-        && !trimmed.contains('/')
-        && !trimmed.contains('\\')
-        && trimmed != ".json"
-        && trimmed != "..json"
-        && !Path::new(trimmed).is_absolute()
-        && Path::new(trimmed)
-            .file_name()
-            .and_then(|name| name.to_str())
-            == Some(trimmed)
-}
-
-fn unique_cpa_file_path(dir: &Path, file_name: &str) -> PathBuf {
-    let initial = dir.join(file_name);
-    if !initial.exists() {
-        return initial;
-    }
-
-    let stem = file_name.strip_suffix(".json").unwrap_or(file_name);
-    for attempt in 2..=999 {
-        let candidate = dir.join(format!("{stem}_{attempt}.json"));
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-
-    dir.join(format!(
-        "{stem}_{}.json",
-        chrono::Utc::now().timestamp_millis()
-    ))
-}
-
-pub fn export_accounts_to_cpa_dir(account_ids: &[String]) -> Result<CodexCpaWriteResult, String> {
-    let dir = ensure_cpa_dir()?;
-    let mut written = Vec::new();
-    let mut missing = Vec::new();
-
-    for (index, account_id) in account_ids.iter().enumerate() {
-        let Some(account) = load_account(account_id) else {
-            missing.push(account_id.clone());
-            continue;
-        };
-        let payload = build_cpa_account_payload(&account)?;
-        let file_name = build_cpa_account_file_name(&account, index);
-        let path = unique_cpa_file_path(&dir, &file_name);
-        let content =
-            serde_json::to_string_pretty(&payload).map_err(|e| format!("序列化失败: {}", e))?;
-
-        write_string_atomic(&path, &content)
-            .map_err(|error| format!("写入 CPA 文件失败 ({}): {}", path.display(), error))?;
-
-        written.push(CodexCpaWrittenFile {
-            account_id: account.id,
-            email: account.email,
-            file_name: path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or(file_name.as_str())
-                .to_string(),
-            path: path.to_string_lossy().to_string(),
-        });
-    }
-
-    if written.is_empty() && !missing.is_empty() {
-        return Err(format!("未找到账号: {}", missing.join(", ")));
-    }
-
-    Ok(CodexCpaWriteResult {
-        directory: dir.to_string_lossy().to_string(),
-        written,
-    })
-}
-
-fn cpa_json_files() -> Result<Vec<PathBuf>, String> {
-    let dir = get_cpa_dir()?;
-    if !dir.exists() {
-        return Ok(Vec::new());
-    }
-    let entries =
-        fs::read_dir(&dir).map_err(|error| format!("读取 CPA 目录失败 ({}): {}", dir.display(), error))?;
-    let mut files = Vec::new();
-
-    for entry in entries {
-        let entry = entry.map_err(|error| format!("读取 CPA 目录项失败: {}", error))?;
-        let path = entry.path();
-        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
-        if entry.file_type().map(|item| item.is_file()).unwrap_or(false)
-            && is_safe_cpa_json_file_name(file_name)
-        {
-            files.push(path);
-        }
-    }
-
-    files.sort_by(|a, b| {
-        a.file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default()
-            .cmp(b.file_name().and_then(|name| name.to_str()).unwrap_or_default())
-    });
-    Ok(files)
-}
-
-fn metadata_modified_timestamp(metadata: &fs::Metadata) -> Option<i64> {
-    metadata
-        .modified()
-        .ok()
-        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
-        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
-}
-
-fn looks_like_cpa_account_json(value: &serde_json::Value) -> bool {
-    value.as_object().is_some()
-        && (value.get("type").and_then(|item| item.as_str()) == Some("codex")
-            || value.get("id_token").is_some()
-            || value.get("access_token").is_some()
-            || value.get("refresh_token").is_some()
-            || value.get("tokens").is_some())
-}
-
-fn describe_cpa_file(path: &Path) -> CodexCpaAccountFile {
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default()
-        .to_string();
-    let metadata = fs::metadata(path).ok();
-    let content = fs::read_to_string(path);
-    let mut email = None;
-    let mut account_id = None;
-    let mut phone = None;
-    let mut valid = false;
-    let mut error = None;
-
-    match content {
-        Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
-            Ok(value) => {
-                email = first_json_string(&value, &[&["email"], &["account_email"]]);
-                phone = first_json_string(
-                    &value,
-                    &[
-                        &["bound_phone"],
-                        &["boundPhone"],
-                        &["phone"],
-                        &["phone_number"],
-                        &["phoneNumber"],
-                        &["mobile"],
-                    ],
-                );
-                account_id = first_json_string(
-                    &value,
-                    &[
-                        &["account_id"],
-                        &["accountId"],
-                        &["tokens", "account_id"],
-                        &["tokens", "accountId"],
-                    ],
-                );
-                valid = looks_like_cpa_account_json(&value);
-                if !valid {
-                    error = Some("不是可识别的 CPA Codex 账号 JSON".to_string());
-                }
-            }
-            Err(parse_error) => {
-                error = Some(format!("JSON 解析失败: {}", parse_error));
-            }
-        },
-        Err(read_error) => {
-            error = Some(format!("读取失败: {}", read_error));
-        }
-    }
-
-    CodexCpaAccountFile {
-        file_name,
-        path: path.to_string_lossy().to_string(),
-        email,
-        account_id,
-        phone,
-        modified_at: metadata.as_ref().and_then(metadata_modified_timestamp),
-        size_bytes: metadata.as_ref().map(|item| item.len()),
-        valid,
-        error,
-    }
-}
-
-fn normalize_cpa_match_text(value: Option<&str>) -> String {
-    value.unwrap_or_default().trim().to_lowercase()
-}
-
-fn cpa_file_matches_account(value: &serde_json::Value, account: &CodexAccount) -> bool {
-    let file_email = normalize_cpa_match_text(
-        first_json_string(value, &[&["email"], &["account_email"]]).as_deref(),
-    );
-    let account_email = normalize_cpa_match_text(Some(&account.email));
-    if !file_email.is_empty() && file_email == account_email {
-        return true;
-    }
-
-    let file_account_id = normalize_cpa_match_text(
-        first_json_string(
-            value,
-            &[
-                &["account_id"],
-                &["accountId"],
-                &["tokens", "account_id"],
-                &["tokens", "accountId"],
-            ],
-        )
-        .as_deref(),
-    );
-    let resolved_account_id = normalize_cpa_match_text(resolve_cpa_account_id(account).as_deref());
-    !file_account_id.is_empty() && file_account_id == resolved_account_id
-}
-
-fn sync_account_phone_to_cpa_files(account: &CodexAccount) -> Result<usize, String> {
-    let phone = normalize_optional_ref(account.bound_phone.as_deref());
-    let mut updated = 0;
-
-    for path in cpa_json_files()? {
-        let content = fs::read_to_string(&path)
-            .map_err(|error| format!("读取 CPA 文件失败 ({}): {}", path.display(), error))?;
-        let mut value: serde_json::Value = serde_json::from_str(&content)
-            .map_err(|error| format!("CPA JSON 解析失败 ({}): {}", path.display(), error))?;
-        if !looks_like_cpa_account_json(&value) || !cpa_file_matches_account(&value, account) {
-            continue;
-        }
-
-        let Some(record) = value.as_object_mut() else {
-            continue;
-        };
-        if let Some(phone) = phone.clone() {
-            record.insert(
-                "bound_phone".to_string(),
-                serde_json::Value::String(phone.clone()),
-            );
-            record.insert("phone".to_string(), serde_json::Value::String(phone));
-        } else {
-            record.remove("bound_phone");
-            record.remove("boundPhone");
-            record.remove("phone");
-            record.remove("phone_number");
-            record.remove("phoneNumber");
-            record.remove("mobile");
-        }
-
-        let content =
-            serde_json::to_string_pretty(&value).map_err(|e| format!("序列化失败: {}", e))?;
-        write_string_atomic(&path, &content)
-            .map_err(|error| format!("写入 CPA 文件失败 ({}): {}", path.display(), error))?;
-        updated += 1;
-    }
-
-    Ok(updated)
-}
-
-pub fn list_cpa_accounts() -> Result<Vec<CodexCpaAccountFile>, String> {
-    Ok(cpa_json_files()?
-        .iter()
-        .map(|path| describe_cpa_file(path))
-        .collect())
-}
-
-pub async fn import_from_cpa_dir() -> Result<CodexFileImportResult, String> {
-    let files = cpa_json_files()?;
-    let mut imported = Vec::new();
-    let mut failed = Vec::new();
-
-    for path in files {
-        let file_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("unknown.json")
-            .to_string();
-
-        match fs::read_to_string(&path) {
-            Ok(content) => match import_from_json(&content).await {
-                Ok(mut accounts) => imported.append(&mut accounts),
-                Err(error) => failed.push(CodexFileImportFailure {
-                    email: file_name,
-                    error,
-                }),
-            },
-            Err(error) => failed.push(CodexFileImportFailure {
-                email: file_name,
-                error: format!("读取失败: {}", error),
-            }),
-        }
-    }
-
-    Ok(CodexFileImportResult { imported, failed })
-}
-
-pub fn delete_cpa_account_files(file_names: &[String]) -> Result<CodexCpaDeleteResult, String> {
-    let dir = get_cpa_dir()?;
-    let mut deleted_files = Vec::new();
-
-    for file_name in file_names {
-        if !is_safe_cpa_json_file_name(file_name) {
-            return Err(format!("CPA 文件名不安全: {}", file_name));
-        }
-        let path = dir.join(file_name);
-        if path.exists() {
-            fs::remove_file(&path)
-                .map_err(|error| format!("删除 CPA 文件失败 ({}): {}", path.display(), error))?;
-            deleted_files.push(file_name.clone());
-        }
-    }
-
-    Ok(CodexCpaDeleteResult {
-        directory: dir.to_string_lossy().to_string(),
-        deleted: deleted_files.len(),
-        deleted_files,
-    })
-}
-
-pub fn delete_all_cpa_account_files() -> Result<CodexCpaDeleteResult, String> {
-    let file_names: Vec<String> = cpa_json_files()?
-        .iter()
-        .filter_map(|path| path.file_name().and_then(|name| name.to_str()).map(String::from))
-        .collect();
-    delete_cpa_account_files(&file_names)
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -5719,13 +5251,16 @@ enum CodexBatchImportDraft {
         tokens: CodexTokens,
         account_id_hint: Option<String>,
         account_note: Option<String>,
-        token_expired_at: Option<String>,
         bound_phone: Option<String>,
+        access_token_expires_at: Option<String>,
+        tags: Option<Vec<String>>,
     },
     AccessToken {
         access_token: String,
         account_note: Option<String>,
-        token_expired_at: Option<String>,
+        bound_phone: Option<String>,
+        access_token_expires_at: Option<String>,
+        tags: Option<Vec<String>>,
     },
 }
 
@@ -5806,7 +5341,9 @@ fn preview_account_from_full_tokens(
     mut tokens: CodexTokens,
     account_id_hint: Option<String>,
     account_note: Option<String>,
-    token_expired_at: Option<String>,
+    bound_phone: Option<String>,
+    access_token_expires_at: Option<String>,
+    tags: Option<Vec<String>>,
 ) -> Result<CodexAccount, String> {
     let (
         email,
@@ -5835,16 +5372,22 @@ fn preview_account_from_full_tokens(
     account.subscription_active_until = subscription_active_until;
     account.account_id = account_id;
     account.organization_id = organization_id;
-    account.account_note = account_note;
-    account.token_expired_at =
-        token_expired_at.or_else(|| infer_token_expired_at_from_tokens(&account.tokens));
+    apply_import_metadata_fields(
+        &mut account,
+        account_note,
+        bound_phone,
+        access_token_expires_at,
+        tags,
+    );
     Ok(account)
 }
 
 fn preview_account_from_access_token(
     access_token: String,
     account_note: Option<String>,
-    token_expired_at: Option<String>,
+    bound_phone: Option<String>,
+    access_token_expires_at: Option<String>,
+    tags: Option<Vec<String>>,
 ) -> Result<CodexAccount, String> {
     let access_token =
         normalize_optional_value(Some(access_token)).ok_or("accessToken 不能为空")?;
@@ -5869,9 +5412,13 @@ fn preview_account_from_access_token(
     account.subscription_active_until = subscription_active_until;
     account.account_id = account_id;
     account.organization_id = organization_id;
-    account.account_note = account_note;
-    account.token_expired_at =
-        token_expired_at.or_else(|| infer_token_expired_at_from_tokens(&account.tokens));
+    apply_import_metadata_fields(
+        &mut account,
+        account_note,
+        bound_phone,
+        access_token_expires_at,
+        tags,
+    );
     Ok(account)
 }
 
@@ -5882,28 +5429,29 @@ fn preview_account_for_draft(draft: &CodexBatchImportDraft) -> Result<CodexAccou
             tokens,
             account_id_hint,
             account_note,
-            token_expired_at,
             bound_phone,
-        } => {
-            let mut account = preview_account_from_full_tokens(
-                tokens.clone(),
-                account_id_hint.clone(),
-                account_note.clone(),
-                token_expired_at.clone(),
-            )?;
-            if let Some(phone) = bound_phone {
-                account.bound_phone = Some(phone.clone());
-            }
-            Ok(account)
-        }
+            access_token_expires_at,
+            tags,
+        } => preview_account_from_full_tokens(
+            tokens.clone(),
+            account_id_hint.clone(),
+            account_note.clone(),
+            bound_phone.clone(),
+            access_token_expires_at.clone(),
+            tags.clone(),
+        ),
         CodexBatchImportDraft::AccessToken {
             access_token,
             account_note,
-            token_expired_at,
+            bound_phone,
+            access_token_expires_at,
+            tags,
         } => preview_account_from_access_token(
             access_token.clone(),
             account_note.clone(),
-            token_expired_at.clone(),
+            bound_phone.clone(),
+            access_token_expires_at.clone(),
+            tags.clone(),
         ),
     }
 }
@@ -5916,23 +5464,29 @@ fn codex_batch_import_draft_from_candidate(
             tokens,
             account_id_hint,
             account_note,
-            token_expired_at,
             bound_phone,
+            access_token_expires_at,
+            tags,
         } => CodexBatchImportDraft::FullToken {
             tokens,
             account_id_hint,
             account_note,
-            token_expired_at,
             bound_phone,
+            access_token_expires_at,
+            tags,
         },
         CodexJsonImportCandidate::AccessToken {
             access_token,
             account_note,
-            token_expired_at,
+            bound_phone,
+            access_token_expires_at,
+            tags,
         } => CodexBatchImportDraft::AccessToken {
             access_token,
             account_note,
-            token_expired_at,
+            bound_phone,
+            access_token_expires_at,
+            tags,
         },
         CodexJsonImportCandidate::RefreshToken { .. } => {
             unreachable!("refresh_token candidates are resolved before creating a draft")
@@ -6028,19 +5582,19 @@ async fn codex_batch_import_draft_from_value(
             {
                 return Ok(Some(CodexBatchImportDraft::AccessToken {
                     access_token: tokens.access_token,
-                    account_note: None,
-                    token_expired_at: read_token_expired_at_metadata(&value),
+                    account_note: extract_account_note_from_value(&value),
+                    bound_phone: extract_bound_phone_from_value(&value),
+                    access_token_expires_at: extract_access_token_expires_at_from_value(&value),
+                    tags: extract_tags_from_value(&value),
                 }));
             }
             return Ok(Some(CodexBatchImportDraft::FullToken {
                 tokens,
                 account_id_hint,
-                account_note: None,
-                token_expired_at: read_token_expired_at_metadata(&value),
-                bound_phone: read_json_string(
-                    &value,
-                    &["bound_phone", "boundPhone", "phone", "phone_number", "phoneNumber", "mobile"],
-                ),
+                account_note: extract_account_note_from_value(&value),
+                bound_phone: extract_bound_phone_from_value(&value),
+                access_token_expires_at: extract_access_token_expires_at_from_value(&value),
+                tags: extract_tags_from_value(&value),
             }));
         }
         if let Some(api_key) = fallback_api_key {
@@ -6068,15 +5622,18 @@ async fn codex_batch_import_draft_from_value(
             CodexJsonImportCandidate::RefreshToken {
                 refresh_token,
                 account_note,
-                token_expired_at,
+                bound_phone,
+                access_token_expires_at,
+                tags,
             } => {
                 let tokens = codex_oauth::refresh_access_token(&refresh_token).await?;
                 Ok(Some(CodexBatchImportDraft::FullToken {
                     tokens,
                     account_id_hint: None,
                     account_note,
-                    token_expired_at,
-                    bound_phone: None,
+                    bound_phone,
+                    access_token_expires_at,
+                    tags,
                 }))
             }
             other => Ok(Some(codex_batch_import_draft_from_candidate(other))),
@@ -6585,18 +6142,18 @@ pub fn confirm_codex_batch_import(
                 tokens,
                 account_id_hint,
                 account_note,
-                token_expired_at,
                 bound_phone,
+                access_token_expires_at,
+                tags,
             } => {
                 let mut account = upsert_account_with_hints(tokens, account_id_hint, None)?;
-                if account_note.is_some() || token_expired_at.is_some() || bound_phone.is_some() {
-                    account.account_note = account_note;
-                    account.token_expired_at = token_expired_at
-                        .or_else(|| account.token_expired_at.clone())
-                        .or_else(|| infer_token_expired_at_from_tokens(&account.tokens));
-                    if let Some(phone) = bound_phone {
-                        account.bound_phone = Some(phone);
-                    }
+                if apply_import_metadata_fields(
+                    &mut account,
+                    account_note,
+                    bound_phone,
+                    access_token_expires_at,
+                    tags,
+                ) {
                     save_account(&account)?;
                 }
                 Ok(account)
@@ -6604,8 +6161,16 @@ pub fn confirm_codex_batch_import(
             CodexBatchImportDraft::AccessToken {
                 access_token,
                 account_note,
-                token_expired_at,
-            } => upsert_account_from_access_token(access_token, account_note, token_expired_at),
+                bound_phone,
+                access_token_expires_at,
+                tags,
+            } => upsert_account_from_access_token(
+                access_token,
+                account_note,
+                bound_phone,
+                access_token_expires_at,
+                tags,
+            ),
         };
         match result {
             Ok(mut account) => {
@@ -6770,7 +6335,6 @@ mod tests {
         upsert_account_from_auth_tokens, validate_api_key_credentials, write_account_bundle_to_dir,
         write_api_key_provider_to_config_toml, write_api_provider_to_config_toml,
         write_managed_projection_to_dir, write_quick_config_to_config_toml, ApiProviderConfig,
-        build_cpa_account_file_name, build_cpa_account_payload, is_safe_cpa_json_file_name,
         CodexAccountIndex, CodexAccountSummary, CodexAuthFile, CodexAuthTokens,
         CodexJsonImportCandidate, LocalCodexOAuthSnapshot, CODEX_AUTO_COMPACT_DEFAULT_LIMIT,
         CODEX_CONTEXT_WINDOW_1M_VALUE,
@@ -6881,92 +6445,6 @@ mod tests {
         assert_eq!(account.last_used, 200);
     }
 
-    #[test]
-    fn cpa_payload_uses_portable_codex_fields() {
-        let mut account = CodexAccount::new(
-            "stored-cpa".to_string(),
-            "cpa@example.com".to_string(),
-            make_codex_tokens(
-                "cpa@example.com",
-                "acc-cpa",
-                "org-cpa",
-                "cpa",
-                "refresh-cpa",
-            ),
-        );
-        account.account_id = Some("acc-cpa".to_string());
-        account.subscription_active_until = Some("2026-06-01T00:00:00Z".to_string());
-        account.token_updated_at = Some(1_765_497_600);
-        account.bound_phone = Some("+1 (445) 202-3000".to_string());
-        account.tokens.access_token = make_jwt(serde_json::json!({
-            "exp": 1_767_225_600i64,
-            "https://api.openai.com/auth": {
-                "chatgpt_account_id": "acc-cpa"
-            }
-        }));
-
-        let payload = build_cpa_account_payload(&account).expect("cpa payload");
-
-        assert_eq!(payload.get("type").and_then(|item| item.as_str()), Some("codex"));
-        assert_eq!(
-            payload.get("id_token").and_then(|item| item.as_str()),
-            Some(account.tokens.id_token.as_str())
-        );
-        assert_eq!(
-            payload.get("access_token").and_then(|item| item.as_str()),
-            Some(account.tokens.access_token.as_str())
-        );
-        assert_eq!(
-            payload.get("refresh_token").and_then(|item| item.as_str()),
-            Some("refresh-cpa")
-        );
-        assert_eq!(
-            payload.get("account_id").and_then(|item| item.as_str()),
-            Some("acc-cpa")
-        );
-        assert_eq!(
-            payload.get("last_refresh").and_then(|item| item.as_str()),
-            Some("2025-12-12T00:00:00+00:00")
-        );
-        assert_eq!(
-            payload.get("expired").and_then(|item| item.as_str()),
-            Some("2026-01-01T00:00:00+00:00")
-        );
-        assert_eq!(
-            payload.get("bound_phone").and_then(|item| item.as_str()),
-            Some("+1 (445) 202-3000")
-        );
-        assert_eq!(
-            payload.get("phone").and_then(|item| item.as_str()),
-            Some("+1 (445) 202-3000")
-        );
-    }
-
-    #[test]
-    fn cpa_file_names_are_stable_and_delete_targets_are_safe() {
-        let mut account = CodexAccount::new(
-            "stored-cpa".to_string(),
-            "cpa/user@example.com".to_string(),
-            make_codex_tokens(
-                "cpa@example.com",
-                "account-id-abcdef",
-                "org-cpa",
-                "cpa-safe",
-                "refresh-cpa",
-            ),
-        );
-        account.account_id = Some("account-id-abcdef".to_string());
-
-        let file_name = build_cpa_account_file_name(&account, 0);
-
-        assert!(file_name.starts_with("codex_accounts_cpa_01_cpa_user@example.com_abcdef_"));
-        assert!(file_name.ends_with(".json"));
-        assert!(is_safe_cpa_json_file_name(&file_name));
-        assert!(!is_safe_cpa_json_file_name("../auth.json"));
-        assert!(!is_safe_cpa_json_file_name("nested/auth.json"));
-        assert!(!is_safe_cpa_json_file_name("not-json.txt"));
-    }
-
     fn make_temp_dir(prefix: &str) -> std::path::PathBuf {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -7062,6 +6540,7 @@ mod tests {
         }));
         let access_token = make_jwt(serde_json::json!({
             "sub": format!("access-{}", suffix),
+            "exp": 4_102_444_800i64,
             "https://api.openai.com/auth": {
                 "chatgpt_account_id": account_id,
                 "organization_id": organization_id,
@@ -7423,7 +6902,11 @@ mod tests {
             "platform": "openai",
             "type": "oauth",
             "credentials": {
-                "access_token": access_token
+                "access_token": access_token,
+                "account_note": "credential note",
+                "bound_phone": "+1 445 202 3000",
+                "expired": "2026-06-24T09:26:13.000Z",
+                "tags": ["paid", "team"]
             }
         });
 
@@ -7434,9 +6917,20 @@ mod tests {
             CodexJsonImportCandidate::AccessToken {
                 access_token,
                 account_note,
-                ..
+                bound_phone,
+                access_token_expires_at,
+                tags,
             } => {
                 assert_eq!(account_note.as_deref(), Some("imported from sub2api"));
+                assert_eq!(bound_phone.as_deref(), Some("+1 445 202 3000"));
+                assert_eq!(
+                    access_token_expires_at.as_deref(),
+                    Some("2026-06-24T09:26:13.000Z")
+                );
+                assert_eq!(
+                    tags.as_deref(),
+                    Some(&["paid".to_string(), "team".to_string()][..])
+                );
                 assert!(decode_jwt_payload_value(&access_token).is_some());
             }
             _ => panic!("expected accessToken-only candidate"),
@@ -7488,6 +6982,8 @@ mod tests {
         let account = upsert_account_from_access_token(
             access_token.clone(),
             Some("imported from accessToken".to_string()),
+            None,
+            None,
             None,
         )
         .expect("upsert access token account");
@@ -7601,9 +7097,8 @@ mod tests {
             }
         }));
 
-        let account =
-            upsert_account_from_access_token(access_token.clone(), None, None)
-                .expect("upsert AT only");
+        let account = upsert_account_from_access_token(access_token.clone(), None, None, None, None)
+            .expect("upsert AT only");
 
         assert_eq!(account.id, existing.id);
         assert_eq!(account.tokens.access_token, access_token);
@@ -7720,6 +7215,43 @@ mod tests {
         let persisted = load_account(&account.id).expect("persisted account");
         assert!(!persisted.requires_reauth);
         assert_eq!(persisted.reauth_reason, None);
+    }
+
+    #[test]
+    fn expired_access_token_only_account_requires_reauth_on_prepare() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        let _env = TestEnvGuard::new("codex-access-token-only-expired-test");
+        let mut tokens = make_codex_tokens(
+            "demo@example.com",
+            "acc-current",
+            "org-current",
+            "access-only-expired",
+            "rt-unused",
+        );
+        tokens.access_token = make_jwt(serde_json::json!({
+            "sub": "access-only-expired",
+            "exp": 1i64,
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "acc-current",
+                "organization_id": "org-current",
+            }
+        }));
+        tokens.refresh_token = None;
+        let account = seed_oauth_account(tokens);
+
+        let runtime = tokio::runtime::Runtime::new().expect("create runtime");
+        let error = runtime
+            .block_on(ensure_managed_account_fresh(&account.id))
+            .expect_err("expired access-token-only account should require reauth");
+
+        assert!(error.contains("缺少 refresh_token"));
+        let persisted = load_account(&account.id).expect("persisted account");
+        assert!(persisted.requires_reauth);
+        assert!(persisted
+            .reauth_reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("缺少 refresh_token"));
     }
 
     #[test]
@@ -8444,126 +7976,6 @@ multi_agent = true
     }
 
     #[test]
-    fn duplicate_api_key_accounts_are_allowed() {
-        let _lock = TEST_ENV_LOCK.lock().expect("lock test env");
-        let _env = TestEnvGuard::new("codex-duplicate-api-key-test");
-
-        let first = super::upsert_api_key_account(
-            "sk-duplicate-key".to_string(),
-            Some("https://api.openai.com/v1".to_string()),
-            None,
-            None,
-            None,
-            Vec::new(),
-            None,
-            false,
-            std::collections::HashMap::new(),
-            None,
-            Some("First".to_string()),
-        )
-        .expect("first api key account should be created");
-        let second = super::upsert_api_key_account(
-            "sk-duplicate-key".to_string(),
-            Some("https://api.openai.com/v1".to_string()),
-            None,
-            None,
-            None,
-            Vec::new(),
-            None,
-            false,
-            std::collections::HashMap::new(),
-            None,
-            Some("Second".to_string()),
-        )
-        .expect("duplicate api key account should be created");
-
-        assert_ne!(first.id, second.id);
-        assert_eq!(first.openai_api_key.as_deref(), Some("sk-duplicate-key"));
-        assert_eq!(second.openai_api_key.as_deref(), Some("sk-duplicate-key"));
-        assert_eq!(first.account_name.as_deref(), Some("First"));
-        assert_eq!(second.account_name.as_deref(), Some("Second"));
-
-        let base_id = super::build_api_key_account_id("sk-duplicate-key");
-        assert_eq!(first.id, base_id);
-        assert!(second.id.starts_with(&format!("{}_", base_id)));
-
-        let index = load_account_index();
-        let stored_count = index
-            .accounts
-            .iter()
-            .filter_map(|summary| load_account(&summary.id))
-            .filter(|account| account.openai_api_key.as_deref() == Some("sk-duplicate-key"))
-            .count();
-        assert_eq!(stored_count, 2);
-    }
-
-    #[test]
-    fn updating_api_key_credentials_to_existing_key_keeps_both_accounts() {
-        let _lock = TEST_ENV_LOCK.lock().expect("lock test env");
-        let _env = TestEnvGuard::new("codex-update-duplicate-api-key-test");
-
-        let first = super::upsert_api_key_account(
-            "sk-existing-key".to_string(),
-            Some("https://api.openai.com/v1".to_string()),
-            None,
-            None,
-            None,
-            Vec::new(),
-            None,
-            false,
-            std::collections::HashMap::new(),
-            None,
-            Some("Existing".to_string()),
-        )
-        .expect("existing api key account should be created");
-        let second = super::upsert_api_key_account(
-            "sk-other-key".to_string(),
-            Some("https://api.openai.com/v1".to_string()),
-            None,
-            None,
-            None,
-            Vec::new(),
-            None,
-            false,
-            std::collections::HashMap::new(),
-            None,
-            Some("Other".to_string()),
-        )
-        .expect("second api key account should be created");
-
-        let updated = super::update_api_key_credentials(
-            &second.id,
-            "sk-existing-key".to_string(),
-            Some("https://api.openai.com/v1".to_string()),
-            None,
-            None,
-            None,
-            Vec::new(),
-            None,
-            false,
-            std::collections::HashMap::new(),
-            None,
-        )
-        .expect("updating to an existing api key should not be blocked");
-
-        assert_ne!(updated.id, first.id);
-        assert_ne!(updated.id, second.id);
-        assert_eq!(updated.openai_api_key.as_deref(), Some("sk-existing-key"));
-        assert!(load_account(&first.id).is_some());
-        assert!(load_account(&second.id).is_none());
-        assert!(load_account(&updated.id).is_some());
-
-        let index = load_account_index();
-        let stored_count = index
-            .accounts
-            .iter()
-            .filter_map(|summary| load_account(&summary.id))
-            .filter(|account| account.openai_api_key.as_deref() == Some("sk-existing-key"))
-            .count();
-        assert_eq!(stored_count, 2);
-    }
-
-    #[test]
     #[ignore = "manual local Codex repair smoke test"]
     fn local_codex_index_repair_smoke() {
         crate::modules::logger::init_logger();
@@ -8826,12 +8238,6 @@ pub fn update_account_phone(account_id: &str, phone: String) -> Result<CodexAcco
 
     account.bound_phone = normalize_optional_value(Some(phone));
     save_account(&account)?;
-    if let Err(error) = sync_account_phone_to_cpa_files(&account) {
-        logger::log_warn(&format!(
-            "同步 Codex 绑定手机号到 CPA JSON 失败: account_id={}, error={}",
-            account.id, error
-        ));
-    }
 
     Ok(account)
 }
@@ -8915,16 +8321,15 @@ pub fn update_api_key_credentials(
         api_provider_name.as_deref(),
     )?;
     let old_id = account.id.clone();
+    let new_id = build_api_key_account_id(&normalized_key);
     let mut index = load_account_index();
     let was_current = get_current_account()
         .map(|current| current.id == old_id)
         .unwrap_or(false);
-    let existing_key = normalize_optional_ref(account.openai_api_key.as_deref());
-    let new_id = if existing_key.as_deref() == Some(normalized_key.as_str()) {
-        old_id.clone()
-    } else {
-        build_unique_api_key_account_id(&normalized_key, &index)
-    };
+
+    if new_id != old_id && index.accounts.iter().any(|item| item.id == new_id) {
+        return Err("该 API Key 已存在，请直接使用已有账号".to_string());
+    }
 
     if new_id != old_id {
         account.id = new_id.clone();

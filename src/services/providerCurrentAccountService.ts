@@ -5,6 +5,8 @@ export type ProviderCurrentPlatform =
   | 'kiro'
   | 'cursor'
   | 'gemini'
+  | 'claude_desktop_account'
+  | 'claude_code_account'
   | 'codebuddy'
   | 'codebuddy_cn'
   | 'qoder'

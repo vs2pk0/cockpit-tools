@@ -56,7 +56,7 @@ export function CodexServicePanelModal({
   if (!open) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div
         className="modal-content cockpit-api-panel-modal"
         onClick={(event) => event.stopPropagation()}

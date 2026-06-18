@@ -2561,7 +2561,7 @@ export function CodexModelProviderManager({
       )}
 
       {showModal && (
-        <div className="modal-overlay" onClick={closeModal}>
+        <div className="modal-overlay">
           <div
             className="modal codex-provider-modal"
             onClick={(event) => event.stopPropagation()}
@@ -3143,7 +3143,7 @@ export function CodexModelProviderManager({
             .includes(pickerSearchQuery.trim().toLowerCase()),
         );
         return (
-          <div className="modal-overlay" onClick={() => setApiKeyPickerProviderId(null)}>
+          <div className="modal-overlay">
             <div
               className="modal codex-provider-picker-modal"
               onClick={(event) => event.stopPropagation()}
@@ -3201,7 +3201,7 @@ export function CodexModelProviderManager({
             .includes(pickerSearchQuery.trim().toLowerCase()),
         );
         return (
-          <div className="modal-overlay" onClick={() => setInstancePickerProviderId(null)}>
+          <div className="modal-overlay">
             <div
               className="modal codex-provider-picker-modal"
               onClick={(event) => event.stopPropagation()}
@@ -3255,7 +3255,6 @@ export function CodexModelProviderManager({
       {providerOauthTarget && (
         <div
           className="modal-overlay"
-          onClick={() => !providerOauthSaving && setProviderOauthPickerId(null)}
         >
           <div
             className="modal-content codex-add-modal codex-oauth-binding-modal"

@@ -19,11 +19,6 @@ export function GlobalModal() {
 
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const handleOverlayClick = useCallback(() => {
-    if (!modal || modal.closeOnOverlay === false) return;
-    closeModal();
-  }, [closeModal, modal]);
-
   useEscClose(visible, closeModal);
 
   const handleActionClick = useCallback(async (action: GlobalModalAction) => {
@@ -63,7 +58,7 @@ export function GlobalModal() {
       : 'modal';
 
   return (
-    <div className="modal-overlay global-modal-overlay" onClick={handleOverlayClick}>
+    <div className="modal-overlay global-modal-overlay">
       <div className={modalSizeClass} onClick={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <h2>{modal.title || t('globalModal.title', '提示')}</h2>

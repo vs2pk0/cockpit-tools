@@ -6,6 +6,7 @@ export const MAX_CURRENT_ACCOUNT_REFRESH_MINUTES = 999;
 export type CurrentAccountRefreshPlatform =
   | 'antigravity'
   | 'codex'
+  | 'claude'
   | 'ghcp'
   | 'windsurf'
   | 'kiro'
@@ -21,6 +22,7 @@ export type CurrentAccountRefreshPlatform =
 export const CURRENT_ACCOUNT_REFRESH_PLATFORMS: CurrentAccountRefreshPlatform[] = [
   'antigravity',
   'codex',
+  'claude',
   'ghcp',
   'windsurf',
   'kiro',
@@ -55,6 +57,7 @@ export function buildDefaultCurrentAccountRefreshMinutesMap(): CurrentAccountRef
   return {
     antigravity: DEFAULT_CURRENT_ACCOUNT_REFRESH_MINUTES,
     codex: DEFAULT_CURRENT_ACCOUNT_REFRESH_MINUTES,
+    claude: DEFAULT_CURRENT_ACCOUNT_REFRESH_MINUTES,
     ghcp: DEFAULT_CURRENT_ACCOUNT_REFRESH_MINUTES,
     windsurf: DEFAULT_CURRENT_ACCOUNT_REFRESH_MINUTES,
     kiro: DEFAULT_CURRENT_ACCOUNT_REFRESH_MINUTES,

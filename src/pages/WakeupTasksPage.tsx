@@ -2372,7 +2372,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
       )}
 
       {showTestModal && (
-        <div className="modal-overlay" onClick={closeTestModal}>
+        <div className="modal-overlay">
           <div
             className="modal wakeup-modal wakeup-test-modal"
             onClick={(event) => event.stopPropagation()}
@@ -2570,7 +2570,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
       )}
 
       {showHistoryModal && (
-        <div className="modal-overlay" onClick={() => setShowHistoryModal(false)}>
+        <div className="modal-overlay">
           <div
             className="modal wakeup-modal wakeup-history-modal"
             onClick={(event) => event.stopPropagation()}
@@ -2647,7 +2647,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
       )}
 
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+        <div className="modal-overlay">
           <div className="modal modal-lg wakeup-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <button className="btn btn-secondary icon-only" onClick={() => setShowModal(false)} title={t('common.back', '返回')} aria-label={t('common.back', '返回')}><ChevronLeft size={14} /></button>

@@ -2285,11 +2285,7 @@ export function QoderAccountsPage() {
       )}
 
       {tagDeleteConfirm && (
-        <div className="modal-overlay" onClick={() => {
-          if (deletingTag) return;
-          setTagDeleteConfirm(null);
-          setTagDeleteConfirmError(null);
-        }}>
+        <div className="modal-overlay">
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h2>{t('common.confirm')}</h2>

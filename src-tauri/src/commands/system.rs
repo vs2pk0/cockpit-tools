@@ -81,6 +81,8 @@ pub struct GeneralConfig {
     pub cursor_auto_refresh_minutes: i32,
     /// Gemini 自动刷新间隔（分钟），-1 表示禁用
     pub gemini_auto_refresh_minutes: i32,
+    /// Claude 自动刷新间隔（分钟），-1 表示禁用
+    pub claude_auto_refresh_minutes: i32,
     /// Gemini 切号时是否同步覆盖 WSL 配置 (Windows Only)
     pub gemini_sync_wsl: bool,
     /// CodeBuddy 自动刷新间隔（分钟），-1 表示禁用
@@ -123,6 +125,8 @@ pub struct GeneralConfig {
     pub antigravity_app_path: String,
     /// Codex 启动路径（为空则使用默认路径）
     pub codex_app_path: String,
+    /// Claude 桌面应用启动路径（为空则使用默认路径）
+    pub claude_app_path: String,
     /// 切换 Codex 后需联动重启的指定应用路径
     pub codex_specified_app_path: String,
     /// Zed 启动路径（为空则使用默认路径）
@@ -229,6 +233,10 @@ pub struct GeneralConfig {
     pub gemini_quota_alert_enabled: bool,
     /// Gemini 配额预警阈值（百分比）
     pub gemini_quota_alert_threshold: i32,
+    /// 是否启用 Claude 配额预警通知
+    pub claude_quota_alert_enabled: bool,
+    /// Claude 配额预警阈值（百分比）
+    pub claude_quota_alert_threshold: i32,
     /// 是否启用 CodeBuddy 配额预警通知
     pub codebuddy_quota_alert_enabled: bool,
     /// CodeBuddy 配额预警阈值（百分比）
@@ -1772,17 +1780,16 @@ pub async fn upload_auto_backup_to_webdav(
 
     let mut uploaded_files = Vec::new();
     uploaded_files.push(
-        sync_client.upload_backup_bytes(
-            &archive_name,
-            archive_bytes,
-        )
-        .await?,
+        sync_client
+            .upload_backup_bytes(&archive_name, archive_bytes)
+            .await?,
     );
 
-    let deleted_files = sync_client.cleanup_remote_backups(
-        config::sanitize_webdav_sync_retention_days(config.webdav_sync_retention_days),
-    )
-    .await?;
+    let deleted_files = sync_client
+        .cleanup_remote_backups(config::sanitize_webdav_sync_retention_days(
+            config.webdav_sync_retention_days,
+        ))
+        .await?;
     let uploaded_at = chrono::Utc::now().to_rfc3339();
     let remote_dir = connection.remote_dir.clone();
 
@@ -1814,7 +1821,7 @@ pub async fn read_webdav_backup_file(file_name: String) -> Result<String, String
     let config = config::get_user_config();
     let safe_name = sanitize_auto_backup_file_name(&file_name)?;
     let connection = modules::webdav_sync::connection_from_config(&config)?;
-    
+
     let downloaded_at = chrono::Utc::now().to_rfc3339();
     let content = if safe_name.ends_with(".zip") {
         let bytes = modules::webdav_sync::read_remote_backup_bytes(&connection, &safe_name).await?;
@@ -1923,6 +1930,7 @@ pub fn save_network_config(
         ui_scale: current.ui_scale,
         auto_refresh_minutes: current.auto_refresh_minutes,
         codex_auto_refresh_minutes: current.codex_auto_refresh_minutes,
+        claude_auto_refresh_minutes: current.claude_auto_refresh_minutes,
         codex_sync_wsl: current.codex_sync_wsl,
         codex_wsl_config_dir: current.codex_wsl_config_dir,
         zed_auto_refresh_minutes: current.zed_auto_refresh_minutes,
@@ -1970,6 +1978,7 @@ pub fn save_network_config(
         opencode_app_path: current.opencode_app_path,
         antigravity_app_path: current.antigravity_app_path,
         codex_app_path: current.codex_app_path,
+        claude_app_path: current.claude_app_path,
         codex_specified_app_path: current.codex_specified_app_path,
         zed_app_path: current.zed_app_path,
         vscode_app_path: current.vscode_app_path,
@@ -2010,6 +2019,8 @@ pub fn save_network_config(
         quota_alert_threshold: current.quota_alert_threshold,
         codex_quota_alert_enabled: current.codex_quota_alert_enabled,
         codex_quota_alert_threshold: current.codex_quota_alert_threshold,
+        claude_quota_alert_enabled: current.claude_quota_alert_enabled,
+        claude_quota_alert_threshold: current.claude_quota_alert_threshold,
         zed_quota_alert_enabled: current.zed_quota_alert_enabled,
         zed_quota_alert_threshold: current.zed_quota_alert_threshold,
         codex_quota_alert_primary_threshold: current.codex_quota_alert_primary_threshold,
@@ -2210,6 +2221,7 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         kiro_auto_refresh_minutes: user_config.kiro_auto_refresh_minutes,
         cursor_auto_refresh_minutes: user_config.cursor_auto_refresh_minutes,
         gemini_auto_refresh_minutes: user_config.gemini_auto_refresh_minutes,
+        claude_auto_refresh_minutes: user_config.claude_auto_refresh_minutes,
         gemini_sync_wsl: user_config.gemini_sync_wsl,
         codebuddy_auto_refresh_minutes: user_config.codebuddy_auto_refresh_minutes,
         codebuddy_cn_auto_refresh_minutes: user_config.codebuddy_cn_auto_refresh_minutes,
@@ -2235,6 +2247,7 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         opencode_app_path: user_config.opencode_app_path,
         antigravity_app_path: user_config.antigravity_app_path,
         codex_app_path: user_config.codex_app_path,
+        claude_app_path: user_config.claude_app_path,
         codex_specified_app_path: user_config.codex_specified_app_path,
         zed_app_path: user_config.zed_app_path,
         vscode_app_path: user_config.vscode_app_path,
@@ -2289,6 +2302,8 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         cursor_quota_alert_threshold: user_config.cursor_quota_alert_threshold,
         gemini_quota_alert_enabled: user_config.gemini_quota_alert_enabled,
         gemini_quota_alert_threshold: user_config.gemini_quota_alert_threshold,
+        claude_quota_alert_enabled: user_config.claude_quota_alert_enabled,
+        claude_quota_alert_threshold: user_config.claude_quota_alert_threshold,
         codebuddy_quota_alert_enabled: user_config.codebuddy_quota_alert_enabled,
         codebuddy_quota_alert_threshold: user_config.codebuddy_quota_alert_threshold,
         codebuddy_cn_quota_alert_enabled: user_config.codebuddy_cn_quota_alert_enabled,
@@ -2341,6 +2356,7 @@ pub fn save_general_config(
     kiro_auto_refresh_minutes: Option<i32>,
     cursor_auto_refresh_minutes: Option<i32>,
     gemini_auto_refresh_minutes: Option<i32>,
+    claude_auto_refresh_minutes: Option<i32>,
     gemini_sync_wsl: Option<bool>,
     codebuddy_auto_refresh_minutes: Option<i32>,
     codebuddy_cn_auto_refresh_minutes: Option<i32>,
@@ -2362,6 +2378,7 @@ pub fn save_general_config(
     opencode_app_path: String,
     antigravity_app_path: String,
     codex_app_path: String,
+    claude_app_path: Option<String>,
     codex_specified_app_path: Option<String>,
     zed_app_path: Option<String>,
     vscode_app_path: String,
@@ -2415,6 +2432,8 @@ pub fn save_general_config(
     cursor_quota_alert_threshold: Option<i32>,
     gemini_quota_alert_enabled: Option<bool>,
     gemini_quota_alert_threshold: Option<i32>,
+    claude_quota_alert_enabled: Option<bool>,
+    claude_quota_alert_threshold: Option<i32>,
     codebuddy_quota_alert_enabled: Option<bool>,
     codebuddy_quota_alert_threshold: Option<i32>,
     codebuddy_cn_quota_alert_enabled: Option<bool>,
@@ -2430,6 +2449,9 @@ pub fn save_general_config(
     let normalized_opencode_path = opencode_app_path.trim().to_string();
     let normalized_antigravity_path = antigravity_app_path.trim().to_string();
     let normalized_codex_path = codex_app_path.trim().to_string();
+    let normalized_claude_path = claude_app_path
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|| current.claude_app_path.clone());
     let normalized_codex_specified_app_path = codex_specified_app_path
         .map(|value| value.trim().to_string())
         .unwrap_or_else(|| current.codex_specified_app_path.clone());
@@ -2558,6 +2580,8 @@ pub fn save_general_config(
             .unwrap_or(current.cursor_auto_refresh_minutes),
         gemini_auto_refresh_minutes: gemini_auto_refresh_minutes
             .unwrap_or(current.gemini_auto_refresh_minutes),
+        claude_auto_refresh_minutes: claude_auto_refresh_minutes
+            .unwrap_or(current.claude_auto_refresh_minutes),
         gemini_sync_wsl: gemini_sync_wsl.unwrap_or(current.gemini_sync_wsl),
         codebuddy_auto_refresh_minutes: codebuddy_auto_refresh_minutes
             .unwrap_or(current.codebuddy_auto_refresh_minutes),
@@ -2586,6 +2610,7 @@ pub fn save_general_config(
         opencode_app_path: normalized_opencode_path,
         antigravity_app_path: normalized_antigravity_path,
         codex_app_path: normalized_codex_path,
+        claude_app_path: normalized_claude_path,
         codex_specified_app_path: normalized_codex_specified_app_path,
         zed_app_path: normalized_zed_path,
         vscode_app_path: normalized_vscode_path,
@@ -2682,6 +2707,10 @@ pub fn save_general_config(
             .unwrap_or(current.gemini_quota_alert_enabled),
         gemini_quota_alert_threshold: gemini_quota_alert_threshold
             .unwrap_or(current.gemini_quota_alert_threshold),
+        claude_quota_alert_enabled: claude_quota_alert_enabled
+            .unwrap_or(current.claude_quota_alert_enabled),
+        claude_quota_alert_threshold: claude_quota_alert_threshold
+            .unwrap_or(current.claude_quota_alert_threshold),
         codebuddy_quota_alert_enabled: codebuddy_quota_alert_enabled
             .unwrap_or(current.codebuddy_quota_alert_enabled),
         codebuddy_quota_alert_threshold: codebuddy_quota_alert_threshold
@@ -2789,8 +2818,11 @@ pub fn set_app_path(app: String, path: String) -> Result<(), String> {
     let mut current = config::get_user_config();
     let normalized_path = path.trim().to_string();
     match app.as_str() {
-        "antigravity" => current.antigravity_app_path = normalized_path,
+        "antigravity" | "antigravity_ide" | "antigravity_legacy" => {
+            current.antigravity_app_path = normalized_path
+        }
         "codex" => current.codex_app_path = normalized_path,
+        "claude" => current.claude_app_path = normalized_path,
         "zed" => current.zed_app_path = normalized_path,
         "vscode" => current.vscode_app_path = normalized_path,
         "windsurf" => current.windsurf_app_path = normalized_path,
@@ -2843,11 +2875,11 @@ pub fn detect_app_path(app: String, force: Option<bool>) -> Result<Option<String
             force,
         )),
         "cursor" => Ok(modules::cursor_instance::detect_and_save_cursor_launch_path(force)),
-        "antigravity" | "codex" | "zed" | "vscode" | "codebuddy" | "codebuddy_cn" | "qoder"
-        | "trae" | "opencode" | "workbuddy" => Ok(modules::process::detect_and_save_app_path(
-            app.as_str(),
-            force,
-        )),
+        "claude" => Ok(modules::claude_instance::detect_and_save_claude_launch_path(force)),
+        "antigravity" | "antigravity_ide" | "antigravity_legacy" | "codex" | "zed" | "vscode"
+        | "codebuddy" | "codebuddy_cn" | "qoder" | "trae" | "opencode" | "workbuddy" => Ok(
+            modules::process::detect_and_save_app_path(app.as_str(), force),
+        ),
         _ => Err("未知应用类型".to_string()),
     }
 }

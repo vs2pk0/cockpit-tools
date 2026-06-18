@@ -20,7 +20,9 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import apiKeyFunIcon from '../assets/icons/apikey-fun.png';
 import { isMenuVisiblePlatform, MENU_VISIBLE_PLATFORM_IDS, PlatformId } from '../types/platform';
+import { useSponsorStore } from '../stores/useSponsorStore';
 import {
   API_RELAY_LAYOUT_ENTRY_ID,
   ApiRelayLayoutEntryId,
@@ -377,6 +379,7 @@ export function PlatformLayoutModal({
     removePlatformGroup,
     resetPlatformLayout,
   } = usePlatformLayoutStore();
+  const apiRelayEntryEnabled = useSponsorStore((state) => Boolean(state.state.sponsorModule));
 
   const [draggingId, setDraggingId] = useState<LayoutEntryId | null>(null);
   const [dropTargetId, setDropTargetId] = useState<LayoutEntryId | null>(null);
@@ -465,18 +468,39 @@ export function PlatformLayoutModal({
       });
     }
 
+    if (apiRelayEntryEnabled) {
+      const insertIndex = Math.max(0, Math.min(apiRelayEntryOrder, result.length));
+      result.splice(insertIndex, 0, {
+        id: API_RELAY_LAYOUT_ENTRY_ID,
+        type: 'api-relay',
+        label: t('nav.apiRelay', '中转站'),
+        hidden: !apiRelayDashboardVisible,
+        group: null,
+        defaultPlatformId: null,
+        platformIds: [],
+      });
+    }
+
     return result;
   }, [
     orderedEntryIds,
     platformGroups,
     hiddenSet,
     t,
+    apiRelayEntryEnabled,
+    apiRelayEntryOrder,
+    apiRelayDashboardVisible,
   ]);
 
   const layoutEntryOrderIds = useMemo<LayoutEntryId[]>(() => {
     const result: LayoutEntryId[] = [...orderedEntryIds];
+    if (!apiRelayEntryEnabled) {
+      return result;
+    }
+    const insertIndex = Math.max(0, Math.min(apiRelayEntryOrder, result.length));
+    result.splice(insertIndex, 0, API_RELAY_LAYOUT_ENTRY_ID);
     return result;
-  }, [orderedEntryIds]);
+  }, [apiRelayEntryEnabled, apiRelayEntryOrder, orderedEntryIds]);
 
   const allGroupIds = useMemo(
     () => entries.filter((entry) => entry.type === 'group' && !!entry.group).map((entry) => entry.id),
@@ -1066,7 +1090,7 @@ export function PlatformLayoutModal({
   if (!open) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-lg" onClick={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <h2>{t('platformLayout.title', '平台布局')}</h2>
@@ -1241,9 +1265,9 @@ export function PlatformLayoutModal({
                       )}
 
                       <div className="platform-layout-icon">
-                        {entry.group?.iconCustomDataUrl ? (
+                        {isApiRelayEntry ? (
                           <img
-                            src={entry.group.iconCustomDataUrl}
+                            src={apiKeyFunIcon}
                             alt=""
                             className="platform-layout-group-icon"
                             style={{ width: 18, height: 18 }}
@@ -1526,7 +1550,7 @@ export function PlatformLayoutModal({
         </div>
 
         {groupEditorOpen && (
-          <div className="platform-layout-group-editor-overlay" onClick={closeGroupEditor}>
+          <div className="platform-layout-group-editor-overlay">
             <div className="platform-layout-group-editor-modal" onClick={(event) => event.stopPropagation()}>
               <div className="platform-layout-group-editor-header">
                 <span>
@@ -1644,7 +1668,7 @@ export function PlatformLayoutModal({
         )}
 
         {childEditorOpen && childEditorGroupId && childEditorPlatformId && (
-          <div className="platform-layout-group-editor-overlay" onClick={closeChildEditor}>
+          <div className="platform-layout-group-editor-overlay">
             <div className="platform-layout-group-editor-modal" onClick={(event) => event.stopPropagation()}>
               <div className="platform-layout-group-editor-header">
                 <span>{t('platformLayout.editChildPlatform', '编辑子级平台')}</span>

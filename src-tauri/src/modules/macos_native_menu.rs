@@ -411,6 +411,7 @@ mod imp {
         match platform {
             PlatformId::Antigravity => "#67c27b",
             PlatformId::Codex => "#1976ff",
+            PlatformId::Claude => "#d97745",
             PlatformId::Zed => "#8b92a1",
             PlatformId::GitHubCopilot => "#8b92a1",
             PlatformId::Windsurf => "#21c7b7",
@@ -2131,31 +2132,36 @@ mod imp {
         let Some(raw_usage) = account.gemini_usage_raw.as_ref() else {
             return Vec::new();
         };
-        let Some(buckets) = raw_usage.get("buckets").and_then(|value| value.as_array()) else {
+        let Some(groups) = raw_usage.get("groups").and_then(|value| value.as_array()) else {
             return Vec::new();
         };
 
         let mut values = Vec::new();
-        for bucket in buckets {
-            let model_id = bucket
-                .get("modelId")
-                .and_then(|value| value.as_str())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string);
-            let remaining = bucket
-                .get("remainingFraction")
-                .and_then(parse_json_number)
-                .map(|value| clamp_percent(value * 100.0));
-            let reset_at = bucket.get("resetTime").and_then(parse_timestamp_like);
-            let (Some(model_id), Some(remaining_percent)) = (model_id, remaining) else {
+        for group in groups {
+            let Some(buckets) = group.get("buckets").and_then(|value| value.as_array()) else {
                 continue;
             };
-            values.push(GeminiBucketRemaining {
-                model_id,
-                remaining_percent,
-                reset_at,
-            });
+            for bucket in buckets {
+                let model_id = bucket
+                    .get("bucketId")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                let remaining = bucket
+                    .get("remainingFraction")
+                    .and_then(parse_json_number)
+                    .map(|value| clamp_percent(value * 100.0));
+                let reset_at = bucket.get("resetTime").and_then(parse_timestamp_like);
+                let (Some(model_id), Some(remaining_percent)) = (model_id, remaining) else {
+                    continue;
+                };
+                values.push(GeminiBucketRemaining {
+                    model_id,
+                    remaining_percent,
+                    reset_at,
+                });
+            }
         }
 
         values.sort_by(|left, right| left.model_id.cmp(&right.model_id));
@@ -2861,6 +2867,7 @@ mod imp {
         match platform {
             PlatformId::Antigravity => build_antigravity_cards(lang),
             PlatformId::Codex => build_codex_cards(lang),
+            PlatformId::Claude => build_claude_cards(lang, true),
             PlatformId::GitHubCopilot => build_ghcp_cards(lang),
             PlatformId::Windsurf => build_windsurf_cards(lang),
             PlatformId::Kiro => build_kiro_cards(lang),
@@ -3013,6 +3020,120 @@ mod imp {
                         account.email
                     },
                     plan: account.plan_type,
+                    updated_at: display_updated_at(
+                        account.usage_updated_at,
+                        account.last_used,
+                        account.created_at,
+                    ),
+                    quota_rows: rows,
+                }
+            })
+            .collect();
+
+        (cards, current_id, recommended)
+    }
+
+    fn is_claude_desktop_account(account: &crate::models::claude::ClaudeAccount) -> bool {
+        matches!(
+            account.auth_mode,
+            crate::models::claude::ClaudeAuthMode::DesktopOAuth
+                | crate::models::claude::ClaudeAuthMode::DesktopGateway
+        )
+    }
+
+    fn build_claude_cards(
+        lang: &str,
+        desktop: bool,
+    ) -> (Vec<AccountCard>, Option<String>, Option<String>) {
+        let fallback_title = if desktop {
+            "Claude"
+        } else {
+            "Claude CLI"
+        };
+        let mut accounts = modules::claude_account::list_accounts()
+            .into_iter()
+            .filter(|account| is_claude_desktop_account(account) == desktop)
+            .collect::<Vec<_>>();
+        let current_platform = if desktop {
+            "claude_desktop_account"
+        } else {
+            "claude_code_account"
+        };
+        let current_id = modules::claude_account::resolve_current_account_for_platform(
+            current_platform,
+            &accounts,
+        )
+        .map(|account| account.id);
+        accounts
+            .sort_by_key(|account| std::cmp::Reverse(account.last_used.max(account.created_at)));
+
+        let recommended = current_id.as_deref().and_then(|id| {
+            accounts
+                .iter()
+                .filter(|account| account.id != id)
+                .filter_map(|account| {
+                    let quota = account.quota.as_ref()?;
+                    let values = [quota.five_hour_percentage, quota.seven_day_percentage];
+                    let avg = values.iter().copied().sum::<i32>() as f64 / values.len() as f64;
+                    Some((account.id.clone(), avg, account.last_used))
+                })
+                .min_by(|left, right| {
+                    left.1
+                        .partial_cmp(&right.1)
+                        .unwrap_or(Ordering::Equal)
+                        .then_with(|| right.2.cmp(&left.2))
+                })
+                .map(|item| item.0)
+        });
+
+        let cards = accounts
+            .into_iter()
+            .map(|account| {
+                let mut rows = Vec::new();
+                if let Some(quota) = account.quota.as_ref() {
+                    let five_hour = quota.five_hour_percentage.clamp(0, 100);
+                    rows.push(make_progress_row(
+                        translate_or(lang, "claude.quota.fiveHour", "Current session", &[]),
+                        format!("{five_hour}%"),
+                        five_hour,
+                        format_reset_subtext(lang, quota.five_hour_reset_time),
+                        usage_warning_tone(five_hour),
+                    ));
+
+                    let seven_day = quota.seven_day_percentage.clamp(0, 100);
+                    rows.push(make_progress_row(
+                        translate_or(
+                            lang,
+                            "claude.quota.sevenDay",
+                            "Current week (all models)",
+                            &[],
+                        ),
+                        format!("{seven_day}%"),
+                        seven_day,
+                        format_reset_subtext(lang, quota.seven_day_reset_time),
+                        usage_warning_tone(seven_day),
+                    ));
+                } else if let Some(error) = account.quota_error.as_ref() {
+                    rows.push(make_text_row(
+                        translate_or(lang, "common.shared.columns.status", "Status", &[]),
+                        error.message.clone(),
+                        None,
+                    ));
+                }
+
+                AccountCard {
+                    id: account.id,
+                    title: first_non_empty(&[
+                        Some(account.email.as_str()),
+                        account.organization_name.as_deref(),
+                    ])
+                    .unwrap_or(fallback_title)
+                    .to_string(),
+                    plan: first_non_empty(&[
+                        account.plan_type.as_deref(),
+                        account.organization_name.as_deref(),
+                    ])
+                    .map(str::to_string),
                     updated_at: display_updated_at(
                         account.usage_updated_at,
                         account.last_used,
@@ -3526,39 +3647,31 @@ mod imp {
             .map(|account| {
                 let buckets = collect_gemini_bucket_remaining(&account);
                 let mut rows = Vec::new();
-                if let Some(pro_bucket) =
-                    pick_lowest_gemini_bucket(&buckets, |model_id| model_id.contains("pro"))
-                {
-                    let value = translate_or(
-                        lang,
-                        "gemini.quota.left",
-                        "{{value}}% left",
-                        &[("value", &pro_bucket.remaining_percent.to_string())],
-                    );
-                    rows.push(make_progress_row(
-                        translate_or(lang, "gemini.quota.pro", "Pro", &[]),
-                        value,
-                        pro_bucket.remaining_percent,
-                        format_reset_subtext(lang, pro_bucket.reset_at),
-                        cursor_usage_tone((100 - pro_bucket.remaining_percent).clamp(0, 100)),
-                    ));
-                }
-                if let Some(flash_bucket) =
-                    pick_lowest_gemini_bucket(&buckets, |model_id| model_id.contains("flash"))
-                {
-                    let value = translate_or(
-                        lang,
-                        "gemini.quota.left",
-                        "{{value}}% left",
-                        &[("value", &flash_bucket.remaining_percent.to_string())],
-                    );
-                    rows.push(make_progress_row(
-                        translate_or(lang, "gemini.quota.flash", "Flash", &[]),
-                        value,
-                        flash_bucket.remaining_percent,
-                        format_reset_subtext(lang, flash_bucket.reset_at),
-                        cursor_usage_tone((100 - flash_bucket.remaining_percent).clamp(0, 100)),
-                    ));
+                for (bucket_id, label_key, default_label) in [
+                    ("gemini-5h", "gemini.quota.gemini5h", "Gemini 5h"),
+                    (
+                        "gemini-weekly",
+                        "gemini.quota.geminiweekly",
+                        "Gemini Weekly",
+                    ),
+                    ("3p-5h", "gemini.quota.3p5h", "Claude 5h"),
+                    ("3p-weekly", "gemini.quota.3pweekly", "Claude Weekly"),
+                ] {
+                    if let Some(bucket) = buckets.iter().find(|b| b.model_id == bucket_id) {
+                        let value = translate_or(
+                            lang,
+                            "gemini.quota.left",
+                            "{{value}}% left",
+                            &[("value", &bucket.remaining_percent.to_string())],
+                        );
+                        rows.push(make_progress_row(
+                            translate_or(lang, label_key, default_label, &[]),
+                            value,
+                            bucket.remaining_percent,
+                            format_reset_subtext(lang, bucket.reset_at),
+                            cursor_usage_tone((100 - bucket.remaining_percent).clamp(0, 100)),
+                        ));
+                    }
                 }
                 AccountCard {
                     id: account.id,
@@ -4292,6 +4405,14 @@ mod imp {
                         .map(|_| 0)
                 }
                 (PlatformId::Codex, None) => refresh_all_codex_usage_for_menu(app.clone()).await,
+                (PlatformId::Claude, Some(account_id)) => {
+                    commands::claude::refresh_claude_quota(app.clone(), account_id)
+                        .await
+                        .map(|_| 0)
+                }
+                (PlatformId::Claude, None) => {
+                    commands::claude::refresh_all_claude_quotas(app.clone()).await
+                }
                 (PlatformId::GitHubCopilot, Some(account_id)) => {
                     commands::github_copilot::refresh_github_copilot_token(app.clone(), account_id)
                         .await
@@ -4407,9 +4528,12 @@ mod imp {
                 PlatformId::Antigravity => commands::account::switch_account(app, account_id, None)
                     .await
                     .map(|_| ()),
-                PlatformId::Codex => commands::codex::switch_codex_account(app, account_id)
+                PlatformId::Codex => commands::codex::switch_codex_account(app, account_id, None)
                     .await
                     .map(|_| ()),
+                PlatformId::Claude => {
+                    commands::claude::switch_claude_account(app, account_id).map(|_| ())
+                }
                 PlatformId::GitHubCopilot => {
                     commands::github_copilot::inject_github_copilot_to_vscode(app, account_id)
                         .await

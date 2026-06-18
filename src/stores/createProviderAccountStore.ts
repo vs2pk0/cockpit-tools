@@ -50,6 +50,7 @@ type ProviderStoreOptions = {
   resolveCurrentAccountId?: () => Promise<string | null>;
   persistCurrentAccountId?: boolean;
   hydrateCurrentAccountId?: boolean;
+  preserveSourceQuota?: boolean;
 };
 
 export interface ProviderAccountStoreState<TAccount> {
@@ -178,7 +179,7 @@ export function createProviderAccountStore<TAccount extends ProviderAccountAugme
         ...account,
         email,
         plan_type: mapper.getPlanBadge(account),
-        quota,
+        quota: options.preserveSourceQuota ? account.quota : quota,
       };
     });
   };

@@ -2602,7 +2602,7 @@ export function CodexWakeupContent({
       )}
 
       {showRuntimeGuideModal && (
-        <div className="modal-overlay" onClick={closeRuntimeGuideModal}>
+        <div className="modal-overlay">
           <div
             className="modal wakeup-modal codex-wakeup-runtime-guide-modal"
             onClick={(event) => event.stopPropagation()}
@@ -2708,7 +2708,7 @@ export function CodexWakeupContent({
       )}
 
       {showPresetModal && (
-        <div className="modal-overlay codex-wakeup-preset-overlay" onClick={closePresetModal}>
+        <div className="modal-overlay codex-wakeup-preset-overlay">
           <div className="modal modal-lg wakeup-modal codex-wakeup-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               {presetModalSource !== 'page' && (
@@ -2865,7 +2865,7 @@ export function CodexWakeupContent({
       )}
 
       {showTaskModal && (
-        <div className="modal-overlay" onClick={closeTaskModal}>
+        <div className="modal-overlay">
           <div className="modal modal-lg wakeup-modal codex-wakeup-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <button className="btn btn-secondary icon-only" onClick={closeTaskModal} title={t('common.back', '返回')} aria-label={t('common.back', '返回')}><ChevronLeft size={14} /></button>
@@ -3288,7 +3288,7 @@ export function CodexWakeupContent({
       )}
 
       {showTestModal && (
-        <div className="modal-overlay" onClick={closeTestModal}>
+        <div className="modal-overlay">
           <div className="modal modal-lg wakeup-modal wakeup-test-modal codex-wakeup-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <button className="btn btn-secondary icon-only" onClick={closeTestModal} title={t('common.back', '返回')} aria-label={t('common.back', '返回')}><ChevronLeft size={14} /></button>
@@ -3417,7 +3417,7 @@ export function CodexWakeupContent({
       )}
 
       {showHistoryModal && (
-        <div className="modal-overlay" onClick={() => setShowHistoryModal(false)}>
+        <div className="modal-overlay">
           <div className="modal wakeup-modal wakeup-history-modal codex-wakeup-history-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <button className="btn btn-secondary icon-only" onClick={() => setShowHistoryModal(false)} title={t('common.back', '返回')} aria-label={t('common.back', '返回')}><ChevronLeft size={14} /></button>
@@ -3506,12 +3506,6 @@ export function CodexWakeupContent({
       {executionSession && (
         <div
           className="modal-overlay"
-          onClick={() => {
-            if (!executionSession.running) {
-              setExecutionSession(null);
-              setExecutionSessionFromHistory(false);
-            }
-          }}
         >
           <div
             className="modal codex-wakeup-modal codex-wakeup-results-modal"

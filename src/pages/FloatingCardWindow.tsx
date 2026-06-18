@@ -8,6 +8,7 @@ import { TauriEvent, listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import {
   buildAntigravityAccountPresentation,
+  buildClaudeAccountPresentation,
   buildCodebuddyAccountPresentation,
   buildCodexAccountPresentation,
   buildCursorAccountPresentation,
@@ -35,6 +36,7 @@ import {
   type FloatingCardInstanceContext,
 } from '../services/floatingCardService';
 import { useAccountStore } from '../stores/useAccountStore';
+import { useClaudeAccountStore } from '../stores/useClaudeAccountStore';
 import { useCodebuddyAccountStore } from '../stores/useCodebuddyAccountStore';
 import { useCodebuddyCnAccountStore } from '../stores/useCodebuddyCnAccountStore';
 import { useCodexAccountStore } from '../stores/useCodexAccountStore';
@@ -43,12 +45,15 @@ import { useGeminiAccountStore } from '../stores/useGeminiAccountStore';
 import { useGitHubCopilotAccountStore } from '../stores/useGitHubCopilotAccountStore';
 import { useKiroAccountStore } from '../stores/useKiroAccountStore';
 import { usePlatformLayoutStore } from '../stores/usePlatformLayoutStore';
+import { useRemoteConfigStore } from '../stores/useRemoteConfigStore';
 import { useQoderAccountStore } from '../stores/useQoderAccountStore';
 import { useTraeAccountStore } from '../stores/useTraeAccountStore';
 import { useWindsurfAccountStore } from '../stores/useWindsurfAccountStore';
 import { useWorkbuddyAccountStore } from '../stores/useWorkbuddyAccountStore';
 import { useZedAccountStore } from '../stores/useZedAccountStore';
 import { useCodebuddyCnInstanceStore } from '../stores/useCodebuddyCnInstanceStore';
+import { useAntigravityLegacyInstanceStore } from '../stores/useAntigravityLegacyInstanceStore';
+import { useClaudeInstanceStore } from '../stores/useClaudeInstanceStore';
 import { useCodebuddyInstanceStore } from '../stores/useCodebuddyInstanceStore';
 import { useCodexInstanceStore } from '../stores/useCodexInstanceStore';
 import { useCursorInstanceStore } from '../stores/useCursorInstanceStore';
@@ -68,6 +73,7 @@ import { getPlatformLabel, renderPlatformIcon } from '../utils/platformMeta';
 import { getAntigravityRuntimeTarget } from '../utils/antigravityRuntimeTarget';
 import {
   getRecommendedAntigravityAccount,
+  getRecommendedClaudeAccount,
   getRecommendedCodebuddyAccount,
   getRecommendedCodebuddyCnAccount,
   getRecommendedCodexAccount,
@@ -111,6 +117,7 @@ type FloatingCardGeneralConfig = {
 type FloatingCardAccount =
   | ReturnType<typeof useAccountStore.getState>['accounts'][number]
   | ReturnType<typeof useCodexAccountStore.getState>['accounts'][number]
+  | ReturnType<typeof useClaudeAccountStore.getState>['accounts'][number]
   | ReturnType<typeof useGitHubCopilotAccountStore.getState>['accounts'][number]
   | ReturnType<typeof useWindsurfAccountStore.getState>['accounts'][number]
   | ReturnType<typeof useKiroAccountStore.getState>['accounts'][number]
@@ -158,10 +165,13 @@ function resolveAppliedTheme(theme: string): 'light' | 'dark' {
 function resolveInstanceStoreApi(platformId: PlatformId): FloatingCardInstanceStoreApi | null {
   switch (platformId) {
     case 'antigravity':
+      return useAntigravityLegacyInstanceStore.getState();
     case 'antigravity_ide':
       return useInstanceStore.getState();
     case 'codex':
       return useCodexInstanceStore.getState();
+    case 'claude_manager':
+      return useClaudeInstanceStore.getState();
     case 'github-copilot':
       return useGitHubCopilotInstanceStore.getState();
     case 'windsurf':
@@ -199,8 +209,14 @@ export function FloatingCardWindow() {
     INSTANCE_FLOATING_CARD_WINDOW_LABEL_PREFIX,
   );
   const orderedPlatformIds = usePlatformLayoutStore((state) => state.orderedPlatformIds);
+  const remoteHiddenPlatformIds = useRemoteConfigStore((state) => state.hiddenPlatformIds);
+  const fetchRemoteConfigState = useRemoteConfigStore((state) => state.fetchState);
   const { accounts: agAccounts, currentAccount: agCurrent } = useAccountStore();
   const { accounts: codexAccounts, currentAccount: codexCurrent } = useCodexAccountStore();
+  const {
+    accounts: claudeAccounts,
+    currentAccountId: claudeCurrentId,
+  } = useClaudeAccountStore();
   const {
     accounts: githubCopilotAccounts,
     currentAccountId: githubCopilotCurrentId,
@@ -262,6 +278,10 @@ export function FloatingCardWindow() {
   const [refreshingAccountId, setRefreshingAccountId] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [platformLoading, setPlatformLoading] = useState(false);
+  const remoteHiddenPlatformSet = useMemo(
+    () => new Set(remoteHiddenPlatformIds),
+    [remoteHiddenPlatformIds],
+  );
 
   const platformOrder = useMemo(() => {
     const seen = new Set<PlatformId>();
@@ -269,18 +289,24 @@ export function FloatingCardWindow() {
 
     for (const platformId of orderedPlatformIds) {
       if (!ALL_PLATFORM_IDS.includes(platformId) || seen.has(platformId)) continue;
+      if (remoteHiddenPlatformSet.has(platformId)) continue;
       ordered.push(platformId);
       seen.add(platformId);
     }
 
     for (const platformId of ALL_PLATFORM_IDS) {
       if (seen.has(platformId)) continue;
+      if (remoteHiddenPlatformSet.has(platformId)) continue;
       ordered.push(platformId);
       seen.add(platformId);
     }
 
     return ordered;
-  }, [orderedPlatformIds]);
+  }, [orderedPlatformIds, remoteHiddenPlatformSet]);
+
+  useEffect(() => {
+    void fetchRemoteConfigState(false);
+  }, [fetchRemoteConfigState]);
 
   useEffect(() => {
     if (platformOrder.includes(selectedPlatform)) {
@@ -385,6 +411,12 @@ export function FloatingCardWindow() {
           await Promise.allSettled([
             useCodexAccountStore.getState().fetchAccounts(),
             useCodexAccountStore.getState().fetchCurrentAccount(),
+          ]);
+          break;
+        case 'claude_manager':
+          await Promise.allSettled([
+            useClaudeAccountStore.getState().fetchAccounts(),
+            useClaudeAccountStore.getState().fetchCurrentAccountId(),
           ]);
           break;
         case 'github-copilot':
@@ -697,6 +729,11 @@ export function FloatingCardWindow() {
           accounts: codexAccounts,
           actualCurrentAccount: codexCurrent,
         };
+      case 'claude_manager':
+        return {
+          accounts: claudeAccounts,
+          actualCurrentAccount: resolveCurrentAccountById(claudeAccounts, claudeCurrentId),
+        };
       case 'github-copilot':
         return {
           accounts: githubCopilotAccounts,
@@ -756,6 +793,8 @@ export function FloatingCardWindow() {
   }, [
     agAccounts,
     agCurrent,
+    claudeAccounts,
+    claudeCurrentId,
     codebuddyAccounts,
     codebuddyCnAccounts,
     codebuddyCnCurrent,
@@ -797,9 +836,12 @@ export function FloatingCardWindow() {
     const effectiveCurrentId = currentAccount?.id;
     switch (selectedPlatform) {
       case 'antigravity':
+      case 'antigravity_ide':
         return getRecommendedAntigravityAccount(agAccounts, effectiveCurrentId);
       case 'codex':
         return getRecommendedCodexAccount(codexAccounts, effectiveCurrentId);
+      case 'claude_manager':
+        return getRecommendedClaudeAccount(claudeAccounts, effectiveCurrentId);
       case 'github-copilot':
         return getRecommendedGitHubCopilotAccount(githubCopilotAccounts, effectiveCurrentId);
       case 'windsurf':
@@ -825,6 +867,7 @@ export function FloatingCardWindow() {
     }
   }, [
     agAccounts,
+    claudeAccounts,
     codebuddyAccounts,
     codebuddyCnAccounts,
     codexAccounts,
@@ -885,6 +928,8 @@ export function FloatingCardWindow() {
         return buildAntigravityAccountPresentation(viewedAccount as typeof agAccounts[number], displayGroups, t);
       case 'codex':
         return buildCodexAccountPresentation(viewedAccount as typeof codexAccounts[number], t);
+      case 'claude_manager':
+        return buildClaudeAccountPresentation(viewedAccount as typeof claudeAccounts[number], t);
       case 'github-copilot':
         return buildGitHubCopilotAccountPresentation(viewedAccount as typeof githubCopilotAccounts[number], t);
       case 'windsurf':
@@ -910,6 +955,7 @@ export function FloatingCardWindow() {
     }
   }, [
     agAccounts,
+    claudeAccounts,
     codebuddyAccounts,
     codebuddyCnAccounts,
     codexAccounts,
@@ -968,6 +1014,9 @@ export function FloatingCardWindow() {
             break;
           case 'codex':
             await useCodexAccountStore.getState().refreshQuota(viewedAccount.id);
+            break;
+          case 'claude_manager':
+            await useClaudeAccountStore.getState().refreshToken(viewedAccount.id);
             break;
           case 'github-copilot':
             await useGitHubCopilotAccountStore.getState().refreshToken(viewedAccount.id);
@@ -1081,6 +1130,10 @@ export function FloatingCardWindow() {
           case 'codex':
             await useCodexAccountStore.getState().switchAccount(viewedAccount.id);
             await useCodexAccountStore.getState().fetchCurrentAccount();
+            break;
+          case 'claude_manager':
+            await useClaudeAccountStore.getState().switchAccount(viewedAccount.id);
+            await useClaudeAccountStore.getState().fetchCurrentAccountId();
             break;
           case 'github-copilot':
             await useGitHubCopilotAccountStore.getState().switchAccount(viewedAccount.id);

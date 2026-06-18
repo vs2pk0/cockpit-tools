@@ -753,7 +753,7 @@ export function CodebuddySuiteAccountsSharedView<TAccount extends CodebuddySuite
       )}
 
       {deleteConfirm && (
-        <div className="modal-overlay" onClick={() => !deleting && setDeleteConfirm(null)}>
+        <div className="modal-overlay">
           <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{t('common.confirmDelete', '确认删除')}</h2>
@@ -778,7 +778,7 @@ export function CodebuddySuiteAccountsSharedView<TAccount extends CodebuddySuite
       )}
 
       {tagDeleteConfirm && (
-        <div className="modal-overlay" onClick={() => !deletingTag && setTagDeleteConfirm(null)}>
+        <div className="modal-overlay">
           <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{t('common.confirmDeleteTag', '确认删除标签')}</h2>

@@ -70,14 +70,7 @@ export function MultiSelectFilterDropdown({
         >
           <div className="tag-filter-options" style={scrollContainerStyle}>
             <label className={`tag-filter-option ${selectedCount === 0 ? 'selected' : ''}`}>
-              <input
-                type="checkbox"
-                checked={selectedCount === 0}
-                onChange={(event) => {
-                  event.stopPropagation();
-                  onClear();
-                }}
-              />
+              <input type="checkbox" checked={selectedCount === 0} onChange={onClear} />
               <span className="tag-filter-name">{allLabel}</span>
             </label>
             {options.length === 0 ? (
@@ -91,10 +84,7 @@ export function MultiSelectFilterDropdown({
                   <input
                     type="checkbox"
                     checked={selectedValues.includes(option.value)}
-                    onChange={(event) => {
-                      event.stopPropagation();
-                      onToggleValue(option.value);
-                    }}
+                    onChange={() => onToggleValue(option.value)}
                   />
                   <span className="tag-filter-name">{option.label}</span>
                 </label>
@@ -104,14 +94,7 @@ export function MultiSelectFilterDropdown({
           {selectedCount > 0 && (
             <>
               <div className="tag-filter-divider" />
-              <button
-                type="button"
-                className="tag-filter-clear"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onClear();
-                }}
-              >
+              <button type="button" className="tag-filter-clear" onClick={onClear}>
                 {clearLabel}
               </button>
             </>

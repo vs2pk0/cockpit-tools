@@ -63,6 +63,7 @@ function isJsonLikePayload(raw: string): boolean {
 const IMPORT_TARGET_PAGES: ReadonlySet<Page> = new Set<Page>([
   'overview',
   'codex',
+  'claude',
   'github-copilot',
   'windsurf',
   'kiro',
@@ -81,6 +82,7 @@ const PROVIDER_ALIAS_MAP: Record<string, PlatformId> = {
   overview: 'antigravity',
   accounts: 'antigravity',
   codex: 'codex',
+  claude: 'claude_manager',
   zed: 'zed',
   github_copilot: 'github-copilot',
   githubcopilot: 'github-copilot',

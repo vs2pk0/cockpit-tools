@@ -3,18 +3,17 @@
   "forceRefreshVersions": [
     "0.25.3"
   ],
-  "topRightAd_backup": null,
-  "topRightAd": {
+  "topRightAd_backup": {
     "id": "top-right-ad-2026-04-shop",
     "priority": 100,
     "text": "Codex Plus代过试用，成品号，Gemini给自己账号订阅一年Pro 需要的了解一下",
     "text_backup": "9.9Codex plus号和12元代过试用Plus。欢迎选购",
     "badge": "推广",
     "ctaLabel": "选购",
-    "ctaUrl": "https://xiangzili.xyz",
+    "ctaUrl": "https://xiangzili.xyz/user/index/shop",
     "targetVersions": "*",
     "targetLanguages": [
-      "*"
+      "zh"
     ],
     "createdAt": "2026-04-07T12:00:00Z",
     "expiresAt": null,
@@ -27,19 +26,20 @@
       }
     }
   },
+  "topRightAd": null,
   "apiRelayEnabled": true,
-  "topRightAdsEnabled": true,
+  "topRightAdsEnabled": false,
   "topRightAds": [
     {
       "id": "top-right-ad-2026-04-shop",
-      "enabled": true,
+      "enabled": false,
       "priority": 100,
       "text": "Codex Plus代过试用，成品号，Gemini给自己账号订阅一年Pro 需要的了解一下",
       "badge": "推广",
       "ctaLabel": "选购",
-      "ctaUrl": "https://xiangzili.xyz",
+      "ctaUrl": "https://xiangzili.xyz/user/index/shop",
       "targetLanguages": [
-        "*"
+        "zh"
       ],
       "createdAt": "2026-04-07T12:00:00Z",
       "expiresAt": null,

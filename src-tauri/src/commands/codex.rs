@@ -4,8 +4,7 @@ use crate::models::codex::{
 };
 use crate::models::codex_local_access::{
     CodexLocalAccessAccountModelRule, CodexLocalAccessChatMessage, CodexLocalAccessChatResult,
-    CodexLocalAccessClientBaseUrlHost, CodexLocalAccessCredentialMode,
-    CodexLocalAccessCustomCredential, CodexLocalAccessCustomRoutingRule,
+    CodexLocalAccessClientBaseUrlHost, CodexLocalAccessCustomRoutingRule,
     CodexLocalAccessGatewayMode, CodexLocalAccessModelAlias, CodexLocalAccessModelPricing,
     CodexLocalAccessPortCleanupResult, CodexLocalAccessRequestKind,
     CodexLocalAccessRoutingStrategy, CodexLocalAccessScope, CodexLocalAccessState,
@@ -13,12 +12,11 @@ use crate::models::codex_local_access::{
     CodexLocalAccessTimeouts, CodexLocalAccessUsageEventPage,
 };
 use crate::modules::{
-    account, codex_account, codex_cpa_service, codex_local_access, codex_oauth, codex_quota,
-    codex_session_visibility, codex_speed, codex_wakeup, codex_wakeup_scheduler, config, logger,
-    openclaw_auth, opencode_auth, process,
+    account, codex_account, codex_local_access, codex_oauth, codex_quota, codex_session_visibility,
+    codex_speed, codex_wakeup, codex_wakeup_scheduler, config, logger, openclaw_auth,
+    opencode_auth, process,
 };
 use serde::Serialize;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
@@ -27,47 +25,104 @@ use tauri_plugin_opener::OpenerExt;
 
 static CODEX_POST_REFRESH_CHECK_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
-fn sync_codex_session_visibility_for_provider(
-    context: &str,
-    data_dir: &Path,
-    target_provider: Option<&str>,
-) {
-    let Some(target_provider) = target_provider
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        return;
-    };
+#[derive(Clone)]
+struct CodexLaunchCredentialSnapshot {
+    kind: String,
+    source: String,
+}
 
-    let started = Instant::now();
-    match codex_session_visibility::repair_session_visibility_for_dir_with_provider(
-        data_dir,
-        target_provider,
-        "__default__",
-        "默认实例",
-    ) {
-        Ok(item) => {
-            logger::log_info(&format!(
-                "[Codex Session Visibility] {}: synced history provider={}, target_dir={}, rollout_files={}, sqlite_rows={}, session_index_entries={}, elapsed_ms={}",
-                context,
-                target_provider,
-                data_dir.display(),
-                item.changed_rollout_file_count,
-                item.updated_sqlite_row_count,
-                item.added_session_index_entry_count,
-                started.elapsed().as_millis()
-            ));
-        }
-        Err(error) => {
-            logger::log_warn(&format!(
-                "[Codex Session Visibility] {}: skipped automatic history sync for provider={} at {}: {}",
-                context,
-                target_provider,
-                data_dir.display(),
-                error
-            ));
+fn codex_launch_credential_kind_for_account(account: &CodexAccount) -> &'static str {
+    if account.is_api_key_auth() {
+        "api"
+    } else {
+        "account"
+    }
+}
+
+fn codex_launch_credential_snapshot_for_account(
+    account: &CodexAccount,
+    source_prefix: &str,
+) -> CodexLaunchCredentialSnapshot {
+    CodexLaunchCredentialSnapshot {
+        kind: codex_launch_credential_kind_for_account(account).to_string(),
+        source: format!("{}{}", source_prefix, account.id),
+    }
+}
+
+fn codex_launch_credential_snapshot_for_account_id(
+    account_id: &str,
+    source_prefix: &str,
+) -> Option<CodexLaunchCredentialSnapshot> {
+    let account_id = account_id.trim();
+    if account_id.is_empty() {
+        return None;
+    }
+
+    if crate::modules::codex_instance::is_api_service_bind_account_id(account_id)
+        || crate::modules::codex_instance::parse_provider_gateway_bind_account_id(account_id)
+            .is_some()
+        || codex_local_access::is_local_access_runtime_account_id(account_id)
+    {
+        return Some(CodexLaunchCredentialSnapshot {
+            kind: "api".to_string(),
+            source: format!("{}{}", source_prefix, account_id),
+        });
+    }
+
+    codex_account::load_account(account_id)
+        .map(|account| codex_launch_credential_snapshot_for_account(&account, source_prefix))
+}
+
+fn read_current_codex_launch_credential_snapshot() -> Option<CodexLaunchCredentialSnapshot> {
+    let codex_home = codex_account::get_codex_home();
+    if let Some(account_id) =
+        codex_account::read_managed_projection_account_id_from_dir(&codex_home)
+    {
+        if let Some(snapshot) =
+            codex_launch_credential_snapshot_for_account_id(&account_id, "profile:")
+        {
+            return Some(snapshot);
         }
     }
+
+    if let Ok(settings) = crate::modules::codex_instance::load_default_settings() {
+        if let Some(bind_account_id) = settings.bind_account_id.as_deref() {
+            if let Some(snapshot) =
+                codex_launch_credential_snapshot_for_account_id(bind_account_id, "default-bind:")
+            {
+                return Some(snapshot);
+            }
+        }
+    }
+
+    codex_account::get_current_account()
+        .as_ref()
+        .map(|account| codex_launch_credential_snapshot_for_account(account, "current-index:"))
+}
+
+fn repair_codex_session_visibility_after_credential_kind_change(
+    context: &str,
+    before: Option<CodexLaunchCredentialSnapshot>,
+    after: Option<CodexLaunchCredentialSnapshot>,
+    auto_repair_mode: Option<codex_session_visibility::CodexSessionVisibilityAutoRepairMode>,
+) {
+    let (Some(before), Some(after)) = (before, after) else {
+        return;
+    };
+    if before.kind == after.kind {
+        return;
+    }
+
+    let auto_repair_mode = auto_repair_mode.unwrap_or_default();
+    logger::log_info(&format!(
+        "[Codex Session Visibility] {}: credential kind changed, defer quick repair to frontend notice, mode={}, from_kind={}, to_kind={}, from_source={}, to_source={}",
+        context,
+        auto_repair_mode.label(),
+        before.kind,
+        after.kind,
+        before.source,
+        after.source
+    ));
 }
 
 fn restart_codex_specified_app_if_enabled(user_config: &config::UserConfig) {
@@ -102,16 +157,6 @@ pub fn list_codex_accounts() -> Result<Vec<CodexAccount>, String> {
 #[tauri::command]
 pub fn get_current_codex_account() -> Result<Option<CodexAccount>, String> {
     Ok(codex_account::get_current_account())
-}
-
-#[tauri::command]
-pub fn get_codex_custom_sort_order() -> Result<Vec<String>, String> {
-    Ok(codex_account::load_custom_sort_order())
-}
-
-#[tauri::command]
-pub fn save_codex_custom_sort_order(order: Vec<String>) -> Result<Vec<String>, String> {
-    codex_account::save_custom_sort_order(order)
 }
 
 #[tauri::command]
@@ -172,6 +217,7 @@ pub fn save_codex_api_service_app_speed(
             let _ = crate::modules::codex_instance::update_default_app_speed(speed);
         }
     }
+    codex_local_access::trigger_gateway_reload_in_background("保存 API 服务速度配置");
     Ok(saved)
 }
 
@@ -183,14 +229,30 @@ pub fn update_codex_account_app_speed(
     let account = codex_account::update_account_app_speed(&account_id, speed)?;
     let account_speed = account.app_speed.clone();
     let current_account_id = codex_account::load_account_index().current_account_id;
+    let provider_gateway_bind_account_id =
+        crate::modules::codex_instance::provider_gateway_bind_account_id(&account_id);
     let default_bind_account_id = crate::modules::codex_instance::load_default_settings()
         .ok()
         .and_then(|settings| settings.bind_account_id);
+    let default_bind_matches_provider_gateway = provider_gateway_bind_account_id
+        .as_deref()
+        .map(|bind_account_id| default_bind_account_id.as_deref() == Some(bind_account_id))
+        .unwrap_or(false);
     if current_account_id.as_deref() == Some(account_id.as_str())
         || default_bind_account_id.as_deref() == Some(account_id.as_str())
+        || default_bind_matches_provider_gateway
     {
         codex_speed::write_official_app_speed(account_speed.clone())?;
         let _ = crate::modules::codex_instance::update_default_app_speed(account_speed.clone());
+        if default_bind_matches_provider_gateway {
+            if let Ok(default_dir) = crate::modules::codex_instance::get_default_codex_home() {
+                codex_local_access::reload_provider_gateway_for_profile_in_background(
+                    default_dir,
+                    account_id.clone(),
+                    "更新默认 provider gateway 账号速度配置",
+                );
+            }
+        }
     }
 
     let bound_instances = crate::modules::codex_instance::update_bound_instances_app_speed(
@@ -202,6 +264,25 @@ pub fn update_codex_account_app_speed(
             std::path::Path::new(&instance.user_data_dir),
             account_speed.clone(),
         )?;
+    }
+
+    if let Some(provider_gateway_bind_account_id) = provider_gateway_bind_account_id.as_deref() {
+        let provider_gateway_bound_instances =
+            crate::modules::codex_instance::update_bound_instances_app_speed(
+                provider_gateway_bind_account_id,
+                account_speed.clone(),
+            )?;
+        for instance in provider_gateway_bound_instances {
+            codex_speed::write_app_speed_for_dir(
+                std::path::Path::new(&instance.user_data_dir),
+                account_speed.clone(),
+            )?;
+            codex_local_access::reload_provider_gateway_for_profile_in_background(
+                std::path::PathBuf::from(instance.user_data_dir),
+                account_id.clone(),
+                "更新 provider gateway 账号速度配置",
+            );
+        }
     }
     Ok(account)
 }
@@ -217,29 +298,56 @@ pub async fn refresh_codex_account_profile(account_id: String) -> Result<CodexAc
 pub async fn switch_codex_account(
     app: AppHandle,
     account_id: String,
+    auto_repair_mode: Option<codex_session_visibility::CodexSessionVisibilityAutoRepairMode>,
 ) -> Result<CodexAccount, String> {
-    let codex_home = codex_account::get_codex_home();
-    let previous_provider =
-        codex_session_visibility::read_history_visibility_provider_for_dir(&codex_home).ok();
-    sync_codex_session_visibility_for_provider(
-        "switch-codex-account-pre",
-        &codex_home,
-        previous_provider.as_deref(),
-    );
-
+    let flow_started = Instant::now();
+    logger::log_info(&format!(
+        "[Codex Switch][Backend] switch_codex_account started: account_id={}",
+        account_id
+    ));
+    let previous_credential = read_current_codex_launch_credential_snapshot();
+    logger::log_info(&format!(
+        "[Codex Switch][Backend] previous credential resolved: account_id={}, elapsed_ms={}",
+        account_id,
+        flow_started.elapsed().as_millis()
+    ));
     // 切换账号（写入 auth.json）
+    let switch_started = Instant::now();
     let account = codex_account::switch_account_managed(&account_id).await?;
-    let next_provider =
-        codex_session_visibility::read_history_visibility_provider_for_dir(&codex_home).ok();
-    sync_codex_session_visibility_for_provider(
-        "switch-codex-account-post",
-        &codex_home,
-        next_provider.as_deref(),
-    );
+    logger::log_info(&format!(
+        "[Codex Switch][Backend] switch_account_managed finished: account_id={}, elapsed_ms={}, total_ms={}",
+        account_id,
+        switch_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
     let account_speed = account.app_speed.clone();
+    let speed_started = Instant::now();
     codex_speed::write_official_app_speed(account_speed.clone())?;
+    logger::log_info(&format!(
+        "[Codex Switch][Backend] write official app speed finished: account_id={}, elapsed_ms={}, total_ms={}",
+        account_id,
+        speed_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
+    let repair_started = Instant::now();
+    repair_codex_session_visibility_after_credential_kind_change(
+        "after-account-switch",
+        previous_credential,
+        Some(codex_launch_credential_snapshot_for_account(
+            &account,
+            "target-account:",
+        )),
+        auto_repair_mode,
+    );
+    logger::log_info(&format!(
+        "[Codex Switch][Backend] session visibility repair stage finished: account_id={}, elapsed_ms={}, total_ms={}",
+        account_id,
+        repair_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
 
     // 同步更新 Codex 默认实例的绑定账号（不同步到 Antigravity，因为账号体系不同）
+    let default_settings_started = Instant::now();
     if let Err(e) = crate::modules::codex_instance::update_default_settings(
         Some(Some(account_id.clone())),
         None,
@@ -257,6 +365,12 @@ pub async fn switch_codex_account(
     if let Err(e) = crate::modules::codex_instance::update_default_app_speed(account_speed) {
         logger::log_warn(&format!("更新 Codex 默认实例速度失败: {}", e));
     }
+    logger::log_info(&format!(
+        "[Codex Switch][Backend] default settings update finished: account_id={}, elapsed_ms={}, total_ms={}",
+        account_id,
+        default_settings_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
 
     let user_config = config::get_user_config();
 
@@ -308,6 +422,7 @@ pub async fn switch_codex_account(
     }
 
     if user_config.codex_launch_on_switch {
+        let launch_started = Instant::now();
         #[cfg(target_os = "macos")]
         if process::is_codex_running() {
             logger::log_info("检测到 Codex 正在运行，将按默认实例 PID 逻辑重启");
@@ -324,13 +439,33 @@ pub async fn switch_codex_account(
                 }
             }
         }
+        logger::log_info(&format!(
+            "[Codex Switch][Backend] codex_start_default_with_prepared_profile finished: account_id={}, elapsed_ms={}, total_ms={}",
+            account_id,
+            launch_started.elapsed().as_millis(),
+            flow_started.elapsed().as_millis()
+        ));
     } else {
         logger::log_info("已关闭切换 Codex 时自动启动 Codex App");
     }
 
+    let restart_specified_started = Instant::now();
     restart_codex_specified_app_if_enabled(&user_config);
+    logger::log_info(&format!(
+        "[Codex Switch][Backend] restart specified app stage finished: account_id={}, elapsed_ms={}, total_ms={}",
+        account_id,
+        restart_specified_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
 
+    let tray_started = Instant::now();
     let _ = crate::modules::tray::update_tray_menu(&app);
+    logger::log_info(&format!(
+        "[Codex Switch][Backend] switch_codex_account finished: account_id={}, tray_elapsed_ms={}, total_ms={}",
+        account_id,
+        tray_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
     Ok(account)
 }
 
@@ -345,7 +480,7 @@ async fn run_codex_post_refresh_checks(app: &AppHandle) {
     match codex_account::pick_auto_switch_target_if_needed() {
         Ok(Some(target)) => {
             let target_id = target.id.clone();
-            match switch_codex_account(app.clone(), target_id.clone()).await {
+            match switch_codex_account(app.clone(), target_id.clone(), None).await {
                 Ok(switched_account) => {
                     logger::log_info(&format!(
                         "[AutoSwitch][Codex] 自动切号完成: target_id={}, email={}",
@@ -456,113 +591,6 @@ pub async fn import_codex_from_json(
 #[tauri::command]
 pub fn export_codex_accounts(account_ids: Vec<String>) -> Result<String, String> {
     codex_account::export_accounts(&account_ids)
-}
-
-#[tauri::command]
-pub fn codex_get_cpa_dir() -> Result<String, String> {
-    codex_account::get_cpa_dir_path()
-}
-
-#[tauri::command]
-pub fn codex_cpa_service_get_state(
-    app: AppHandle,
-) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
-    codex_cpa_service::get_state(&app)
-}
-
-#[tauri::command]
-pub fn codex_cpa_service_start(
-    app: AppHandle,
-) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
-    codex_cpa_service::ensure_running(&app)
-}
-
-#[tauri::command]
-pub fn codex_cpa_service_stop(
-    app: AppHandle,
-) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
-    codex_cpa_service::stop(&app)
-}
-
-#[tauri::command]
-pub fn codex_cpa_service_save_config(
-    app: AppHandle,
-    config_content: String,
-    management_password: String,
-) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
-    codex_cpa_service::save_config(&app, config_content, management_password)
-}
-
-#[tauri::command]
-pub fn codex_cpa_service_restore_default_config(
-    app: AppHandle,
-) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
-    codex_cpa_service::restore_default_config(&app)
-}
-
-#[tauri::command]
-pub fn codex_cpa_runtime_list(
-    app: AppHandle,
-) -> Result<Vec<codex_cpa_service::CodexCpaRuntimeInfo>, String> {
-    codex_cpa_service::list_runtimes(&app)
-}
-
-#[tauri::command]
-pub fn codex_cpa_runtime_import(
-    app: AppHandle,
-    package_path: String,
-) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
-    codex_cpa_service::import_runtime_package(&app, package_path)
-}
-
-#[tauri::command]
-pub async fn codex_cpa_runtime_check_update(
-    app: AppHandle,
-) -> Result<codex_cpa_service::CodexCpaUpdateInfo, String> {
-    codex_cpa_service::check_update(&app).await
-}
-
-#[tauri::command]
-pub async fn codex_cpa_runtime_download_latest(
-    app: AppHandle,
-) -> Result<codex_cpa_service::CodexCpaServiceState, String> {
-    codex_cpa_service::download_latest(&app).await
-}
-
-#[tauri::command]
-pub fn codex_list_cpa_accounts() -> Result<Vec<codex_account::CodexCpaAccountFile>, String> {
-    codex_account::list_cpa_accounts()
-}
-
-#[tauri::command]
-pub async fn codex_import_from_cpa_dir(
-    app: AppHandle,
-) -> Result<codex_account::CodexFileImportResult, String> {
-    let result = codex_account::import_from_cpa_dir().await?;
-    let imported = refresh_imported_codex_accounts(&app, result.imported).await;
-    Ok(codex_account::CodexFileImportResult {
-        imported,
-        failed: result.failed,
-    })
-}
-
-#[tauri::command]
-pub fn codex_export_accounts_to_cpa_dir(
-    account_ids: Vec<String>,
-) -> Result<codex_account::CodexCpaWriteResult, String> {
-    codex_account::export_accounts_to_cpa_dir(&account_ids)
-}
-
-#[tauri::command]
-pub fn codex_delete_cpa_account_files(
-    file_names: Vec<String>,
-) -> Result<codex_account::CodexCpaDeleteResult, String> {
-    codex_account::delete_cpa_account_files(&file_names)
-}
-
-#[tauri::command]
-pub fn codex_delete_all_cpa_account_files() -> Result<codex_account::CodexCpaDeleteResult, String> {
-    codex_account::delete_all_cpa_account_files()
 }
 
 /// 从本地文件导入 Codex 账号
@@ -1189,12 +1217,58 @@ fn summarize_model_provider_models(body: &serde_json::Value) -> (Option<String>,
     (first, output)
 }
 
+fn list_model_provider_models(body: &serde_json::Value) -> Vec<CodexModelProviderModel> {
+    let mut seen = std::collections::HashSet::new();
+    body.get("data")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let id = item.get("id").and_then(|id| id.as_str())?.trim();
+                    if id.is_empty() {
+                        return None;
+                    }
+                    let key = id.to_ascii_lowercase();
+                    if !seen.insert(key) {
+                        return None;
+                    }
+                    Some(CodexModelProviderModel {
+                        id: id.to_string(),
+                        display_name: item
+                            .get("display_name")
+                            .or_else(|| item.get("displayName"))
+                            .and_then(|value| value.as_str())
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(str::to_string),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexModelProviderUsageDetail {
     pub key: String,
     pub label: String,
     pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexModelProviderModel {
+    pub id: String,
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexModelProviderModelsResult {
+    pub models: Vec<CodexModelProviderModel>,
+    pub latency_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1611,6 +1685,46 @@ pub async fn codex_test_model_provider_connection(
 }
 
 #[tauri::command]
+pub async fn codex_list_model_provider_models(
+    base_url: String,
+    api_key: String,
+) -> Result<CodexModelProviderModelsResult, String> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Err("MISSING_API_KEY".to_string());
+    }
+    let url = codex_model_provider_models_url(&base_url)?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(CODEX_MODEL_PROVIDER_TEST_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| format!("CREATE_HTTP_CLIENT_FAILED: {}", e))?;
+    let started = Instant::now();
+    let response = client
+        .get(&url)
+        .bearer_auth(key)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("PROVIDER_MODELS_NETWORK_FAILED: {}", e))?;
+    let latency_ms = started.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!(
+            "PROVIDER_MODELS_HTTP_{}: {}",
+            status.as_u16(),
+            text.chars().take(300).collect::<String>()
+        ));
+    }
+    let parsed = serde_json::from_str::<serde_json::Value>(&text)
+        .map_err(|e| format!("PROVIDER_MODELS_PARSE_FAILED: {}", e))?;
+    Ok(CodexModelProviderModelsResult {
+        models: list_model_provider_models(&parsed),
+        latency_ms,
+    })
+}
+
+#[tauri::command]
 pub async fn codex_query_model_provider_usage(
     base_url: String,
     api_key: String,
@@ -1861,14 +1975,6 @@ pub async fn codex_local_access_update_model_rules(
 }
 
 #[tauri::command]
-pub async fn codex_local_access_fetch_external_models(
-    base_url: String,
-    api_key: String,
-) -> Result<Vec<String>, String> {
-    codex_local_access::fetch_external_model_ids(base_url, api_key).await
-}
-
-#[tauri::command]
 pub async fn codex_local_access_update_model_pricings(
     model_pricings: Vec<CodexLocalAccessModelPricing>,
 ) -> Result<CodexLocalAccessState, String> {
@@ -1942,24 +2048,6 @@ pub async fn codex_local_access_update_access_scope(
 }
 
 #[tauri::command]
-pub async fn codex_local_access_update_credentials(
-    credential_mode: CodexLocalAccessCredentialMode,
-    active_custom_credential_id: Option<String>,
-    custom_credentials: Option<Vec<CodexLocalAccessCustomCredential>>,
-    custom_base_url: Option<String>,
-    custom_api_key: Option<String>,
-) -> Result<CodexLocalAccessState, String> {
-    codex_local_access::update_local_access_credentials(
-        credential_mode,
-        active_custom_credential_id,
-        custom_credentials,
-        custom_base_url,
-        custom_api_key,
-    )
-    .await
-}
-
-#[tauri::command]
 pub async fn codex_local_access_update_client_base_url_host(
     client_base_url_host: CodexLocalAccessClientBaseUrlHost,
 ) -> Result<CodexLocalAccessState, String> {
@@ -2021,19 +2109,46 @@ pub async fn codex_local_access_set_enabled(
     codex_local_access::set_local_access_enabled(enabled).await
 }
 
-async fn apply_codex_local_access_to_default_profile(
-    app: Option<&AppHandle>,
-    launch_after_apply: bool,
+#[tauri::command]
+pub async fn codex_local_access_activate(
+    app: AppHandle,
+    auto_repair_mode: Option<codex_session_visibility::CodexSessionVisibilityAutoRepairMode>,
 ) -> Result<CodexLocalAccessState, String> {
+    let flow_started = Instant::now();
+    logger::log_info("[Codex API Service Switch][Backend] codex_local_access_activate started");
     let codex_home = codex_account::get_codex_home();
+    let previous_credential = read_current_codex_launch_credential_snapshot();
+    logger::log_info(&format!(
+        "[Codex API Service Switch][Backend] previous credential resolved: elapsed_ms={}",
+        flow_started.elapsed().as_millis()
+    ));
+    let activate_started = Instant::now();
     let state = codex_local_access::activate_local_access_for_dir(&codex_home).await?;
+    logger::log_info(&format!(
+        "[Codex API Service Switch][Backend] activate_local_access_for_dir finished: elapsed_ms={}, total_ms={}",
+        activate_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
     let api_service_speed = codex_speed::get_api_service_app_speed_config()?.speed;
+    let speed_started = Instant::now();
     codex_speed::write_official_app_speed(api_service_speed.clone())?;
+    logger::log_info(&format!(
+        "[Codex API Service Switch][Backend] write official app speed finished: elapsed_ms={}, total_ms={}",
+        speed_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
 
+    let index_started = Instant::now();
     let mut index = codex_account::load_account_index();
     index.current_account_id = None;
     codex_account::save_account_index(&index)?;
+    logger::log_info(&format!(
+        "[Codex API Service Switch][Backend] account index cleared: elapsed_ms={}, total_ms={}",
+        index_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
 
+    let default_settings_started = Instant::now();
     if let Err(e) = crate::modules::codex_instance::update_default_settings(
         Some(Some(
             crate::modules::codex_instance::CODEX_API_SERVICE_BIND_ACCOUNT_ID.to_string(),
@@ -2050,12 +2165,36 @@ async fn apply_codex_local_access_to_default_profile(
     if let Err(e) = crate::modules::codex_instance::update_default_app_speed(api_service_speed) {
         logger::log_warn(&format!("更新 Codex 默认实例 API 服务速度失败: {}", e));
     }
+    logger::log_info(&format!(
+        "[Codex API Service Switch][Backend] default settings update finished: elapsed_ms={}, total_ms={}",
+        default_settings_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
+    let repair_started = Instant::now();
+    repair_codex_session_visibility_after_credential_kind_change(
+        "after-api-service-activate",
+        previous_credential,
+        Some(CodexLaunchCredentialSnapshot {
+            kind: "api".to_string(),
+            source: format!(
+                "target-bind:{}",
+                crate::modules::codex_instance::CODEX_API_SERVICE_BIND_ACCOUNT_ID
+            ),
+        }),
+        auto_repair_mode,
+    );
+    logger::log_info(&format!(
+        "[Codex API Service Switch][Backend] session visibility repair stage finished: elapsed_ms={}, total_ms={}",
+        repair_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
 
     let user_config = config::get_user_config();
 
     logger::log_info("API 服务启动模式下跳过 OpenCode / OpenClaw OAuth 同步");
 
-    if launch_after_apply && user_config.codex_launch_on_switch {
+    if user_config.codex_launch_on_switch {
+        let launch_started = Instant::now();
         #[cfg(target_os = "macos")]
         if process::is_codex_running() {
             logger::log_info("检测到 Codex 正在运行，将按默认实例 PID 逻辑重启");
@@ -2065,37 +2204,30 @@ async fn apply_codex_local_access_to_default_profile(
             Err(e) => {
                 logger::log_warn(&format!("Codex 启动失败: {}", e));
                 if e.starts_with("APP_PATH_NOT_FOUND:") {
-                    if let Some(app) = app {
-                        let _ = app.emit(
-                            "app:path_missing",
-                            serde_json::json!({ "app": "codex", "retry": { "kind": "default" } }),
-                        );
-                    }
+                    let _ = app.emit(
+                        "app:path_missing",
+                        serde_json::json!({ "app": "codex", "retry": { "kind": "default" } }),
+                    );
                 }
             }
         }
-    } else if launch_after_apply {
-        logger::log_info("已关闭切换 Codex 时自动启动 Codex App");
+        logger::log_info(&format!(
+            "[Codex API Service Switch][Backend] codex_start_default_with_prepared_profile finished: elapsed_ms={}, total_ms={}",
+            launch_started.elapsed().as_millis(),
+            flow_started.elapsed().as_millis()
+        ));
     } else {
-        logger::log_info("已写入 API 服务当前配置，按要求跳过 Codex 客户端启动/重启");
+        logger::log_info("已关闭切换 Codex 时自动启动 Codex App");
     }
 
-    if let Some(app) = app {
-        let _ = crate::modules::tray::update_tray_menu(app);
-    }
+    let tray_started = Instant::now();
+    let _ = crate::modules::tray::update_tray_menu(&app);
+    logger::log_info(&format!(
+        "[Codex API Service Switch][Backend] codex_local_access_activate finished: tray_elapsed_ms={}, total_ms={}",
+        tray_started.elapsed().as_millis(),
+        flow_started.elapsed().as_millis()
+    ));
     Ok(state)
-}
-
-#[tauri::command]
-pub async fn codex_local_access_apply_current_credentials(
-    app: AppHandle,
-) -> Result<CodexLocalAccessState, String> {
-    apply_codex_local_access_to_default_profile(Some(&app), false).await
-}
-
-#[tauri::command]
-pub async fn codex_local_access_activate(app: AppHandle) -> Result<CodexLocalAccessState, String> {
-    apply_codex_local_access_to_default_profile(Some(&app), true).await
 }
 
 #[tauri::command]

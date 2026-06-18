@@ -43,9 +43,9 @@ export interface CodexAccount {
   bound_phone?: string;
   app_speed?: CodexAppSpeed;
   tokens: CodexTokens;
-  token_expired_at?: string;
   token_generation?: number;
   token_updated_at?: number;
+  access_token_expires_at?: string;
   token_source_mode?: string;
   requires_reauth?: boolean;
   reauth_reason?: string;
@@ -162,10 +162,65 @@ export interface CodexSessionVisibilityRepairItem {
   targetProvider: string;
   changedRolloutFileCount: number;
   updatedSqliteRowCount: number;
+  updatedSqliteTimestampRowCount: number;
   addedSessionIndexEntryCount: number;
+  updatedSessionIndexEntryCount: number;
   skippedSqliteFile: boolean;
+  metadataRebuildFailed: boolean;
   backupDir?: string | null;
   running: boolean;
+}
+
+export type CodexSessionVisibilityRepairMode = 'quick' | 'deep';
+export type CodexSessionVisibilityAutoRepairMode =
+  | 'legacy_before_4eb75d96'
+  | 'legacy_4eb75d96'
+  | 'current';
+
+export type CodexSessionVisibilityRepairProviderSource = 'config' | 'rollout' | 'sqlite';
+
+export interface CodexSessionVisibilityRepairProviderOption {
+  id: string;
+  sources: CodexSessionVisibilityRepairProviderSource[];
+  isDefault: boolean;
+}
+
+export interface CodexSessionVisibilityRepairProviderList {
+  defaultProvider: string;
+  providers: CodexSessionVisibilityRepairProviderOption[];
+}
+
+export interface CodexSessionVisibilityRepairInstanceOption {
+  id: string;
+  name: string;
+  userDataDir: string;
+  currentProvider: string;
+  isDefault: boolean;
+  running: boolean;
+}
+
+export interface CodexSessionVisibilityRepairInstanceList {
+  defaultInstanceId: string;
+  instances: CodexSessionVisibilityRepairInstanceOption[];
+}
+
+export interface CodexSessionVisibilityRepairRequestOptions {
+  mode?: CodexSessionVisibilityRepairMode;
+  targetProvider?: string | null;
+  targetInstanceId?: string | null;
+  repairInstanceIds?: string[] | null;
+  sessionIds?: string[] | null;
+}
+
+export interface CodexSessionVisibilityRepairProgress {
+  runId?: string | null;
+  mode: CodexSessionVisibilityRepairMode;
+  stage: string;
+  percent: number;
+  current: number;
+  total: number;
+  instanceId?: string | null;
+  instanceName?: string | null;
 }
 
 export interface CodexSessionVisibilityRepairSummary {
@@ -173,8 +228,11 @@ export interface CodexSessionVisibilityRepairSummary {
   mutatedInstanceCount: number;
   changedRolloutFileCount: number;
   updatedSqliteRowCount: number;
+  updatedSqliteTimestampRowCount: number;
   addedSessionIndexEntryCount: number;
+  updatedSessionIndexEntryCount: number;
   skippedSqliteFileCount: number;
+  metadataRebuildFailedCount: number;
   items: CodexSessionVisibilityRepairItem[];
   backupDirs: string[];
   message: string;
@@ -193,6 +251,11 @@ export interface CodexSessionRecord {
   updatedAt?: number | null;
   locationCount: number;
   locations: CodexSessionLocation[];
+}
+
+export interface CodexSessionSearchOptions {
+  titleQuery?: string | null;
+  contentQuery?: string | null;
 }
 
 export interface CodexSessionTokenStats {
@@ -445,6 +508,15 @@ export function isCodexNewApiAccount(account: CodexAccount): boolean {
   );
 }
 
+export function isCodexChatCompletionsApiKeyAccount(
+  account: CodexAccount,
+): boolean {
+  return (
+    isCodexApiKeyAccount(account) &&
+    (account.api_wire_api || "").trim().toLowerCase() === "chat_completions"
+  );
+}
+
 /** 获取订阅类型显示名称 */
 export function getCodexPlanDisplayName(planType?: string): string {
   if (!planType) return "FREE";
@@ -636,10 +708,9 @@ export function parseCodexSubscriptionDate(value?: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-export function formatCodexDateUtcPlus8(date: Date): string {
-  const shifted = new Date(date.getTime() + 8 * HOUR_IN_MS);
+function formatCodexSubscriptionDate(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
-  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())} ${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 export function getCodexSubscriptionExpiryBucket(
@@ -676,7 +747,7 @@ export function getCodexSubscriptionPresentation(
 
   const timestampMs = date.getTime();
   const diffMs = timestampMs - Date.now();
-  const detailText = formatCodexDateUtcPlus8(date);
+  const detailText = formatCodexSubscriptionDate(date);
 
   if (diffMs <= 0) {
     const valueText = t("codex.subscription.expired");

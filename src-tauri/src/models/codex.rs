@@ -118,12 +118,12 @@ pub struct CodexAccount {
     #[serde(default)]
     pub app_speed: CodexAppSpeed,
     pub tokens: CodexTokens,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token_expired_at: Option<String>,
     #[serde(default)]
     pub token_generation: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_updated_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token_expires_at: Option<String>,
     #[serde(default = "default_token_source_mode")]
     pub token_source_mode: String,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -326,9 +326,9 @@ impl CodexAccount {
             bound_phone: None,
             app_speed: CodexAppSpeed::Standard,
             tokens,
-            token_expired_at: None,
             token_generation: 0,
             token_updated_at: Some(now),
+            access_token_expires_at: None,
             token_source_mode: default_token_source_mode(),
             requires_reauth: false,
             reauth_reason: None,

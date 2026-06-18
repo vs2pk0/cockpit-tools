@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAccountStore } from '../stores/useAccountStore';
 import { useCodexAccountStore } from '../stores/useCodexAccountStore';
+import { useClaudeAccountStore } from '../stores/useClaudeAccountStore';
 import { useGitHubCopilotAccountStore } from '../stores/useGitHubCopilotAccountStore';
 import { useWindsurfAccountStore } from '../stores/useWindsurfAccountStore';
 import { useKiroAccountStore } from '../stores/useKiroAccountStore';
@@ -18,6 +19,7 @@ import { getWindsurfAccountDisplayEmail } from '../types/windsurf';
 import { getKiroAccountDisplayEmail } from '../types/kiro';
 import { getCursorAccountDisplayEmail } from '../types/cursor';
 import { getGeminiAccountDisplayEmail } from '../types/gemini';
+import { getClaudeAccountDisplayEmail } from '../types/claude';
 import { getCodebuddyAccountDisplayEmail } from '../types/codebuddy';
 import { getWorkbuddyAccountDisplayEmail } from '../types/workbuddy';
 import { getQoderAccountDisplayEmail } from '../types/qoder';
@@ -39,6 +41,7 @@ interface GeneralConfig {
   theme: string;
   auto_refresh_minutes: number;
   codex_auto_refresh_minutes: number;
+  claude_auto_refresh_minutes: number;
   codex_sync_wsl: boolean;
   codex_wsl_config_dir: string;
   ghcp_auto_refresh_minutes: number;
@@ -138,6 +141,7 @@ function getCurrentAccountEmails(): Record<CurrentAccountRefreshPlatform, string
   return {
     antigravity: useAccountStore.getState().currentAccount?.email ?? null,
     codex: useCodexAccountStore.getState().currentAccount?.email ?? null,
+    claude: getProviderEmail(useClaudeAccountStore, getClaudeAccountDisplayEmail),
     ghcp: getProviderEmail(useGitHubCopilotAccountStore, getGitHubCopilotAccountDisplayEmail),
     windsurf: getProviderEmail(useWindsurfAccountStore, getWindsurfAccountDisplayEmail),
     kiro: getProviderEmail(useKiroAccountStore, getKiroAccountDisplayEmail),
@@ -160,6 +164,9 @@ export function useAutoRefresh() {
   const refreshAllCodexQuotas = useCodexAccountStore((state) => state.refreshAllQuotas);
   const fetchCodexAccounts = useCodexAccountStore((state) => state.fetchAccounts);
   const fetchCurrentCodexAccount = useCodexAccountStore((state) => state.fetchCurrentAccount);
+  const refreshAllClaudeQuotas = useClaudeAccountStore((state) => state.refreshAllTokens);
+  const fetchCurrentClaudeAccountId = useClaudeAccountStore((state) => state.fetchCurrentAccountId);
+  const refreshClaudeQuota = useClaudeAccountStore((state) => state.refreshToken);
   const refreshAllGhcpTokens = useGitHubCopilotAccountStore((state) => state.refreshAllTokens);
   const fetchCurrentGhcpAccountId = useGitHubCopilotAccountStore((state) => state.fetchCurrentAccountId);
   const refreshGhcpToken = useGitHubCopilotAccountStore((state) => state.refreshToken);
@@ -198,6 +205,8 @@ export function useAutoRefresh() {
   const antigravityCurrentRefreshingRef = useRef(false);
   const codexRefreshingRef = useRef(false);
   const codexCurrentRefreshingRef = useRef(false);
+  const claudeRefreshingRef = useRef(false);
+  const claudeCurrentRefreshingRef = useRef(false);
   const ghcpRefreshingRef = useRef(false);
   const ghcpCurrentRefreshingRef = useRef(false);
   const windsurfRefreshingRef = useRef(false);
@@ -321,6 +330,7 @@ export function useAutoRefresh() {
                     theme: config.theme,
                     autoRefreshMinutes: 2,
                     codexAutoRefreshMinutes: config.codex_auto_refresh_minutes,
+                    claudeAutoRefreshMinutes: config.claude_auto_refresh_minutes,
                     ghcpAutoRefreshMinutes: config.ghcp_auto_refresh_minutes,
                     windsurfAutoRefreshMinutes: config.windsurf_auto_refresh_minutes,
                     kiroAutoRefreshMinutes: config.kiro_auto_refresh_minutes,
@@ -428,6 +438,20 @@ export function useAutoRefresh() {
                 await invoke('refresh_current_codex_quota');
                 await fetchCodexAccounts();
                 await fetchCurrentCodexAccount();
+              },
+            },
+            {
+              key: 'claude',
+              label: 'Claude',
+              intervalMinutes: config.claude_auto_refresh_minutes,
+              currentMinutes: resolveCurrentMinutes('claude', currentAccountEmails.claude, currentRefreshMinutesMap),
+              fullRefreshingRef: claudeRefreshingRef,
+              currentRefreshingRef: claudeCurrentRefreshingRef,
+              runFullRefresh: async () => {
+                await refreshAllClaudeQuotas();
+              },
+              runCurrentRefresh: async () => {
+                await runProviderCurrentRefresh(fetchCurrentClaudeAccountId, refreshClaudeQuota);
               },
             },
             {
@@ -669,6 +693,7 @@ export function useAutoRefresh() {
     executeWithGuard,
     fetchCodexAccounts,
     fetchCurrentAccount,
+    fetchCurrentClaudeAccountId,
     fetchCurrentCodebuddyAccountId,
     fetchCurrentCodebuddyCnAccountId,
     fetchCurrentCodexAccount,
@@ -685,6 +710,7 @@ export function useAutoRefresh() {
     refreshAllCodebuddyCnTokens,
     refreshAllCodebuddyTokens,
     refreshAllCodexQuotas,
+    refreshAllClaudeQuotas,
     refreshAllCursorTokens,
     refreshAllGeminiTokens,
     refreshAllGhcpTokens,
@@ -697,6 +723,7 @@ export function useAutoRefresh() {
     refreshAllZedTokens,
     refreshCodebuddyCnToken,
     refreshCodebuddyToken,
+    refreshClaudeQuota,
     refreshCursorToken,
     refreshGeminiToken,
     refreshGhcpToken,

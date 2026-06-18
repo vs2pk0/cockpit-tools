@@ -10,8 +10,13 @@ import {
   resolveCodexApiProviderPresetId,
 } from '../utils/codexProviderPresets';
 import {
+  APIKEY_FUN_DEFAULT_MODEL_CATALOG,
   isApiKeyFunProviderBaseUrl,
 } from '../utils/apikeyFunLinks';
+import {
+  queryModelProviderUsage,
+  type ModelProviderUsageSummary,
+} from './modelProviderUsageService';
 
 export interface CodexModelProviderApiKey {
   id: string;
@@ -42,32 +47,7 @@ export interface CodexModelProvider {
   updatedAt: number;
 }
 
-export interface CodexModelProviderUsageSummary {
-  mode?: string | null;
-  isValid?: boolean | null;
-  status?: string | null;
-  planName?: string | null;
-  remaining?: number | null;
-  balance?: number | null;
-  unit?: string | null;
-  quotaUnlimited?: boolean | null;
-  quotaLimit?: number | null;
-  quotaUsed?: number | null;
-  quotaRemaining?: number | null;
-  todayRequests?: number | null;
-  todayTotalTokens?: number | null;
-  todayCost?: number | null;
-  totalRequests?: number | null;
-  totalTotalTokens?: number | null;
-  totalCost?: number | null;
-  modelStatsCount: number;
-  latencyMs: number;
-  details?: Array<{
-    key: string;
-    label: string;
-    value: string;
-  }>;
-}
+export type CodexModelProviderUsageSummary = ModelProviderUsageSummary;
 
 interface UpsertFromCredentialInput {
   providerId?: string | null;
@@ -184,6 +164,9 @@ function migrateApiKeyFunProviderWireApi(
 }
 
 function presetModelCatalogForBaseUrl(baseUrl: string): string[] | undefined {
+  if (isApiKeyFunProviderBaseUrl(baseUrl)) {
+    return normalizeModelCatalog(APIKEY_FUN_DEFAULT_MODEL_CATALOG);
+  }
   return normalizeModelCatalog(
     findCodexApiProviderPresetById(resolveCodexApiProviderPresetId(baseUrl))
       ?.modelCatalog,
@@ -606,11 +589,7 @@ export async function queryCodexModelProviderUsage(input: {
   apiKey: string;
   integrationType?: 'sub2api' | 'new_api' | null;
 }): Promise<CodexModelProviderUsageSummary> {
-  return await invoke('codex_query_model_provider_usage', {
-    baseUrl: input.baseUrl,
-    apiKey: input.apiKey,
-    integrationType: input.integrationType ?? null,
-  });
+  return await queryModelProviderUsage(input);
 }
 
 export async function saveCodexModelProviderDetectedIntegrationType(

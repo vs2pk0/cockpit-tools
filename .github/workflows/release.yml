@@ -68,20 +68,6 @@ jobs:
       - name: Sync versions
         run: npm run sync-version
 
-      - name: Disable updater artifacts for release bundles
-        shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require('fs');
-          const configPath = 'src-tauri/tauri.conf.json';
-          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-
-          config.bundle = config.bundle || {};
-          config.bundle.createUpdaterArtifacts = false;
-
-          fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-          NODE
-
       - name: Read app version
         id: app_version
         shell: bash
@@ -226,20 +212,7 @@ jobs:
             exit 1
           fi
 
-      - name: Detect updater signatures
-        id: updater_artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          if find release-assets -maxdepth 1 -type f -name "*.sig" | grep -q .; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No updater signatures found; skipping latest.json rebuild."
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Read release metadata
-        if: steps.updater_artifacts.outputs.present == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -253,7 +226,6 @@ jobs:
           echo "PUBLISHED_AT=${PUBLISHED_AT}" >> "$GITHUB_ENV"
 
       - name: Build merged latest.json
-        if: steps.updater_artifacts.outputs.present == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -266,7 +238,6 @@ jobs:
             --output "latest.json"
 
       - name: Validate merged latest.json
-        if: steps.updater_artifacts.outputs.present == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -285,7 +256,6 @@ jobs:
           jq -r '.platforms | keys[]' latest.json
 
       - name: Upload merged latest.json
-        if: steps.updater_artifacts.outputs.present == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash

@@ -1,5 +1,8 @@
 pub mod account;
 pub mod announcement;
+pub mod antigravity_legacy_instance;
+pub mod claude;
+pub mod claude_instance;
 pub mod codebuddy;
 pub mod codebuddy_cn;
 pub mod codebuddy_cn_instance;
@@ -23,6 +26,7 @@ pub mod oauth;
 pub mod provider_current;
 pub mod qoder;
 pub mod qoder_instance;
+pub mod remote_config;
 pub mod system;
 pub mod trae;
 pub mod trae_instance;

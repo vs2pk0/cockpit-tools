@@ -1,4 +1,5 @@
 import type { Account } from '../types/account';
+import type { ClaudeAccount } from '../types/claude';
 import type { CodebuddyAccount } from '../types/codebuddy';
 import { getCodebuddyExtraCreditSummary, getCodebuddyOfficialQuotaModel, getCodebuddyResourceSummary } from '../types/codebuddy';
 import type { CodexAccount } from '../types/codex';
@@ -152,6 +153,36 @@ export function getRecommendedCodexAccount(
   return others.reduce((best, candidate) => (
     getScore(candidate) > getScore(best) ? candidate : best
   ));
+}
+
+export function getRecommendedClaudeAccount(
+  accounts: ClaudeAccount[],
+  currentId: string | null | undefined,
+): ClaudeAccount | null {
+  if (accounts.length <= 1) return null;
+  const others = accounts.filter((account) => account.id !== currentId);
+  if (others.length === 0) return null;
+
+  const getScore = (account: ClaudeAccount) => {
+    const usedValues = [
+      account.quota?.five_hour_percentage,
+      account.quota?.seven_day_percentage,
+    ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+    const remaining = usedValues.length > 0 ? 100 - Math.max(...usedValues) : -1;
+    return {
+      remaining,
+      freshness: account.last_used || account.created_at || 0,
+    };
+  };
+
+  return others.reduce((best, candidate) => {
+    const bestScore = getScore(best);
+    const candidateScore = getScore(candidate);
+    if (candidateScore.remaining !== bestScore.remaining) {
+      return candidateScore.remaining > bestScore.remaining ? candidate : best;
+    }
+    return candidateScore.freshness > bestScore.freshness ? candidate : best;
+  });
 }
 
 export function getRecommendedGitHubCopilotAccount(
@@ -318,7 +349,12 @@ export function getRecommendedGeminiAccount(
 
   const getScore = (account: GeminiAccount) => {
     const tiers = getGeminiTierQuotaSummary(account);
-    const remainingValues = [tiers.pro.remainingPercent, tiers.flash.remainingPercent].filter(
+    const remainingValues = [
+      tiers.gemini5h.remainingPercent,
+      tiers.geminiWeekly.remainingPercent,
+      tiers.claude5h.remainingPercent,
+      tiers.claudeWeekly.remainingPercent,
+    ].filter(
       (value): value is number => typeof value === 'number' && Number.isFinite(value),
     );
     const totalUsed = remainingValues.length > 0

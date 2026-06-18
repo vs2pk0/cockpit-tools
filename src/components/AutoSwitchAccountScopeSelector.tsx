@@ -415,7 +415,6 @@ export function AutoSwitchAccountScopeSelector({
         createPortal(
           <div
             className="settings-account-scope-dialog-overlay"
-            onClick={() => setDialogOpen(false)}
           >
             <div
               className="settings-account-scope-dialog"

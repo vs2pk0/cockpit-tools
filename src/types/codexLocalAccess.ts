@@ -1,14 +1,6 @@
 export type CodexLocalAccessAddressKind = "local" | "lan";
-export type CodexLocalAccessCredentialMode = "local" | "custom" | "cpa";
-export type CodexLocalAccessEndpointKind =
-  | CodexLocalAccessAddressKind
-  | "custom";
-
 export type CodexLocalAccessScope = "localhost" | "lan";
 export type CodexLocalAccessClientBaseUrlHost = "localhost" | "127.0.0.1";
-
-export const CODEX_CPA_SERVICE_BASE_URL = "http://127.0.0.1:8317/v1";
-export const CODEX_CPA_SERVICE_API_KEY = "your-api-key-1";
 export type CodexLocalAccessImageGenerationMode =
   | "enabled"
   | "images_only"
@@ -38,15 +30,6 @@ export interface CodexLocalAccessCustomRoutingRule {
   accountId: string;
   priority: number;
   weight: number;
-}
-
-export interface CodexLocalAccessCustomCredential {
-  id: string;
-  name: string;
-  baseUrl: string;
-  apiKey: string;
-  createdAt: number;
-  updatedAt: number;
 }
 
 export interface CodexLocalAccessAccountModelRule {
@@ -124,11 +107,6 @@ export interface CodexLocalAccessCollection {
   gatewayMode: CodexLocalAccessGatewayMode;
   upstreamProxyUrl?: string | null;
   routingStrategy: CodexLocalAccessRoutingStrategy;
-  credentialMode: CodexLocalAccessCredentialMode;
-  customCredentials: CodexLocalAccessCustomCredential[];
-  activeCustomCredentialId?: string | null;
-  customBaseUrl?: string | null;
-  customApiKey?: string | null;
   customRoutingRules: CodexLocalAccessCustomRoutingRule[];
   accountModelRules: CodexLocalAccessAccountModelRule[];
   modelAliases: CodexLocalAccessModelAlias[];

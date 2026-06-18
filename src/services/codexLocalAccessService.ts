@@ -2,8 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   CodexLocalAccessChatMessage,
   CodexLocalAccessChatResult,
-  CodexLocalAccessCredentialMode,
-  CodexLocalAccessCustomCredential,
   CodexLocalAccessCustomRoutingRule,
   CodexLocalAccessAccountModelRule,
   CodexLocalAccessClientBaseUrlHost,
@@ -121,13 +119,6 @@ export async function updateCodexLocalAccessModelRules(
   });
 }
 
-export async function fetchCodexLocalAccessExternalModels(
-  baseUrl: string,
-  apiKey: string,
-): Promise<string[]> {
-  return await invoke('codex_local_access_fetch_external_models', { baseUrl, apiKey });
-}
-
 export async function updateCodexLocalAccessModelPricings(
   modelPricings: CodexLocalAccessModelPricing[],
 ): Promise<CodexLocalAccessState> {
@@ -198,22 +189,6 @@ export async function updateCodexLocalAccessAccessScope(
   });
 }
 
-export async function updateCodexLocalAccessCredentials(
-  credentialMode: CodexLocalAccessCredentialMode,
-  activeCustomCredentialId?: string | null,
-  customCredentials?: CodexLocalAccessCustomCredential[] | null,
-  customBaseUrl?: string | null,
-  customApiKey?: string | null,
-): Promise<CodexLocalAccessState> {
-  return await invoke('codex_local_access_update_credentials', {
-    credentialMode,
-    activeCustomCredentialId,
-    customCredentials,
-    customBaseUrl,
-    customApiKey,
-  });
-}
-
 export async function updateCodexLocalAccessClientBaseUrlHost(
   clientBaseUrlHost: CodexLocalAccessClientBaseUrlHost,
 ): Promise<CodexLocalAccessState> {
@@ -277,11 +252,18 @@ export async function setCodexLocalAccessEnabled(
 }
 
 export async function activateCodexLocalAccess(): Promise<CodexLocalAccessState> {
-  return await invoke("codex_local_access_activate");
-}
-
-export async function applyCodexLocalAccessCurrentCredentials(): Promise<CodexLocalAccessState> {
-  return await invoke('codex_local_access_apply_current_credentials');
+  const startedAt = performance.now();
+  console.info("[Codex API Service Switch][Service] invoke codex_local_access_activate started");
+  try {
+    return await invoke("codex_local_access_activate", {
+      autoRepairMode: null,
+    });
+  } finally {
+    console.info(
+      "[Codex API Service Switch][Service] invoke codex_local_access_activate finished",
+      { elapsedMs: Math.round(performance.now() - startedAt) },
+    );
+  }
 }
 
 export async function testCodexLocalAccess(): Promise<CodexLocalAccessTestResult> {

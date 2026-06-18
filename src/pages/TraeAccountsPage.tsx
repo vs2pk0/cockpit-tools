@@ -1623,7 +1623,7 @@ export function TraeAccountsPage() {
           />
 
           {deleteConfirm && (
-            <div className="modal-overlay" onClick={() => !deleting && setDeleteConfirm(null)}>
+            <div className="modal-overlay">
               <div className="modal" onClick={(event) => event.stopPropagation()}>
                 <div className="modal-header">
                   <h2>{t('common.confirm', '确认')}</h2>
@@ -1656,7 +1656,7 @@ export function TraeAccountsPage() {
           )}
 
           {tagDeleteConfirm && (
-            <div className="modal-overlay" onClick={() => !deletingTag && setTagDeleteConfirm(null)}>
+            <div className="modal-overlay">
               <div className="modal" onClick={(event) => event.stopPropagation()}>
                 <div className="modal-header">
                   <h2>{t('common.confirm', '确认')}</h2>

@@ -809,34 +809,37 @@ pub fn restore_pending_oauth_listener(app_handle: AppHandle) {
 }
 
 pub fn is_jwt_token_expired(token: &str) -> bool {
+    let Some(exp) = jwt_token_expiration_timestamp(token) else {
+        return true;
+    };
+
+    let now = chrono::Utc::now().timestamp();
+    exp < now + TOKEN_REFRESH_SKEW_SECONDS
+}
+
+pub fn jwt_token_expiration_timestamp(token: &str) -> Option<i64> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() != 3 {
-        return true;
+        return None;
     }
 
     let payload_base64 = parts[1];
     let payload_bytes = match URL_SAFE_NO_PAD.decode(payload_base64) {
         Ok(bytes) => bytes,
-        Err(_) => return true,
+        Err(_) => return None,
     };
 
     let payload_str = match String::from_utf8(payload_bytes) {
         Ok(s) => s,
-        Err(_) => return true,
+        Err(_) => return None,
     };
 
     let payload: serde_json::Value = match serde_json::from_str(&payload_str) {
         Ok(v) => v,
-        Err(_) => return true,
+        Err(_) => return None,
     };
 
-    let exp = match payload.get("exp").and_then(|e| e.as_i64()) {
-        Some(e) => e,
-        None => return true,
-    };
-
-    let now = chrono::Utc::now().timestamp();
-    exp < now + TOKEN_REFRESH_SKEW_SECONDS
+    payload.get("exp").and_then(|e| e.as_i64())
 }
 
 pub fn is_token_expired(access_token: &str) -> bool {

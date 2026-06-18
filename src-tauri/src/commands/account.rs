@@ -312,7 +312,7 @@ async fn switch_account_legacy_antigravity(
     account.update_last_used();
     modules::save_account(&account)?;
 
-    if let Err(e) = modules::instance::update_default_settings(
+    if let Err(e) = modules::antigravity_legacy_instance::update_default_settings(
         Some(Some(account_id.clone())),
         None,
         Some(false),
@@ -327,7 +327,7 @@ async fn switch_account_legacy_antigravity(
         &default_dir_str,
         20,
     )?;
-    let _ = modules::instance::update_default_pid(None);
+    let _ = modules::antigravity_legacy_instance::update_default_pid(None);
 
     match auth_mode {
         AntigravityDesktopAuthMode::SystemCredential => {
@@ -342,12 +342,12 @@ async fn switch_account_legacy_antigravity(
     }
 
     modules::logger::log_info("正在启动 Antigravity 默认实例...");
-    let default_settings = modules::instance::load_default_settings()?;
+    let default_settings = modules::antigravity_legacy_instance::load_default_settings()?;
     let extra_args = modules::process::parse_extra_args(&default_settings.extra_args);
     let launch_result = modules::process::start_antigravity_legacy_with_args("", &extra_args);
     let launch_error = match launch_result {
         Ok(pid) => {
-            if let Err(e) = modules::instance::update_default_pid(Some(pid)) {
+            if let Err(e) = modules::antigravity_legacy_instance::update_default_pid(Some(pid)) {
                 modules::logger::log_warn(&format!("更新默认实例 PID 失败: {}", e));
             }
             None

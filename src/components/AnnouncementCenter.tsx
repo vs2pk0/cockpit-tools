@@ -246,7 +246,7 @@ export function AnnouncementCenter({
 
       {listOpen &&
         renderInBody(
-          <div className="modal-overlay announcement-modal-overlay" onClick={() => setListOpen(false)}>
+          <div className="modal-overlay announcement-modal-overlay">
             <div className="modal announcement-list-modal" onClick={(event) => event.stopPropagation()}>
               <div className="modal-header">
                 <h2>{t('announcement.title', '公告')}</h2>
@@ -313,7 +313,7 @@ export function AnnouncementCenter({
 
       {detailAnnouncement &&
         renderInBody(
-          <div className="modal-overlay announcement-modal-overlay" onClick={() => void closeDetail(false)}>
+          <div className="modal-overlay announcement-modal-overlay">
             <div className="modal announcement-detail-modal" onClick={(event) => event.stopPropagation()}>
               <div className="modal-header">
                 <div className="announcement-detail-header-left">
@@ -395,12 +395,17 @@ export function AnnouncementCenter({
 
       {imagePreviewUrl &&
         renderInBody(
-          <div className="announcement-image-preview-overlay" onClick={() => setImagePreviewUrl(null)}>
+          <div className="announcement-image-preview-overlay">
             <div className="announcement-image-preview-wrapper">
+              <button
+                type="button"
+                className="announcement-image-preview-close"
+                onClick={() => setImagePreviewUrl(null)}
+                aria-label={t('common.close', '关闭')}
+              >
+                <X size={18} />
+              </button>
               <img src={imagePreviewUrl} alt="preview" className="announcement-image-preview" />
-              <div className="announcement-image-preview-hint">
-                {t('announcement.clickToClose', '点击关闭')}
-              </div>
             </div>
           </div>,
         )}

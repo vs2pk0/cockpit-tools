@@ -80,7 +80,9 @@ impl WebdavSyncClient {
             }
             if let Err(err) = self.client.mkcol(&current_dir).await {
                 match &err {
-                    reqwest_dav::Error::Decode(reqwest_dav::DecodeError::StatusMismatched(status_err)) => {
+                    reqwest_dav::Error::Decode(reqwest_dav::DecodeError::StatusMismatched(
+                        status_err,
+                    )) => {
                         if status_err.response_code == 405 {
                             continue;
                         }
@@ -95,12 +97,13 @@ impl WebdavSyncClient {
 
     pub async fn list_remote_backups(&self) -> Result<Vec<WebdavBackupFileEntry>, String> {
         let mut files = Vec::new();
-        
+
         if !self.check_dir_exists(&self.remote_dir).await {
             return Ok(files);
         }
 
-        let entities = self.client
+        let entities = self
+            .client
             .list(&self.remote_dir, reqwest_dav::Depth::Number(1))
             .await
             .map_err(|err| format!("读取 WebDAV 备份列表失败: {:?}", err))?;
@@ -108,7 +111,8 @@ impl WebdavSyncClient {
         for entity in entities {
             match entity {
                 ListEntity::File(file) => {
-                    let Some(raw_name) = file.href.rsplit('/').find(|value| !value.is_empty()) else {
+                    let Some(raw_name) = file.href.rsplit('/').find(|value| !value.is_empty())
+                    else {
                         continue;
                     };
                     let file_name = match urlencoding::decode(raw_name) {
@@ -118,7 +122,7 @@ impl WebdavSyncClient {
                             continue;
                         }
                     };
-                    
+
                     if !is_backup_file_name(&file_name) {
                         continue;
                     }
@@ -174,7 +178,8 @@ impl WebdavSyncClient {
             return Err("只能从 WebDAV 恢复 JSON 备份文件".to_string());
         }
         let path = format!("{}/{}", self.remote_dir, file_name);
-        let response = self.client
+        let response = self
+            .client
             .get(&path)
             .await
             .map_err(|err| format!("读取 WebDAV 备份失败: {:?}", err))?;
@@ -190,7 +195,8 @@ impl WebdavSyncClient {
             return Err("WebDAV 只允许读取 Cockpit 备份文件".to_string());
         }
         let path = format!("{}/{}", self.remote_dir, file_name);
-        let response = self.client
+        let response = self
+            .client
             .get(&path)
             .await
             .map_err(|err| format!("读取 WebDAV 备份失败: {:?}", err))?;
@@ -207,10 +213,12 @@ impl WebdavSyncClient {
             return Err("WebDAV 只允许删除 Cockpit 备份文件".to_string());
         }
         let path = format!("{}/{}", self.remote_dir, file_name);
-        
+
         if let Err(err) = self.client.delete(&path).await {
             match &err {
-                reqwest_dav::Error::Decode(reqwest_dav::DecodeError::StatusMismatched(status_err)) => {
+                reqwest_dav::Error::Decode(reqwest_dav::DecodeError::StatusMismatched(
+                    status_err,
+                )) => {
                     if status_err.response_code == 404 {
                         return Ok(());
                     }
@@ -224,12 +232,13 @@ impl WebdavSyncClient {
 
     pub async fn cleanup_remote_backups(&self, retention_days: i32) -> Result<Vec<String>, String> {
         let mut deleted = Vec::new();
-        
+
         if !self.check_dir_exists(&self.remote_dir).await {
             return Ok(deleted);
         }
 
-        let entities = self.client
+        let entities = self
+            .client
             .list(&self.remote_dir, reqwest_dav::Depth::Number(1))
             .await
             .map_err(|err| format!("读取 WebDAV 备份列表失败: {:?}", err))?;
@@ -239,7 +248,8 @@ impl WebdavSyncClient {
         for entity in entities {
             match entity {
                 ListEntity::File(file) => {
-                    let Some(raw_name) = file.href.rsplit('/').find(|value| !value.is_empty()) else {
+                    let Some(raw_name) = file.href.rsplit('/').find(|value| !value.is_empty())
+                    else {
                         continue;
                     };
                     let file_name = match urlencoding::decode(raw_name) {
@@ -261,7 +271,9 @@ impl WebdavSyncClient {
                     let path = format!("{}/{}", self.remote_dir, file_name);
                     if let Err(err) = self.client.delete(&path).await {
                         match &err {
-                            reqwest_dav::Error::Decode(reqwest_dav::DecodeError::StatusMismatched(status_err)) => {
+                            reqwest_dav::Error::Decode(
+                                reqwest_dav::DecodeError::StatusMismatched(status_err),
+                            ) => {
                                 if status_err.response_code == 404 {
                                     continue;
                                 }
@@ -372,10 +384,13 @@ pub fn connection_from_parts(
         remote_dir: normalized_remote_dir,
     })
 }
-pub async fn test_connection(settings: &WebdavConnectionSettings) -> Result<WebdavTestResult, String> {
+pub async fn test_connection(
+    settings: &WebdavConnectionSettings,
+) -> Result<WebdavTestResult, String> {
     let client = WebdavSyncClient::new(settings)?;
     client.ensure_remote_dir().await?;
-    let _ = client.client
+    let _ = client
+        .client
         .list(&settings.remote_dir, reqwest_dav::Depth::Number(1))
         .await
         .map_err(|err| format!("连接测试失败: {:?}", err))?;

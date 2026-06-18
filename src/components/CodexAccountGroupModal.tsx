@@ -127,7 +127,7 @@ export const CodexAccountGroupModal = ({
   const hasFilter = groupFilter.length > 0;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal account-group-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>
@@ -349,7 +349,7 @@ export const CodexAddToGroupModal = ({
   const selectableGroups = groups.filter((group) => group.id !== sourceGroupId);
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal add-to-group-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>

@@ -41,20 +41,6 @@ impl Default for CodexLocalAccessClientBaseUrlHost {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum CodexLocalAccessCredentialMode {
-    Local,
-    Custom,
-    Cpa,
-}
-
-impl Default for CodexLocalAccessCredentialMode {
-    fn default() -> Self {
-        Self::Local
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum CodexLocalAccessImageGenerationMode {
     Enabled,
     ImagesOnly,
@@ -116,19 +102,6 @@ fn default_access_scope_for_existing_config() -> CodexLocalAccessScope {
 
 fn default_restrict_free_accounts() -> bool {
     true
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexLocalAccessCustomCredential {
-    pub id: String,
-    pub name: String,
-    pub base_url: String,
-    pub api_key: String,
-    #[serde(default)]
-    pub created_at: i64,
-    #[serde(default)]
-    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -441,16 +414,6 @@ pub struct CodexLocalAccessCollection {
     pub upstream_proxy_url: Option<String>,
     #[serde(default)]
     pub routing_strategy: CodexLocalAccessRoutingStrategy,
-    #[serde(default)]
-    pub credential_mode: CodexLocalAccessCredentialMode,
-    #[serde(default)]
-    pub custom_credentials: Vec<CodexLocalAccessCustomCredential>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_custom_credential_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub custom_base_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub custom_api_key: Option<String>,
     #[serde(default)]
     pub custom_routing_rules: Vec<CodexLocalAccessCustomRoutingRule>,
     #[serde(default)]

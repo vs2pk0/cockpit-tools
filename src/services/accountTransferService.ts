@@ -1,5 +1,6 @@
 import { ALL_PLATFORM_IDS, PlatformId } from '../types/platform';
 import * as accountService from './accountService';
+import * as claudeService from './claudeService';
 import * as codexService from './codexService';
 import * as githubCopilotService from './githubCopilotService';
 import * as windsurfService from './windsurfService';
@@ -12,8 +13,21 @@ import * as qoderService from './qoderService';
 import * as traeService from './traeService';
 import * as workbuddyService from './workbuddyService';
 import * as zedService from './zedService';
+import type { ClaudeAccount } from '../types/claude';
 
 type AccountWithId = { id: string };
+
+async function listClaudeManagerTransferAccounts(): Promise<AccountWithId[]> {
+  const accounts = await claudeService.listClaudeAccounts();
+  const seen = new Set<string>();
+  return accounts.filter((account: ClaudeAccount) => {
+    if (!account.id || seen.has(account.id)) {
+      return false;
+    }
+    seen.add(account.id);
+    return true;
+  });
+}
 
 interface TransferAdapter {
   listAccounts: () => Promise<AccountWithId[]>;
@@ -36,6 +50,11 @@ const PLATFORM_ADAPTERS: Record<PlatformId, TransferAdapter> = {
     listAccounts: codexService.listCodexAccounts,
     exportAccounts: codexService.exportCodexAccounts,
     importFromJson: codexService.importCodexFromJson,
+  },
+  claude_manager: {
+    listAccounts: listClaudeManagerTransferAccounts,
+    exportAccounts: claudeService.exportClaudeAccounts,
+    importFromJson: claudeService.importClaudeFromJson,
   },
   zed: {
     listAccounts: zedService.listZedAccounts,

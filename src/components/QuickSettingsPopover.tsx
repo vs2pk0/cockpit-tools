@@ -56,6 +56,7 @@ interface GeneralConfig {
   ui_scale: number;
   auto_refresh_minutes: number;
   codex_auto_refresh_minutes: number;
+  claude_auto_refresh_minutes: number;
   codex_sync_wsl: boolean;
   codex_wsl_config_dir: string;
   ghcp_auto_refresh_minutes: number;
@@ -77,6 +78,7 @@ interface GeneralConfig {
   opencode_app_path: string;
   antigravity_app_path: string;
   codex_app_path: string;
+  claude_app_path: string;
   codex_specified_app_path: string;
   vscode_app_path: string;
   windsurf_app_path: string;
@@ -127,6 +129,8 @@ interface GeneralConfig {
   cursor_quota_alert_threshold: number;
   gemini_quota_alert_enabled: boolean;
   gemini_quota_alert_threshold: number;
+  claude_quota_alert_enabled: boolean;
+  claude_quota_alert_threshold: number;
   codebuddy_quota_alert_enabled: boolean;
   codebuddy_quota_alert_threshold: number;
   codebuddy_cn_quota_alert_enabled: boolean;
@@ -144,6 +148,7 @@ interface GeneralConfig {
 export type QuickSettingsType =
   | 'antigravity'
   | 'codex'
+  | 'claude'
   | 'github_copilot'
   | 'windsurf'
   | 'kiro'
@@ -159,6 +164,7 @@ export type QuickSettingsType =
 type QuotaAlertEnabledKey =
   | 'quota_alert_enabled'
   | 'codex_quota_alert_enabled'
+  | 'claude_quota_alert_enabled'
   | 'ghcp_quota_alert_enabled'
   | 'windsurf_quota_alert_enabled'
   | 'kiro_quota_alert_enabled'
@@ -173,6 +179,7 @@ type QuotaAlertEnabledKey =
 type QuotaAlertThresholdKey =
   | 'quota_alert_threshold'
   | 'codex_quota_alert_threshold'
+  | 'claude_quota_alert_threshold'
   | 'ghcp_quota_alert_threshold'
   | 'windsurf_quota_alert_threshold'
   | 'kiro_quota_alert_threshold'
@@ -262,6 +269,8 @@ const getCurrentAccountRefreshPlatformForType = (
       return 'antigravity';
     case 'codex':
       return 'codex';
+    case 'claude':
+      return 'claude';
     case 'github_copilot':
       return 'ghcp';
     case 'windsurf':
@@ -782,6 +791,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
     switch (t) {
       case 'antigravity': return 'auto_refresh_minutes';
       case 'codex': return 'codex_auto_refresh_minutes';
+      case 'claude': return 'claude_auto_refresh_minutes';
       case 'github_copilot': return 'ghcp_auto_refresh_minutes';
       case 'windsurf': return 'windsurf_auto_refresh_minutes';
       case 'kiro': return 'kiro_auto_refresh_minutes';
@@ -810,6 +820,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
           uiScale: merged.ui_scale,
           autoRefreshMinutes: merged.auto_refresh_minutes,
           codexAutoRefreshMinutes: merged.codex_auto_refresh_minutes,
+          claudeAutoRefreshMinutes: merged.claude_auto_refresh_minutes,
           codexSyncWsl: merged.codex_sync_wsl,
           codexWslConfigDir: merged.codex_wsl_config_dir,
           ghcpAutoRefreshMinutes: merged.ghcp_auto_refresh_minutes,
@@ -871,6 +882,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
           codexQuotaAlertThreshold: merged.codex_quota_alert_threshold,
           codexQuotaAlertPrimaryThreshold: merged.codex_quota_alert_primary_threshold,
           codexQuotaAlertSecondaryThreshold: merged.codex_quota_alert_secondary_threshold,
+          claudeQuotaAlertEnabled: merged.claude_quota_alert_enabled,
+          claudeQuotaAlertThreshold: merged.claude_quota_alert_threshold,
           ghcpQuotaAlertEnabled: merged.ghcp_quota_alert_enabled,
           ghcpQuotaAlertThreshold: merged.ghcp_quota_alert_threshold,
           windsurfQuotaAlertEnabled: merged.windsurf_quota_alert_enabled,
@@ -912,6 +925,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
     target:
       | 'antigravity'
       | 'codex'
+      | 'claude'
       | 'vscode'
       | 'windsurf'
       | 'kiro'
@@ -933,6 +947,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
           ? 'antigravity_app_path'
           : target === 'codex'
             ? 'codex_app_path'
+            : target === 'claude'
+              ? 'claude_app_path'
             : target === 'vscode'
               ? 'vscode_app_path'
               : target === 'windsurf'
@@ -967,6 +983,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
     target:
       | 'antigravity'
       | 'codex'
+      | 'claude'
       | 'vscode'
       | 'windsurf'
       | 'kiro'
@@ -988,6 +1005,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
           ? 'antigravity_app_path'
           : target === 'codex'
             ? 'codex_app_path'
+            : target === 'claude'
+              ? 'claude_app_path'
             : target === 'vscode'
               ? 'vscode_app_path'
               : target === 'windsurf'
@@ -1056,6 +1075,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
           return 'Antigravity IDE';
         case 'codex':
           return 'Codex';
+        case 'claude':
+          return 'Claude';
         case 'github_copilot':
           return 'GitHub Copilot';
         case 'windsurf':
@@ -1091,6 +1112,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
     switch (t) {
       case 'codex':
         return 'codex_quota_alert_enabled';
+      case 'claude':
+        return 'claude_quota_alert_enabled';
       case 'github_copilot':
         return 'ghcp_quota_alert_enabled';
       case 'windsurf':
@@ -1122,6 +1145,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
     switch (t) {
       case 'codex':
         return 'codex_quota_alert_threshold';
+      case 'claude':
+        return 'claude_quota_alert_threshold';
       case 'github_copilot':
         return 'ghcp_quota_alert_threshold';
       case 'windsurf':
@@ -1155,6 +1180,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
         return t('quickSettings.refreshInterval', '配额自动刷新');
       case 'codex':
         return t('quickSettings.codexRefreshInterval', '配额自动刷新');
+      case 'claude':
+        return t('quickSettings.claudeRefreshInterval', '配额自动刷新');
       case 'github_copilot':
         return t('quickSettings.ghcpRefreshInterval', '配额自动刷新');
       case 'windsurf':
@@ -1189,6 +1216,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
         return config.antigravity_app_path;
       case 'codex':
         return config.codex_app_path;
+      case 'claude':
+        return config.claude_app_path;
       case 'github_copilot':
         return config.vscode_app_path;
       case 'windsurf':
@@ -1222,6 +1251,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
         return t('quickSettings.antigravity.appPath', '启动路径');
       case 'codex':
         return t('quickSettings.codex.appPath', '启动路径');
+      case 'claude':
+        return t('quickSettings.claude.appPath', 'Claude 启动路径');
       case 'github_copilot':
         return t('quickSettings.githubCopilot.appPath', 'VS Code 路径');
       case 'windsurf':
@@ -1250,6 +1281,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
   const getAppTarget = ():
     | 'antigravity'
     | 'codex'
+    | 'claude'
     | 'vscode'
     | 'windsurf'
     | 'kiro'
@@ -1265,6 +1297,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
         return 'antigravity';
       case 'codex':
         return 'codex';
+      case 'claude':
+        return 'claude';
       case 'github_copilot':
         return 'vscode';
       case 'windsurf':
@@ -1736,7 +1770,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
   };
 
   const overlayContent = isOpen ? (
-    <div className="qs-overlay" onClick={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}>
+    <div className="qs-overlay">
       <div className="qs-modal" ref={modalRef}>
         <div className="qs-header">
           <span className="qs-title">{getTitle()}</span>
@@ -2026,7 +2060,9 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                           ? 'antigravity_app_path'
                           : type === 'codex'
                             ? 'codex_app_path'
-                            : type === 'github_copilot'
+                          : type === 'claude'
+                            ? 'claude_app_path'
+                          : type === 'github_copilot'
                               ? 'vscode_app_path'
                               : type === 'windsurf'
                               ? 'windsurf_app_path'

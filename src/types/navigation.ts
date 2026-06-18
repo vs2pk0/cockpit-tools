@@ -1,8 +1,12 @@
 export type Page =
   | 'dashboard'
   | 'manual'
+  | 'api-relay'
   | 'overview'
   | 'codex'
+  | 'claude'
+  | 'claude-cli'
+  | 'codex-api-service'
   | 'zed'
   | 'github-copilot'
   | 'windsurf'

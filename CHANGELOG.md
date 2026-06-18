@@ -7,11 +7,34 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
-## [0.25.6-vs2pk0.1] - 2026-06-09
+## [0.26.0] - 2026-06-18
+
+### Added
+- **Claude platform management is now available**: Cockpit can manage Claude and Claude CLI accounts in one workspace and show them as one Claude platform across navigation, dashboard, layout, and floating cards. It supports Claude sign-in, Claude Code OAuth/API Key accounts, Claude Gateway provider setup, quota and identity cards, APIKEY.FUN prefill, and separate Claude/CLI instance launch flows.
+- **Antigravity now distinguishes Desktop and IDE instance management**: Antigravity and Antigravity IDE use separate launch/runtime targets, icons, instance stores, and PID detection so each client can be managed independently.
 
 ### Changed
-- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `cd8f1702`**: this build includes upstream `v0.25.6` protocol-compatible Codex API Service endpoints, large-account import/delete/bulk-selection updates, quota-refresh state reloads, and Windows Antigravity launch fixes.
-- **Preserved local fork CPA, custom-service, stable ordering, and bound-phone enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime management, account JSON sync, full phone display/export/filtering, token-expiry UTC+8 display, configurable plan badges, and account custom ordering remain available.
+- **Codex session visibility repair keeps switching lightweight**: account/API switches no longer run heavyweight repairs inline, while the manual repair dialog keeps selectable repair depth, progress feedback, and session-level targeting.
+- **Account import/export and modal flows are more consistent**: export dialogs, group pickers, destructive confirmations, and modal error handling use the shared preview/confirmation patterns more consistently across platforms.
+
+---
+## [0.25.7] - 2026-06-15
+
+### Added
+- **APIKEY.FUN now has a fuller key workspace**: saved keys can retain the last queried balance, automatically reload the first saved key when the page opens, show usage details, read the current key's available model list, and prefill Codex provider setup without directly creating the target account.
+- **Codex session management now supports targeted session copy and recovery workflows**: selected sessions can be copied to a target instance, moved to the trash, restored later, selected across all projects, and inspected with copied session IDs while target instance choices follow the same order as the instance list.
+
+### Changed
+- **Gemini quota display now uses quota-summary buckets**: Gemini quota refresh reads `retrieveUserQuotaSummary` so account pages, dashboard cards, tray items, and native menus can show Gemini and third-party 5-hour and weekly quota windows more consistently. Thanks @xdd666t.
+- **Codex session visibility repair now separates light and deep paths**: post-switch automatic repair only updates the `state_5.sqlite` session records used by the official sidebar, while manual Repair Visibility can choose deep repair to scan rollouts, `session_index.jsonl`, and SQLite indexes before rebuilding the official sidebar state.
+- **Codex fast service tier now maps to `priority` more reliably**: fast-tier requests preserve the intended priority behavior through local access, instance launch, Responses payload conversion, and sidecar manifests. Thanks @lcpdeb.
+- **Model-provider usage querying is shared across Codex and APIKEY.FUN**: provider balance and usage checks now use a common service path, keep cached usage visible while refreshing, and classify unsupported usage endpoints consistently.
+
+### Fixed
+- **Windows Codex account switching now closes the real running app**: switching the default account also matches Store/default-launched Codex processes that use the official app data directory instead of the managed directory.
+- **Windows Codex launch argument handling is more robust**: empty argument lists and Windows command construction are handled more defensively during Codex startup. Thanks @lcpdeb.
+- **Codex session copy and restore are safer for duplicate sessions**: restoring or copying a session now treats an existing identical session as idempotent, avoids overwriting different sessions, and keeps session index metadata aligned with the restored rollout.
+- **Codex API Service startup failures now carry better diagnostics**: the sidecar reports startup stages and the desktop app waits longer for the ready event, making startup timeout errors easier to diagnose.
 
 ---
 ## [0.25.6] - 2026-06-09
@@ -32,13 +55,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Windows Antigravity account switching and auto-start no longer create duplicate taskbar icons**: launching through the managed shortcut path now avoids leaving an extra taskbar entry during account switching or automatic startup.
 
 ---
-## [0.25.5-vs2pk0.1] - 2026-06-09
-
-### Changed
-- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `0cc3962f`**: this build includes upstream `v0.25.5` Antigravity OAuth metadata preservation, WSL Codex default-account projection, Windows hidden-console probe fixes, and Windows default-instance launch path normalization.
-- **Preserved local fork CPA, custom-service, stable ordering, and bound-phone enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime management, account JSON sync, full phone display/export/filtering, token-expiry UTC+8 display, configurable plan badges, and account custom ordering remain available.
-
----
 ## [0.25.5] - 2026-06-08
 
 ### Changed
@@ -51,13 +67,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - **Antigravity non-enterprise switching clears stale enterprise preferences**: switching away from enterprise accounts removes the previous enterprise project preference from the local IDE state.
 - **Windows WSL and proxy helper probes no longer flash console windows**: WSL network-prefix detection and Windows registry proxy lookup now launch their helper subprocesses with hidden console flags.
-
----
-## [0.25.4-vs2pk0.1] - 2026-06-08
-
-### Changed
-- **Synced the fork with upstream `jlcodes99/cockpit-tools` main at `458be09e`**: this build includes upstream `v0.25.4` API Service large-account performance work, APIKEY.FUN dark-mode presentation, WebDAV retention configuration, provider-gateway fixes, and backup restore safety improvements.
-- **Preserved local fork CPA, custom-service, stable ordering, and bound-phone enhancements during the upstream merge**: Codex API Service still supports built-in, custom, and CPA service modes; CPA runtime management, account JSON sync, phone export/filtering, configurable plan badges, and custom account ordering remain available.
 
 ---
 ## [0.25.4] - 2026-06-08

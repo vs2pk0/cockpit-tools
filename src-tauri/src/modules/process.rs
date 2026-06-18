@@ -2704,18 +2704,16 @@ fn detect_codex_store_app_user_model_id() -> Option<String> {
 }
 
 #[cfg(target_os = "windows")]
-fn powershell_single_quoted_array(values: &[String]) -> String {
-    if values.is_empty() {
-        return "@()".to_string();
+fn powershell_argument_list_clause(values: &[String]) -> String {
+    let arguments = values
+        .iter()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| format!("'{}'", escape_powershell_single_quoted(value)))
+        .collect::<Vec<_>>();
+    if arguments.is_empty() {
+        return String::new();
     }
-    format!(
-        "@({})",
-        values
-            .iter()
-            .map(|value| format!("'{}'", escape_powershell_single_quoted(value)))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
+    format!(" -ArgumentList @({})", arguments.join(", "))
 }
 
 #[cfg(target_os = "windows")]
@@ -2749,12 +2747,12 @@ fn launch_codex_via_store_app_user_model_id(
         .map(|(key, value)| format!("$env:{}='{}'", key, escape_powershell_single_quoted(&value)))
         .collect::<Vec<_>>()
         .join("\n");
-    let argument_list = powershell_single_quoted_array(extra_args);
+    let argument_list = powershell_argument_list_clause(extra_args);
     let script = format!(
         r#"{env_lines}
 $appId='{escaped}';
 $target='shell:AppsFolder\' + $appId
-Start-Process -FilePath $target -ArgumentList {argument_list} -ErrorAction Stop | Out-Null"#
+Start-Process -FilePath $target{argument_list} -ErrorAction Stop | Out-Null"#
     );
 
     let output = powershell_output(&["-Command", &script])
@@ -2799,11 +2797,11 @@ fn launch_codex_via_powershell_exec_path(
         .map(|(key, value)| format!("$env:{}='{}'", key, escape_powershell_single_quoted(&value)))
         .collect::<Vec<_>>()
         .join("\n");
-    let argument_list = powershell_single_quoted_array(extra_args);
+    let argument_list = powershell_argument_list_clause(extra_args);
     let script = format!(
         r#"{env_lines}
 $exe='{exe}';
-Start-Process -FilePath $exe -ArgumentList {argument_list} -ErrorAction Stop | Out-Null"#,
+Start-Process -FilePath $exe{argument_list} -ErrorAction Stop | Out-Null"#,
         exe = escape_powershell_single_quoted(launch_path),
     );
 
@@ -2825,7 +2823,7 @@ Start-Process -FilePath $exe -ArgumentList {argument_list} -ErrorAction Stop | O
     Ok(())
 }
 
-fn detect_codex_exec_path() -> Option<std::path::PathBuf> {
+pub(crate) fn detect_codex_exec_path() -> Option<std::path::PathBuf> {
     #[cfg(target_os = "macos")]
     {
         if let Some(path) = find_codex_process_exe() {
@@ -3265,11 +3263,20 @@ fn resolve_codex_launch_path() -> Result<std::path::PathBuf, String> {
 pub fn detect_and_save_app_path(app: &str, force: bool) -> Option<String> {
     let current = config::get_user_config();
     match app {
-        "antigravity" => {
+        "antigravity" | "antigravity_ide" => {
             if !force && !current.antigravity_app_path.trim().is_empty() {
                 return Some(current.antigravity_app_path);
             }
             if let Some(detected) = detect_antigravity_exec_path() {
+                update_app_path_in_config("antigravity", &detected);
+                return Some(config::get_user_config().antigravity_app_path);
+            }
+        }
+        "antigravity_legacy" => {
+            if !force && !current.antigravity_app_path.trim().is_empty() {
+                return Some(current.antigravity_app_path);
+            }
+            if let Some(detected) = detect_antigravity_legacy_exec_path() {
                 update_app_path_in_config("antigravity", &detected);
                 return Some(config::get_user_config().antigravity_app_path);
             }
@@ -4597,10 +4604,27 @@ fn get_default_antigravity_user_data_dir() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn get_default_antigravity_legacy_user_data_dir() -> Option<String> {
+    crate::modules::antigravity_legacy_instance::get_default_user_data_dir()
+        .ok()
+        .map(|value| normalize_path_for_compare(&value.to_string_lossy()))
+        .filter(|value| !value.is_empty())
+}
+
 fn resolve_antigravity_target_and_fallback(user_data_dir: Option<&str>) -> Option<(String, bool)> {
     build_user_data_dir_match_target(
         user_data_dir,
         get_default_antigravity_user_data_dir(),
+        !strict_process_detect_enabled(),
+    )
+}
+
+fn resolve_antigravity_legacy_target_and_fallback(
+    user_data_dir: Option<&str>,
+) -> Option<(String, bool)> {
+    build_user_data_dir_match_target(
+        user_data_dir,
+        get_default_antigravity_legacy_user_data_dir(),
         !strict_process_detect_enabled(),
     )
 }
@@ -4661,6 +4685,24 @@ fn get_managed_codex_windows_app_user_data_dir(codex_home: &str) -> Option<Strin
     crate::modules::codex_instance::get_windows_app_user_data_dir(Path::new(trimmed))
         .ok()
         .map(|value| value.to_string_lossy().to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn get_default_codex_windows_app_user_data_dirs(default_codex_home: &str) -> HashSet<String> {
+    let mut dirs = HashSet::new();
+    if let Some(app_dir) = get_default_codex_windows_app_user_data_dir() {
+        let normalized = normalize_path_for_compare(&app_dir);
+        if !normalized.is_empty() {
+            dirs.insert(normalized);
+        }
+    }
+    if let Some(app_dir) = get_managed_codex_windows_app_user_data_dir(default_codex_home) {
+        let normalized = normalize_path_for_compare(&app_dir);
+        if !normalized.is_empty() {
+            dirs.insert(normalized);
+        }
+    }
+    dirs
 }
 
 #[cfg(target_os = "windows")]
@@ -4900,6 +4942,40 @@ pub fn resolve_antigravity_pid(last_pid: Option<u32>, user_data_dir: Option<&str
     resolve_antigravity_pid_from_entries(last_pid, user_data_dir, &entries)
 }
 
+pub fn resolve_antigravity_legacy_pid_from_entries(
+    last_pid: Option<u32>,
+    user_data_dir: Option<&str>,
+    entries: &[(u32, Option<String>)],
+) -> Option<u32> {
+    let (target, allow_none_for_target) =
+        resolve_antigravity_legacy_target_and_fallback(user_data_dir)?;
+    let matches = collect_matching_pids_by_user_data_dir(entries, &target, allow_none_for_target);
+
+    if let Some(pid) = last_pid {
+        if is_pid_running(pid) && matches.contains(&pid) {
+            return Some(pid);
+        }
+        if is_pid_running(pid) {
+            crate::modules::logger::log_warn(&format!(
+                "[AG Legacy Resolve] 忽略不匹配的 last_pid={}，target={}，matched_pids={}",
+                pid,
+                summarize_text_for_process_log(&target, 96),
+                summarize_pid_list_for_log(&matches)
+            ));
+        }
+    }
+
+    pick_preferred_pid(matches)
+}
+
+pub fn resolve_antigravity_legacy_pid(
+    last_pid: Option<u32>,
+    user_data_dir: Option<&str>,
+) -> Option<u32> {
+    let entries = collect_antigravity_legacy_process_entries();
+    resolve_antigravity_legacy_pid_from_entries(last_pid, user_data_dir, &entries)
+}
+
 #[cfg(target_os = "macos")]
 fn focus_window_by_pid(pid: u32) -> Result<(), String> {
     let script = format!(
@@ -5013,6 +5089,28 @@ pub fn focus_antigravity_instance(
     focus_window_by_pid(pid)?;
     crate::modules::logger::log_info(&format!(
         "[Focus] Antigravity IDE focus pid={} elapsed={}ms",
+        pid,
+        focus_start.elapsed().as_millis()
+    ));
+    Ok(pid)
+}
+
+pub fn focus_antigravity_legacy_instance(
+    last_pid: Option<u32>,
+    user_data_dir: Option<&str>,
+) -> Result<u32, String> {
+    let resolve_start = Instant::now();
+    let pid = resolve_antigravity_legacy_pid(last_pid, user_data_dir)
+        .ok_or_else(|| "实例未运行，无法定位窗口".to_string())?;
+    crate::modules::logger::log_info(&format!(
+        "[Focus] Antigravity resolve pid={} elapsed={}ms",
+        pid,
+        resolve_start.elapsed().as_millis()
+    ));
+    let focus_start = Instant::now();
+    focus_window_by_pid(pid)?;
+    crate::modules::logger::log_info(&format!(
+        "[Focus] Antigravity focus pid={} elapsed={}ms",
         pid,
         focus_start.elapsed().as_millis()
     ));
@@ -7177,6 +7275,22 @@ pub fn start_antigravity_legacy_with_args(
         let pid = spawn_open_app_with_options(&app_root, &args, true)
             .map_err(|e| format!("启动 Antigravity 失败: {}", e))?;
         crate::modules::logger::log_info("Antigravity 启动命令已发送（open -n -a）");
+        if !user_data_dir_trimmed.is_empty() {
+            let probe_started = Instant::now();
+            let timeout = Duration::from_secs(6);
+            while probe_started.elapsed() < timeout {
+                if let Some(resolved_pid) =
+                    resolve_antigravity_legacy_pid(None, Some(user_data_dir_trimmed))
+                {
+                    return Ok(resolved_pid);
+                }
+                thread::sleep(Duration::from_millis(200));
+            }
+            crate::modules::logger::log_warn(&format!(
+                "[AG Legacy Start] 启动后 6s 内未匹配到实例 PID，回退 open pid={}",
+                pid
+            ));
+        }
         return Ok(pid);
     }
 
@@ -8521,16 +8635,14 @@ pub fn close_codex_instances(codex_homes: &[String], timeout_secs: u64) -> Resul
             return Ok(());
         }
 
-        let current_default_app_dir = if includes_default {
-            get_managed_codex_windows_app_user_data_dir(
+        let current_default_app_dirs = if includes_default {
+            get_default_codex_windows_app_user_data_dirs(
                 crate::modules::codex_account::get_codex_home()
                     .to_string_lossy()
                     .as_ref(),
             )
-            .map(|value| normalize_path_for_compare(&value))
-            .filter(|value| !value.is_empty())
         } else {
-            None
+            HashSet::new()
         };
 
         let matches_target = |dir: Option<&String>,
@@ -8541,8 +8653,7 @@ pub fn close_codex_instances(codex_homes: &[String], timeout_secs: u64) -> Resul
                     let normalized = normalize_path_for_compare(value);
                     !normalized.is_empty()
                         && (target_app_dirs.contains(&normalized)
-                            || (includes_default
-                                && current_default_app_dir.as_deref() == Some(normalized.as_str())))
+                            || (includes_default && current_default_app_dirs.contains(&normalized)))
                 }
                 None => includes_default,
             }

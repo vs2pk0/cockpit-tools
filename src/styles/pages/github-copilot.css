@@ -278,6 +278,24 @@
   background: var(--primary-light);
 }
 
+.claude-accounts-page .codex-account-card.sponsor-api-account,
+.claude-accounts-page .ghcp-account-card.sponsor-api-account {
+  border-color: rgba(217, 119, 6, 0.38);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 247, 237, 0.96) 0%,
+      rgba(254, 240, 138, 0.3) 44%,
+      rgba(255, 255, 255, 0.96) 100%
+    ),
+    var(--bg-card);
+  box-shadow: 0 14px 34px rgba(180, 83, 9, 0.12);
+}
+
+.claude-accounts-page .account-table tr.sponsor-api-account td:first-child {
+  border-left: 3px solid rgba(217, 119, 6, 0.52);
+}
+
 .ghcp-account-card .card-top {
   display: flex;
   align-items: center;
@@ -305,6 +323,33 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ghcp-accounts-page .account-avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 999px;
+  object-fit: cover;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+}
+
+.ghcp-accounts-page .account-avatar.fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ghcp-accounts-page .account-table .account-avatar {
+  width: 24px;
+  height: 24px;
+  flex-basis: 24px;
+  margin-right: 8px;
+  vertical-align: middle;
 }
 
 .ghcp-account-card .kiro-card-top {
@@ -479,6 +524,475 @@
   letter-spacing: normal;
 }
 
+.claude-accounts-page .claude-api-key-line {
+  align-items: center;
+  gap: 10px;
+}
+
+.claude-accounts-page .claude-api-key-copy {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.claude-accounts-page .claude-api-key-copy:hover {
+  background: var(--bg-hover);
+  color: var(--primary);
+}
+
+.claude-accounts-page .claude-api-key-stats-panel {
+  margin-top: 10px;
+}
+
+.claude-accounts-page .claude-api-key-stats-panel .codex-api-key-usage-grid > div {
+  min-height: 76px;
+  justify-content: center;
+  padding: 12px 14px;
+  border-radius: 10px;
+}
+
+.claude-accounts-page .claude-api-key-stats-panel .codex-api-key-usage-grid span {
+  color: var(--text-secondary);
+}
+
+.claude-accounts-page .claude-account-table-container {
+  border-radius: 18px;
+  overflow: auto;
+}
+
+.claude-accounts-page .claude-account-table {
+  min-width: 1080px;
+}
+
+.claude-accounts-page.codex-accounts-page .claude-account-table th:first-child,
+.claude-accounts-page.codex-accounts-page .claude-account-table td:first-child {
+  width: 40px;
+  min-width: 40px;
+}
+
+.claude-accounts-page.codex-accounts-page .claude-account-table th:nth-child(2),
+.claude-accounts-page.codex-accounts-page .claude-account-table td:nth-child(2) {
+  min-width: 260px;
+}
+
+.claude-accounts-page.codex-accounts-page .claude-account-table th:nth-child(3),
+.claude-accounts-page.codex-accounts-page .claude-account-table td:nth-child(3) {
+  min-width: 140px;
+}
+
+.claude-accounts-page.codex-accounts-page .claude-account-table th:nth-child(4),
+.claude-accounts-page.codex-accounts-page .claude-account-table td:nth-child(4) {
+  min-width: 320px;
+  white-space: normal;
+}
+
+.claude-accounts-page.codex-accounts-page .claude-account-table th:nth-child(5),
+.claude-accounts-page.codex-accounts-page .claude-account-table td:nth-child(5) {
+  min-width: 180px;
+  white-space: nowrap;
+}
+
+.claude-accounts-page.codex-accounts-page .claude-account-table tr.selected {
+  background: var(--primary-light);
+}
+
+.claude-accounts-page .claude-account-table th:first-child,
+.claude-accounts-page .claude-account-table td:first-child {
+  min-width: 330px;
+}
+
+.claude-accounts-page .claude-account-table th:nth-child(2),
+.claude-accounts-page .claude-account-table td:nth-child(2) {
+  min-width: 150px;
+}
+
+.claude-accounts-page .claude-account-table th:nth-child(3),
+.claude-accounts-page .claude-account-table td:nth-child(3) {
+  min-width: 250px;
+}
+
+.claude-accounts-page .claude-account-table th:nth-child(4),
+.claude-accounts-page .claude-account-table td:nth-child(4) {
+  min-width: 190px;
+  white-space: nowrap;
+}
+
+.claude-accounts-page .claude-account-table .table-action-header,
+.claude-accounts-page .claude-account-table .table-action-cell {
+  min-width: 180px;
+}
+
+.claude-accounts-page .claude-account-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.claude-accounts-page .claude-account-main {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.claude-accounts-page .claude-account-table .table-email {
+  display: block;
+  min-width: 0;
+  max-width: min(42vw, 520px);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-accounts-page .claude-account-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.claude-accounts-page .claude-account-table .tag-pill {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-accounts-page .claude-quota-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.claude-accounts-page .codex-account-card .claude-quota-summary.card {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  gap: 12px;
+}
+
+.claude-accounts-page .claude-quota-summary.table {
+  gap: 6px;
+}
+
+.claude-accounts-page .claude-quota-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.claude-accounts-page .claude-quota-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.claude-accounts-page .claude-quota-row {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.claude-accounts-page .claude-quota-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.claude-accounts-page .claude-quota-row-label {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.claude-accounts-page .claude-quota-row-label svg {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.claude-accounts-page .claude-quota-summary.table .claude-quota-items {
+  grid-template-columns: repeat(2, minmax(72px, 1fr));
+  max-width: 260px;
+}
+
+.claude-accounts-page .claude-quota-chip {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.claude-accounts-page .claude-quota-chip-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.claude-accounts-page .claude-quota-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.claude-accounts-page .claude-quota-value {
+  flex-shrink: 0;
+}
+
+.claude-accounts-page .claude-quota-value.high {
+  color: var(--success);
+}
+
+.claude-accounts-page .claude-quota-value.medium {
+  color: #f59e0b;
+}
+
+.claude-accounts-page .claude-quota-value.low {
+  color: #f97316;
+}
+
+.claude-accounts-page .claude-quota-value.critical {
+  color: var(--danger);
+}
+
+.claude-accounts-page .claude-quota-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 42%, transparent);
+}
+
+.claude-accounts-page .claude-quota-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.claude-accounts-page .claude-quota-summary.card .claude-quota-fill {
+  transition: width 0.2s ease;
+}
+
+.claude-accounts-page .claude-quota-fill.high {
+  background: #22c55e;
+}
+
+.claude-accounts-page .claude-quota-fill.medium {
+  background: #f59e0b;
+}
+
+.claude-accounts-page .claude-quota-fill.low {
+  background: #f97316;
+}
+
+.claude-accounts-page .claude-quota-fill.critical {
+  background: var(--danger);
+}
+
+.claude-accounts-page .claude-quota-empty,
+.claude-accounts-page .claude-quota-updated {
+  color: var(--text-muted);
+}
+
+.claude-accounts-page .claude-quota-reset {
+  align-self: flex-end;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.claude-accounts-page .codex-account-card .claude-quota-updated {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 35%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--success) 9%, var(--bg-card));
+  color: color-mix(in srgb, var(--success) 78%, var(--text-primary));
+}
+
+.claude-accounts-page .claude-quota-empty.compact {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+
+.claude-accounts-page .claude-quota-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: #b91c1c;
+}
+
+.claude-accounts-page .claude-quota-error svg {
+  flex-shrink: 0;
+}
+
+.claude-accounts-page .claude-quota-error span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-accounts-page .claude-compact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.claude-accounts-page .claude-compact-row {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1.35fr) minmax(112px, auto) minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.claude-accounts-page .claude-compact-row:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.claude-accounts-page .claude-compact-row.current {
+  border-color: color-mix(in srgb, var(--primary) 68%, var(--border));
+  background: color-mix(in srgb, var(--primary) 7%, var(--bg-card));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 28%, transparent);
+}
+
+.claude-accounts-page .claude-compact-identity {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.claude-accounts-page .claude-compact-email {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.claude-accounts-page .claude-compact-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.claude-accounts-page .claude-compact-meta .current-tag,
+.claude-accounts-page .claude-compact-meta .auth-mode-badge,
+.claude-accounts-page .claude-compact-meta .tag-pill {
+  font-size: 10px;
+}
+
+.claude-accounts-page .claude-compact-meta .tag-pill {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-accounts-page .claude-compact-plan {
+  display: flex;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.claude-accounts-page .claude-compact-plan .tier-badge {
+  max-width: 132px;
+}
+
+.claude-accounts-page .claude-compact-quota {
+  min-width: 0;
+}
+
+.claude-accounts-page .claude-compact-quota .claude-quota-summary.table .claude-quota-items {
+  max-width: none;
+  grid-template-columns: repeat(2, minmax(72px, 1fr));
+}
+
+.claude-accounts-page .claude-compact-actions {
+  justify-self: end;
+}
+
+.claude-accounts-page .claude-compact-actions .action-buttons {
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 1120px) {
+  .claude-accounts-page .claude-compact-row {
+    grid-template-columns: auto minmax(180px, 1fr) minmax(112px, auto) auto;
+  }
+
+  .claude-accounts-page .claude-compact-quota {
+    grid-column: 2 / -1;
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .claude-accounts-page .claude-compact-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .claude-accounts-page .claude-compact-plan {
+    grid-column: 2 / 3;
+  }
+
+  .claude-accounts-page .claude-compact-quota,
+  .claude-accounts-page .claude-compact-actions {
+    grid-column: 1 / -1;
+  }
+
+  .claude-accounts-page .claude-compact-actions {
+    justify-self: start;
+  }
+}
+
 .cursor-accounts-page .ghcp-account-card .tier-badge,
 .cursor-accounts-page .account-table .tier-badge {
   text-transform: none;
@@ -590,6 +1104,30 @@
   border: 1px solid var(--plan-unknown-border);
 }
 
+.ghcp-account-card .auth-mode-badge,
+.ghcp-accounts-page .account-table .auth-mode-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+}
+
+.ghcp-account-card .auth-mode-badge.api_key,
+.ghcp-accounts-page .account-table .auth-mode-badge.api_key {
+  color: #7c3aed;
+  background: rgba(124, 58, 237, 0.1);
+  border-color: rgba(124, 58, 237, 0.24);
+}
+
 /* 配额部分 */
 .ghcp-quota-section {
   display: flex;
@@ -682,6 +1220,37 @@
   padding: 12px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
+}
+
+.ghcp-quota-section.gemini-quota-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.ghcp-quota-section.gemini-quota-columns.table-layout {
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  min-width: 320px;
+}
+
+.gemini-quota-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.gemini-quota-column-header {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 4px;
 }
 
 .gemini-accounts-page .ghcp-account-card {
@@ -1766,6 +2335,118 @@
   width: 100%;
 }
 
+.claude-add-modal {
+  width: min(760px, calc(100vw - 32px));
+  max-width: 760px;
+}
+
+.claude-add-modal .claude-gateway-models-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.claude-add-modal .claude-gateway-models-input {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.claude-add-modal .claude-gateway-mapping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.claude-add-modal .claude-gateway-mapping-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.claude-add-modal .claude-gateway-mapping-row .btn {
+  white-space: nowrap;
+}
+
+.claude-add-modal .claude-gateway-mapped-model-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.claude-add-modal .claude-gateway-mapped-model-field .single-select-dropdown {
+  width: 100%;
+}
+
+.claude-add-modal .claude-gateway-segmented {
+  display: grid;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+}
+
+.claude-add-modal .claude-gateway-auth-segmented {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.claude-add-modal .claude-gateway-mode-segmented {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.claude-add-modal .claude-gateway-segmented .claude-provider-endpoint-chip {
+  justify-content: center;
+  min-width: 0;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: none;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.claude-add-modal .claude-gateway-segmented .claude-provider-endpoint-chip:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--primary) 7%, var(--bg-card));
+  color: var(--primary);
+  box-shadow: none;
+}
+
+.claude-add-modal .claude-gateway-segmented .claude-provider-endpoint-chip.active {
+  border-color: color-mix(in srgb, var(--primary) 34%, transparent);
+  background: var(--bg-card);
+  color: var(--primary);
+  box-shadow: 0 6px 14px -8px rgba(14, 165, 233, 0.45);
+}
+
+.claude-add-modal .claude-gateway-model-status-group {
+  margin-top: -4px;
+}
+
+@media (max-width: 720px) {
+  .claude-add-modal .claude-gateway-mapping-row {
+    grid-template-columns: 1fr;
+  }
+
+  .claude-add-modal .claude-gateway-auth-segmented,
+  .claude-add-modal .claude-gateway-mode-segmented {
+    grid-template-columns: 1fr;
+  }
+}
+
 .windsurf-add-modal {
   max-width: 620px;
 }
@@ -1816,6 +2497,53 @@
   box-shadow: var(--shadow-sm);
 }
 
+.ghcp-add-modal .claude-provider-chip-list,
+.ghcp-add-modal .claude-provider-endpoint-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ghcp-add-modal .claude-provider-chip,
+.ghcp-add-modal .claude-provider-endpoint-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.ghcp-add-modal .claude-provider-chip:hover,
+.ghcp-add-modal .claude-provider-endpoint-chip:hover {
+  border-color: var(--primary);
+  color: var(--text-primary);
+}
+
+.ghcp-add-modal .claude-provider-chip.active,
+.ghcp-add-modal .claude-provider-endpoint-chip.active {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg-secondary));
+  color: var(--primary);
+}
+
+.ghcp-add-modal .claude-provider-chip.sponsor {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.ghcp-add-modal .api-provider-chip-badge {
+  flex: 0 0 auto;
+  color: #f59e0b;
+}
+
 .ghcp-add-modal .inline-radio-group {
   display: flex;
   flex-wrap: wrap;
@@ -1846,6 +2574,42 @@
   gap: 16px;
 }
 
+.ghcp-add-modal .add-method-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.ghcp-add-modal .method-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.ghcp-add-modal .add-method-card h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ghcp-add-modal .add-method-card p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
 .ghcp-add-modal .section-desc {
   font-size: 14px;
   color: var(--text-secondary);
@@ -1856,6 +2620,11 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.ghcp-add-modal .oauth-url-label {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .ghcp-add-modal .oauth-url-box {
@@ -1895,6 +2664,17 @@
   white-space: nowrap;
 }
 
+.ghcp-add-modal .claude-secret-input {
+  min-width: 0;
+}
+
+.ghcp-add-modal .claude-secret-input .codex-secret-toggle-btn {
+  min-width: 40px;
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+
 .ghcp-add-modal .oauth-manual-input button {
   min-width: 132px;
 }
@@ -1917,6 +2697,27 @@
   gap: 12px;
   padding: 30px;
   color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .ghcp-add-modal .add-method-card {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .ghcp-add-modal .add-method-card > .btn {
+    grid-column: 1 / -1;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .ghcp-add-modal .oauth-url-box {
+    flex-direction: column;
+  }
+
+  .ghcp-add-modal .oauth-url-box button {
+    justify-content: center;
+    width: 100%;
+  }
 }
 
 .ghcp-add-modal .token-input {
@@ -2069,6 +2870,25 @@
     rgba(15, 23, 42, 0.95),
     rgba(15, 23, 42, 0.8)
   );
+}
+
+[data-theme="dark"] .claude-accounts-page .codex-account-card.sponsor-api-account,
+[data-theme="dark"] .claude-accounts-page .ghcp-account-card.sponsor-api-account {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(217, 119, 6, 0.24) 0%,
+      rgba(15, 23, 42, 0.94) 52%,
+      rgba(15, 23, 42, 0.96) 100%
+    ),
+    rgba(15, 23, 42, 0.94);
+  border-color: rgba(251, 191, 36, 0.36);
+  box-shadow: 0 16px 36px rgba(180, 116, 11, 0.18);
+}
+
+[data-theme="dark"] .claude-accounts-page .codex-account-card.sponsor-api-account .codex-api-key-usage-panel {
+  background: rgba(217, 119, 6, 0.12);
+  border-color: rgba(251, 191, 36, 0.22);
 }
 
 [data-theme="dark"] .ghcp-accounts-page .message-bar.success {
